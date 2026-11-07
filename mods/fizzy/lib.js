@@ -23,7 +23,7 @@ export const AGENTS = 6;
 export const AVATAR_DIR = "data/fizzy/avatars", AVATAR_TTL = 7 * 86400000, AVATAR_BACKOFF = 3600000, AVATAR_PARALLEL = 4, AVATAR_EVERY = 86400000;
 // The images in descriptions and comments: where they are cached (under the app's folder too), how many are downloaded at once,
 // and the largest one downloaded (bytes); a larger one is shown as a file.
-export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576;
+export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576, FILE_DAYS = 7;
 
 // `code` is the CLI's own ("auth_required", "not_found", "network", "forbidden", "rate_limit", "api_error", "usage"), or
 // ours: "MISSING" (the program would not start), "TIMEOUT" (Herdr stopped it) and "PARSE" (stdout was not the JSON
@@ -369,6 +369,8 @@ const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg
 const IMAGE_NAME = /\.(?:png|jpe?g|gif|webp|svg|bmp|heic|heif|avif|tiff?)$/i;
 // Is this a file name the image cache can hold: shortHash's and an extension of IMAGE_TYPES?
 export const isCachedFile = name => typeof name === "string" && /^[0-9a-f]{16}\.(?:png|jpg|gif|webp|svg|bmp)$/.test(name);
+// The extensions herdr-inline-markdown opens (its MARKDOWN_EXT).
+export const isMarkdownName = name => /\.(?:md|markdown|mdown|mkd|mkdn|mdx)$/i.test(String(name ?? ""));
 
 // A file in Fizzy's rich text, out of an attachment's attributes (or an <img>'s, with its `src` as `url`): { key, sgid, url,
 // filename, type, size, width, height, caption, image, ext, remote }, or null for Fizzy's own kinds of attachment and a link

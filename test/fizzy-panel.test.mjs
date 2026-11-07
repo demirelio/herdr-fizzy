@@ -5120,8 +5120,8 @@ test("nothing is ever submitted: main.js has no hc import or call and never pass
   assert.doesNotMatch(main, /\[\s*"send"/, "no hc send argv");
   assert.doesNotMatch(main, /\btask\s*:/, "no task passed anywhere");
   const newTabs = [...main.matchAll(/run\(\s*"tab\.new"[^)]*\)/g)].map(m => m[0]);
-  assert.equal(newTabs.length, 1, "one place starts a tab");
-  assert.doesNotMatch(newTabs[0], /task/);
+  assert.ok(newTabs.length > 0, "the scan finds the tabs it starts");
+  for (const call of newTabs) assert.doesNotMatch(call, /task/);
 });
 
 const PHOTO_DIR = `${state.appHome}/data/fizzy/avatars`;
