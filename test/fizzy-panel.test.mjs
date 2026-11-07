@@ -7252,10 +7252,14 @@ test("New card needs a board shown: until then, and with none, it is raised and 
   check(tree, "while the boards load");
   setup();
   localStorage.setItem("boards", JSON.stringify([{ id: "b1", name: "Roadmap", url: "https://app.fizzy.do/111/boards/b1" }]));
-  acct.hold = new Promise(() => {});
+  let release;
+  acct.hold = new Promise(resolve => { release = resolve; });
   const first = await mount({ settle: false });
   assert.equal(first.view.board, null, "a first start shows no board before config show answers");
   check(drawn(first.view, first.cx), "the boards known from an earlier run, no board shown yet");
+  release();
+  await first.cx.settle();
+  acct.hold = null;
   setup();
   acct.boards.length = 0;
   const m = await mount();
