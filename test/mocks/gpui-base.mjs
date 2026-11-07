@@ -19,8 +19,10 @@ class TextState {
     return state;
   }
   value() { return this.text; }
+  content() { return { text: this.text, tokens: [] }; }
   set_value(next) { this.text = typeof next === "string" ? next : String(next?.text ?? ""); }
   replace(text) { this.text = String(text); }
+  replace_with_token(token) { this.text += token.text; }
   focus() { this.focused = true; }
   on(event, handler) { this.handlers[event] = handler; return true; }
   release() { return true; }
