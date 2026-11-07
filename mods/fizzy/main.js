@@ -11,7 +11,7 @@ import {
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
-  FILE_DIR, FILE_PARALLEL, IMAGE_MAX, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, shortHash, fileToken, fileSize,
+  FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
   targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, activePeople,
   groupsConfig, groupOf, boardGroups, ownHidden, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, placeBoard, moveGroup, setBoardHidden,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
@@ -198,6 +198,19 @@ function pasteInto(text, cx, agent, { bring = false, none = "Copied — no agent
 // Insert: the current chat, the agent in view (the focused pane's, else the focused agent block's, else the newest in the tab).
 const insertText = (text, cx) => pasteInto(text, cx, targetAgent({ agents: agents(), focused: focused() }));
 
+const MARKDOWN_MOD = "herdr-inline-markdown";
+// Mods can't import each other, so this follows herdr-inline-markdown's openMarkdown with place "pane", and reads its registry
+// of which pane shows which file (pane id -> "machine:path"): the file's pane in the focused tab gets the focus, else a pane
+// splits right of the focused one; with no pane to open beside, the file gets a tab of its own.
+function showMarkdown(file) {
+  const all = panes(), f = focused(), known = shared(`${MARKDOWN_MOD}.panes`) ?? {};
+  const anchor = all.find(p => p.pane === f?.pane) ?? all.find(p => p.tab === f?.tab);
+  const open = anchor && all.find(p => p.tab === anchor.tab && p.mod === MARKDOWN_MOD && known[p.pane] === `:${file}`);
+  if (open) run("pane.focus", { pane: open.pane });
+  else if (anchor) run("pane.split", { direction: "right", pane: anchor.pane, mod: MARKDOWN_MOD, props: { file } });
+  else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
+}
+
 // Everything the menu rows depend on, read live (the caller adds what it looks up itself).
 function live(extra) {
   const p = people();
@@ -324,11 +337,12 @@ export default class Fizzy extends View {
     // The images of descriptions and comments: { [key]: file name in FILE_DIR } is kept between runs (key: see fileOf in lib.js).
     // `fileWanted`: the ones still to download (key -> { number, file }), `fileBusy` those downloading, `fileFailed` those that
     // failed (drawn as files). `attachmentLists`: card number -> its attachments' sgids, read when one is downloaded.
-    // `uploading`: editor ("comment", "commentEdit", "desc") -> the name of the file it is uploading.
+    // `uploading`: editor ("comment", "commentEdit", "desc") -> the name of the file it is uploading. `savedMarkdown`: key -> the
+    // path of its copy in Downloads.
     const files = read("files", {});
     this.files = {};
     if (files && typeof files === "object") for (const [key, file] of Object.entries(files)) if (isCachedFile(file) && file.startsWith(`${key}.`)) this.files[key] = file;
-    this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map();
+    this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map(); this.savedMarkdown = new Map();
     this.width = null; // the panel's, in px, once drawn
 
     // Input states are made here and in handlers, never in render.
@@ -370,6 +384,7 @@ export default class Fizzy extends View {
     this.pollUnread(cx);
     this.loadUsers(cx); // the people's photos are fetched once their list is in (and again, once a day: see below)
     this.loadPins(cx); // the lists mark pinned cards, and it is the Pins view's own read
+    this.pruneFiles(cx);
     this.spaceBoard(cx); // the space's board is asked now, so it is likely known by the first draw
     // The board's own read follows once its board is known (syncBoard); Mine reads now, the Inbox's read being the unread poll above.
     if (this.view === "mine") this.refreshList(cx);
@@ -941,6 +956,20 @@ export default class Fizzy extends View {
     this.takeFiles(cx);
   }
 
+  // Everything in FILE_DIR saved over FILE_DAYS days ago is deleted at start, and its images forgotten: a card shown again
+  // downloads them again.
+  pruneFiles(cx) {
+    cx.spawn(async () => {
+      let r;
+      try { r = await exec("find", [`${appHome()}/${FILE_DIR}`, "-mindepth", "1", "-mtime", `+${FILE_DAYS}`, "-print", "-delete"]); } catch { return; }
+      const gone = new Set(String(r?.stdout ?? "").split("\n").map(path => path.slice(path.lastIndexOf("/") + 1)));
+      const kept = Object.entries(this.files).filter(([, name]) => !gone.has(name));
+      if (kept.length === Object.keys(this.files).length) return;
+      this.files = Object.fromEntries(kept);
+      keep("files", this.files);
+    });
+  }
+
   takeFiles(cx) {
     for (const [key, want] of this.fileWanted) {
       if (this.fileBusy.size >= FILE_PARALLEL) break;
@@ -998,12 +1027,16 @@ export default class Fizzy extends View {
     return list;
   }
 
-  // A file's click: it is saved in Downloads under its own name (" (2)" and so on when that is taken), and shown in its folder.
+  // A file's click: it is saved in Downloads under its own name (" (2)" and so on when that is taken), and shown in its folder;
+  // a markdown file opens beside the focused pane instead, and its copy there opens again on the next click while it exists.
   // A file with no sgid (an image from the web that would not load) opens in the browser.
   saveFile(file, cx) {
     const number = this.detail?.number;
     if (!file.sgid) return file.url ? this.openLink(file.url, cx) : null;
+    const markdown = isMarkdownName(file.filename);
     return this.job(cx, async () => {
+      const saved = markdown && this.savedMarkdown.get(file.key);
+      if (saved && (await exec("test", ["-s", saved]))?.code === 0) return showMarkdown(saved);
       const index = await this.attachmentIndex(number, file.sgid);
       if (!index) throw "That file is no longer on the card";
       const name = file.filename.replace(/\//g, "_").replace(/^\.+$/, "") || "attachment", dot = name.lastIndexOf(".");
@@ -1012,7 +1045,10 @@ export default class Fizzy extends View {
       const path = r?.code === 0 ? String(r.stdout ?? "") : "";
       if (!path) throw "Couldn't save the file to Downloads";
       await fizzy(cmd.download(number, index, path));
-      await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", "reveal", path]);
+      if (markdown) {
+        this.savedMarkdown.set(file.key, path);
+        showMarkdown(path);
+      } else await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", "reveal", path]);
       notify({ title: "Fizzy", body: "Saved to Downloads", level: "info" });
     });
   }
@@ -2913,11 +2949,12 @@ export default class Fizzy extends View {
       .child(image(path).size_full().rounded(6));
   }
 
-  // A paperclip, the file's name and size; a click saves it in Downloads.
+  // A paperclip, the file's name and size; a click saves it in Downloads (see saveFile).
   fileChip(t, id, f, column) {
     const size = fileSize(f.size);
+    const tip = !f.sgid ? "Open in the browser" : isMarkdownName(f.filename) ? "Save to Downloads and open beside" : "Save to Downloads";
     return h_flex().id(id).h(30).max_w(column).px(8).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
-      .cursor_pointer().hover(s => s.bg(t.hover)).tooltip(f.sgid ? "Save to Downloads" : "Open in the browser")
+      .cursor_pointer().hover(s => s.bg(t.hover)).tooltip(tip)
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
       .on_click((_e, cx) => this.saveFile(f, cx))
       .child(svg(ICON("paperclip")).size(13).flex_none().text_color(t.muted))
