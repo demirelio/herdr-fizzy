@@ -115,7 +115,7 @@ async function mountPopup(spec = lastPopup(), extra = {}) {
   return { view, cx, tree: () => drawn(view, cx) };
 }
 const menuClick = (popup, id) => fire(must(popup.tree(), `fizzy-menu-${id}`), "on_click", {}, popup.cx);
-const requestOps = () => calls.setShared.filter(([k]) => k === "fizzy.request").map(([, v]) => v.op);
+const requestOps = () => calls.setShared.filter(([k, v]) => k === "fizzy.request" && v).map(([, v]) => v.op);
 
 test("the board view lists the lanes in the board's order, Not Now and Done folded, the open cards under theirs", async () => {
   const { draw } = await mount();
@@ -146,7 +146,7 @@ test("a card row has its number, title, tags (three, then +N), people and age, a
   assert.equal(textOf(must(tree, "fizzy-card-title-101")), "Fix the login redirect");
 });
 
-test("expanding Not Now reads that lane once; folding it and opening it again does not read it again", async () => {
+test("unfolding Not Now reads that lane, and each unfold reads it fresh", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
   assert.equal(fizzyReads("card", "list", "--board", "b1", "--indexed-by", "not_now").length, 0, "nothing is read before it is opened");
@@ -158,10 +158,12 @@ test("expanding Not Now reads that lane once; folding it and opening it again do
   assert.equal(JSON.parse(localStorage.getItem("collapsed:b1"))["not-now"], false, "the choice is kept per board");
   click(tree, "fizzy-section-not-now", cx);
   assert.equal(lanesOf(await draw())[104], undefined, "folded: its cards are out of sight");
+  acct.cards.find(c => c.number === 103).postponed = true;
   click(tree, "fizzy-section-not-now", cx);
   tree = await draw();
   assert.equal(lanesOf(tree)[104], "not-now");
-  assert.equal(fizzyReads("card", "list", "--board", "b1", "--indexed-by", "not_now").length, 1);
+  assert.equal(lanesOf(tree)[103], "not-now", "what changed while it was folded is read at the unfold");
+  assert.equal(fizzyReads("card", "list", "--board", "b1", "--indexed-by", "not_now").length, 2);
 });
 
 const donePages = () => fizzyReads("card", "list", "--board", "b1", "--indexed-by", "closed").map(a => a.at(-1));
@@ -217,7 +219,8 @@ test("the reads polled most go out with their --jq projection: the board's lanes
   const sent = (...words) => calls.exec.filter(c => c.command === "fizzy" && words.every(w => c.args.includes(w)));
   const jqOf = c => c.args[c.args.indexOf("--jq") + 1];
   for (const c of sent("card", "list")) assert.equal(jqOf(c), c.args.includes("closed") ? JQ.page : JQ.cards, c.args.slice(0, 7).join(" "));
-  for (const words of [["--assignee"], ["--search"], ["not_now"], ["closed"]]) assert.ok(sent("card", "list", ...words).length > 0, words[0]);
+  for (const words of [["--assignee"], ["not_now"], ["closed"]]) assert.ok(sent("card", "list", ...words).length > 0, words[0]);
+  assert.ok(sent("search").length > 0 && sent("search").every(c => jqOf(c) === JQ.cards), "the search");
   assert.ok(sent("pin", "list").length > 0 && sent("pin", "list").every(c => jqOf(c) === JQ.cards));
   assert.ok(sent("notification", "tray").length > 0 && sent("notification", "tray").every(c => jqOf(c) === JQ.notes));
   assert.ok(sent("card", "show").every(c => !c.args.includes("--jq")), "a card read whole is not cut");
@@ -300,11 +303,12 @@ test("the CLI's default board is kept: a first start waits for `config show` rat
   const next = await mount({ settle: false });
   await tick();
   drawn(next.view, next.cx);
-  const atOnce = acct.asked("column", "list").map(a => a[3]);
+  const atOnce = acct.asked("card", "list").map(a => a[3]);
   release();
   await next.cx.settle();
   acct.hold = null;
   assert.deepEqual(atOnce, ["b2", "b2"], "known from the last start: read at once");
+  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b2"], "and its cached columns are known: they are not read again");
 });
 
 test("when `config show` fails, the last start's default board and account stand", async () => {
@@ -2538,14 +2542,15 @@ test("a hidden panel does not poll its view; when it shows again it reads at onc
   assert.ok(acct.log.length > shown, "and the poll runs again");
 });
 
-test("the poll reads the card, its comments and the pin list when one is open, and only those", async () => {
+test("with a card open the 30 s poll reads the card, its comments and the tray, and nothing else: no pin list", async () => {
   const { cx, draw, tree } = await openDetail();
   assert.ok(tree);
   const before = acct.log.length;
   acct.comments[101].push({ id: "cm9", body: { html: "<p>Late</p>", plain_text: "Late" }, creator: ME, created_at: "2026-02-01T00:00:00Z" });
   timer(cx, POLL_VIEW).fn(cx);
+  inboxTimer(cx).fn(cx);
   await cx.settle();
-  assert.deepEqual(acct.log.slice(before).map(a => a.slice(0, 2).join(" ")).sort(), ["card show", "comment list", "pin list"]);
+  assert.deepEqual(acct.log.slice(before).map(a => a.slice(0, 2).join(" ")).sort(), ["card show", "comment list", "notification tray"]);
   assert.ok(find(await draw(), "fizzy-comment-cm9"));
 });
 
@@ -2588,7 +2593,8 @@ test("not signed in: the panel says how to sign in and offers Retry, which reads
   acct.fail = () => failure("auth_required", "Unauthorized");
   const { cx, draw } = await mount();
   let tree = await draw();
-  assert.match(textOf(must(tree, "fizzy-list")), /Not signed in to Fizzy: run `fizzy auth login <token>` in a terminal/);
+  assert.match(textOf(must(tree, "fizzy-list")), /Not signed in to Fizzy: run `fizzy setup` in a terminal/);
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /auth login/);
   assert.ok(find(tree, "fizzy-retry"));
   acct.fail = null;
   click(tree, "fizzy-retry", cx);
@@ -3059,7 +3065,9 @@ test("Mark all read empties the Inbox and reads it and the count again; a refusa
   assert.deepEqual(noteIds(await draw()), []);
 });
 
-test("with words in the filter the list ends with a row that searches every board; results come as one section per board", async () => {
+const searchCalls = () => calls.exec.filter(c => c.command === "fizzy" && c.args[0] === "search").map(c => c.args);
+
+test("with words in the filter the list ends with a row that searches every board; one `fizzy search` answers, shown as one section per board", async () => {
   for (let i = 3; i <= 9; i++) acct.boards.push({ id: `b${i}`, name: `Board ${i}`, url: `u${i}` });
   const { cx, draw } = await mount();
   let tree = await draw();
@@ -3068,15 +3076,14 @@ test("with words in the filter the list ends with a row that searches every boar
   tree = await draw();
   assert.equal(textOf(must(tree, "fizzy-search-all")).trim(), "Search all boards for “login”");
   assert.equal(ids(must(tree, "fizzy-list")).at(-1), "fizzy-search-all", "the list ends with it");
-  assert.equal(acct.asked("card", "list").filter(a => a.includes("--search")).length, 0, "nothing is asked until it is clicked");
+  assert.equal(searchCalls().length, 0, "nothing is asked until it is clicked");
   acct.peak = 0;
   click(tree, "fizzy-search-all", cx);
   tree = await draw();
-  const asked = acct.asked("card", "list").filter(a => a.includes("--search"));
-  assert.deepEqual(asked.map(a => a[3]).sort(), acct.boards.map(b => b.id).sort(), "every board, once");
-  assert.ok(asked.every(a => a[a.indexOf("--search") + 1] === "login" && a.at(-1) === "--all"));
-  assert.deepEqual(asked[0], ["card", "list", "--board", asked[0][3], "--search", "login", "--all"]);
-  assert.equal(acct.peak, CONCURRENCY, "six at a time, no more");
+  assert.deepEqual(acct.asked("search"), [["search", "--", "login"]], "one call for every board, not one per board");
+  assert.deepEqual(searchCalls(), [["search", "--jq", JQ.cards, "--json", "--", "login"]], "--json before the --, the query last");
+  assert.equal(acct.asked("card", "list").filter(a => a.includes("--search")).length, 0, "no per-board search");
+  assert.equal(acct.peak, 1, "nothing runs beside it");
   assert.ok(find(tree, "fizzy-search-head"));
   assert.match(textOf(must(tree, "fizzy-search-head")), /Results for “login”/);
   assert.deepEqual(ids(tree).filter(i => i.startsWith("fizzy-search-board-")), ["fizzy-search-board-b1"], "only boards with a hit");
@@ -3098,8 +3105,8 @@ test("with words in the filter the list ends with a row that searches every boar
   assert.deepEqual(rowIds(tree), [101]);
 });
 
-test("a search finds what the lanes do not hold (a closed card on another board), and says when nothing matches or a board fails", async () => {
-  acct.cards.push({ ...acct.card(201), id: "id-210", number: 210, title: "Old release notes", closed: true, board: B2, assignees: [] });
+test("a search finds what the lanes do not hold: a closed card on another board, a Not Now card, a word in a comment; each is drawn as in its lane", async () => {
+  acct.cards.push({ ...acct.card(201), id: "id-210", number: 210, title: "Old release notes", closed: true, column: acct.columns.b1[2], board: B2, assignees: [] });
   const { cx, draw } = await mount();
   inputOf(await draw(), "fizzy-filter").edit("release", cx);
   let tree = await draw();
@@ -3108,27 +3115,97 @@ test("a search finds what the lanes do not hold (a closed card on another board)
   tree = await draw();
   assert.deepEqual(ids(tree).filter(i => i.startsWith("fizzy-search-board-")), ["fizzy-search-board-b1", "fizzy-search-board-b2"], "in the boards' order");
   assert.deepEqual(rowIds(tree), [102, 210]);
-  // Nothing matches.
-  inputOf(tree, "fizzy-filter").edit("zzzz", cx);
-  assert.equal(find(await draw(), "fizzy-search-head"), null, "other words: the old results go");
-  click(await draw(), "fizzy-search-all", cx);
-  assert.match(textOf(must(await draw(), "fizzy-list")), /No cards found/);
-  // One board fails: the others are shown, and it is said.
-  inputOf(tree, "fizzy-filter").edit("release", cx);
-  acct.fail = args => (args.includes("--search") && args.includes("b2") ? failure("network", "offline") : undefined);
+  const bar = id => must(tree, id).kids[0].style.bg;
+  assert.equal(bar("fizzy-card-102"), colorOf(acct.columns.b1.find(c => c.id === "c2")), "an open card: its column's color");
+  assert.equal(bar("fizzy-card-210"), "border", "a closed card sits in Done, whatever its last column was");
+  click(tree, "fizzy-card-210", cx);
+  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, "dim", "and opens with no lane color");
+  click(await draw(), "fizzy-back", cx);
+  tree = await draw();
+  inputOf(tree, "fizzy-filter").edit("later", cx);
   click(await draw(), "fizzy-search-all", cx);
   tree = await draw();
-  assert.deepEqual(rowIds(tree), [102]);
-  assert.match(textOf(must(tree, "fizzy-list")), /1 board could not be searched/);
-  // All fail: the error, with Retry that searches again.
-  acct.fail = args => (args.includes("--search") ? failure("network", "offline") : undefined);
-  click(await draw(), "fizzy-search-close", cx);
+  assert.deepEqual(rowIds(tree), [104], "a card in Not Now, which no folded lane has read");
+  assert.equal(bar("fizzy-card-104"), "border");
+  inputOf(tree, "fizzy-filter").edit("twice", cx);
+  click(await draw(), "fizzy-search-all", cx);
+  assert.deepEqual(rowIds(await draw()), [101], "a word that only a comment has");
+  assert.equal(acct.asked("search").length, 3, "one call each");
+});
+
+test("a search that finds nothing says so; another search error is explained as usual, with Retry that searches again, and nothing retries by itself", async () => {
+  const { cx, draw } = await mount();
+  inputOf(await draw(), "fizzy-filter").edit("zzzz", cx);
+  click(await draw(), "fizzy-search-all", cx);
+  let tree = await draw();
+  assert.match(textOf(must(tree, "fizzy-list")), /No cards found/);
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /newest matches/, "nothing found is not a full page");
+  inputOf(tree, "fizzy-filter").edit("release", cx);
+  acct.fail = args => (args[0] === "search" ? failure("network", "offline") : undefined);
   click(await draw(), "fizzy-search-all", cx);
   tree = await draw();
   assert.match(textOf(must(tree, "fizzy-list")), /Can't reach Fizzy/);
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /No cards found/, "an error is not 'nothing found'");
+  const asked = acct.asked("search").length;
+  timer(cx, POLL_VIEW).fn(cx);
+  inboxTimer(cx).fn(cx);
+  await cx.settle();
+  assert.equal(acct.asked("search").length, asked, "no retry on a timer");
   acct.fail = null;
   click(tree, "fizzy-search-retry", cx);
-  assert.deepEqual(rowIds(await draw()), [102, 210]);
+  assert.deepEqual(rowIds(await draw()), [102]);
+  assert.equal(acct.asked("search").length, asked + 1);
+});
+
+test("a search Fizzy does not answer (rate limited, or stopped at Herdr's 30 s) says its limit may be used up, and does not retry by itself", async () => {
+  const LIMIT = "Fizzy didn't answer the search. Its search limit (300 an hour, shared with your agents) may be used up. Try again later.";
+  const { cx, draw } = await mount();
+  inputOf(await draw(), "fizzy-filter").edit("release", cx);
+  acct.fail = args => (args[0] === "search" ? failure("rate_limit", "Rate limited") : undefined);
+  click(await draw(), "fizzy-search-all", cx);
+  let tree = await draw();
+  assert.match(textOf(must(tree, "fizzy-list")), new RegExp(LIMIT.replace(/[()]/g, "\\$&")));
+  assert.ok(find(tree, "fizzy-search-retry"));
+  acct.fail = null;
+  click(await draw(), "fizzy-search-close", cx);
+  acct.stopped = true;
+  click(await draw(), "fizzy-search-all", cx);
+  tree = await draw();
+  assert.match(textOf(must(tree, "fizzy-list")), new RegExp(LIMIT.replace(/[()]/g, "\\$&")), "TIMEOUT says the same");
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /Fizzy took too long to answer/);
+  assert.equal(acct.asked("search").length, 1, "the stopped one never reached the fake; nothing else was asked");
+});
+
+test("a search sends the card number of #12 as 12, trims the words, and a query starting with - stays a query", async () => {
+  const { cx, draw } = await mount();
+  for (const [typed, sent] of [["#12", "12"], ["  login bug  ", "login bug"], ["-x --all", "-x --all"], ["a#b & c+d ü", "a#b & c+d ü"]]) {
+    inputOf(await draw(), "fizzy-filter").edit(typed, cx);
+    click(await draw(), "fizzy-search-all", cx);
+    await draw();
+    const [argv] = searchCalls().slice(-1);
+    assert.deepEqual([argv.at(-2), argv.at(-1)], ["--", sent], typed);
+    assert.ok(argv.indexOf("--json") < argv.indexOf("--"), "--json before the --");
+    assert.equal(argv.filter(a => a === "--json").length, 1);
+    click(await draw(), "fizzy-search-close", cx);
+  }
+  assert.equal(searchCalls().length, 4);
+});
+
+test("a search that fills Fizzy's page of 15 says it shows the 15 newest matches; fewer, or none, say nothing of it", async () => {
+  const NOTE = /Fizzy shows its 15 newest matches\. Add words to narrow it\./;
+  for (let i = 0; i < 20; i++) acct.cards.push({ ...acct.card(103), id: `id-${600 + i}`, number: 600 + i, title: `Bulk ${i}` });
+  const { cx, draw } = await mount();
+  inputOf(await draw(), "fizzy-filter").edit("bulk", cx);
+  click(await draw(), "fizzy-search-all", cx);
+  let tree = await draw();
+  assert.equal(rowIds(tree).length, 15, "Fizzy's page, not all 20");
+  assert.match(textOf(must(tree, "fizzy-list")), NOTE);
+  click(tree, "fizzy-search-close", cx);
+  inputOf(await draw(), "fizzy-filter").edit("bulk 1", cx);
+  click(await draw(), "fizzy-search-all", cx);
+  tree = await draw();
+  assert.equal(rowIds(tree).length, 11, "Bulk 1 and Bulk 10 to 19: fewer than a page");
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), NOTE);
 });
 
 test("the results of a search are dropped when the words change meanwhile", async () => {
@@ -3140,7 +3217,8 @@ test("the results of a search are dropped when the words change meanwhile", asyn
   acct.hold = new Promise(resolve => { release = resolve; });
   click(tree, "fizzy-search-all", cx);
   tree = drawn(view, cx);
-  assert.match(textOf(must(tree, "fizzy-list")), /Searching 2 boards…/);
+  assert.match(textOf(must(tree, "fizzy-list")), /Searching…/);
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /boards/, "no per-board progress");
   inputOf(tree, "fizzy-filter").edit("changelog", cx);
   assert.ok(find(drawn(view, cx), "fizzy-section-c1"), "other words: back to the list at once");
   release();
@@ -4491,7 +4569,8 @@ test("a note marked read in the panel is seen: when it turns up unread again, th
   assert.deepEqual(JSON.parse(localStorage.getItem("seenNotes")), ["u1"], "the first poll learned the unread one");
   acct.notifications.push(note("u2", { created_at: minutesAgo(0.5) })); // arrived since: no poll has seen it
   click(await draw(), "fizzy-view-inbox", cx);
-  assert.deepEqual(noteIds(await draw()), ["u2", "u1"], "u2 was loaded with the Inbox, no poll announced it");
+  assert.deepEqual(noteIds(await draw()), ["u2", "u1"], "opening the Inbox is the unread poll: it fills the list");
+  assert.deepEqual(toasts().map(n => n.title), ["Note u2"], "and announces what it has not seen");
   click(await draw(), "fizzy-note-u2", cx);
   await cx.settle();
   assert.deepEqual(acct.writes(), [["notification", "read", "u2"]]);
@@ -4499,8 +4578,9 @@ test("a note marked read in the panel is seen: when it turns up unread again, th
   // Unread again from elsewhere (the web app, say): a poll says nothing about it; a note that is really new still gets its toast.
   acct.notifications.find(n => n.id === "u2").read = false;
   acct.notifications.push(note("fresh", { created_at: minutesAgo(0) }));
+  const announced = toasts().length;
   await pollNow(cx);
-  assert.deepEqual(toasts().map(n => n.title), ["Note fresh"], "only the untouched one");
+  assert.deepEqual(toasts().slice(announced).map(n => n.title), ["Note fresh"], "only the untouched one");
 });
 
 test("a note marked read is kept in the seen ids at the cap: the newest last, the oldest dropped", async () => {
@@ -4515,8 +4595,9 @@ test("a note marked read is kept in the seen ids at the cap: the newest last, th
   assert.equal(seen.length, 300);
   assert.deepEqual([seen[0], seen.at(-1)], ["x1", "u1"]);
   acct.notifications[0].read = false;
+  const announced = toasts().length;
   await pollNow(cx);
-  assert.equal(toasts().length, 0, "u1 is unread again and seen: no toast");
+  assert.equal(toasts().length, announced, "u1 is unread again and seen: no toast");
 });
 
 test("Mark all read adds the notes it read to the seen ids, so one that turns up unread again is no news", async () => {
@@ -4531,8 +4612,9 @@ test("Mark all read adds the notes it read to the seen ids, so one that turns up
   assert.deepEqual(JSON.parse(localStorage.getItem("seenNotes")).sort(), ["u1", "u2"], "every note of the Inbox is seen");
   // Unread again from elsewhere (the web app, say): the notes read here are still no news.
   acct.notifications.find(n => n.id === "u2").read = false;
+  const announced = toasts().length;
   await pollNow(cx);
-  assert.equal(toasts().length, 0);
+  assert.equal(toasts().length, announced);
 });
 
 test("a toast with no card, or one that opens at once, does not clear the wait of an earlier toast that brought the panel up", async () => {
@@ -5846,10 +5928,12 @@ test("hidden is for the boards list only: Mine and the search still read every b
   await m.draw();
   const mine = acct.asked("card", "list").filter(a => a.includes("--assignee")).map(a => a[3]);
   assert.deepEqual(mine.sort(), [...ALL_IDS].sort(), "every board");
-  inputOf(await m.draw(), "fizzy-filter").edit("x", m.cx);
+  acct.cards.push({ ...acct.card(103), id: "id-900", number: 900, title: "Xylophone", board: acct.boards.find(b => b.name === "Garden") });
+  inputOf(await m.draw(), "fizzy-filter").edit("xylo", m.cx);
   click(await m.draw(), "fizzy-search-all", m.cx);
-  await m.draw();
-  assert.equal(acct.asked("card", "list").filter(a => a.includes("--search")).length, SAMPLE_BOARDS.length, "the search asks every board");
+  tree = await m.draw();
+  assert.deepEqual(acct.asked("search"), [["search", "--", "xylo"]], "the search is one call, whatever is hidden");
+  assert.deepEqual(rowIds(tree), [900], "a hit on a hidden board is shown");
   // Another board of the hidden group can still be picked by its id.
   await press(m.cx, `board:${boardId("Release train [team]")}`);
   tree = await m.draw();
@@ -7239,4 +7323,339 @@ test("every list view draws without acting: the header, the board row, and a boa
   tree = await draw();
   assert.equal(view.view, "board");
   assert.deepEqual(rowIds(tree), [201]);
+});
+
+const SOMEONE_ELSES = { id: "c9", name: "Later", color: { name: "Blue", value: "var(--color-card-1)" } };
+const kinds = from => acct.log.slice(from).map(a => a.slice(0, 2).join(" ")).sort();
+
+test("a Board poll reads the open cards and the tray, and nothing else: not the columns, not a folded lane", async () => {
+  const { cx, draw } = await mount();
+  await draw();
+  const before = acct.log.length;
+  timer(cx, POLL_VIEW).fn(cx);
+  inboxTimer(cx).fn(cx);
+  await cx.settle();
+  assert.deepEqual(kinds(before), ["card list", "notification tray"]);
+  assert.deepEqual(acct.log.slice(before).find(a => a[0] === "card"), ["card", "list", "--board", "b1", "--all"]);
+});
+
+test("the columns are read when not known, on Refresh, and when an open card names a column that is not among them; a poll reads the open cards only", async () => {
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  const columnReads = () => acct.asked("column", "list").length;
+  assert.equal(columnReads(), 1, "not known yet: read");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(columnReads(), 1, "known: a poll leaves them");
+  click(tree, "fizzy-refresh", cx);
+  tree = await draw();
+  assert.equal(columnReads(), 2, "Refresh reads them again");
+  acct.columns.b1.splice(4, 0, SOMEONE_ELSES);
+  acct.card(103).column = SOMEONE_ELSES;
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  tree = await draw();
+  assert.equal(columnReads(), 3, "a card names a column that is not known: read again");
+  assert.deepEqual(sectionIds(tree), ["not-now", "maybe", "c1", "c2", "c9", "done"], "and the new column is a lane");
+  assert.equal(lanesOf(tree)[103], "c9");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(columnReads(), 3, "now it is known");
+});
+
+test("another board's columns are read once when the board is first shown, from the cache never again by a poll", async () => {
+  const { cx, draw } = await mount();
+  await draw();
+  state.shared["fizzy.board"] = { follow: false, board: "b2", id: "pick" };
+  await draw();
+  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b1", "b2"]);
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b1", "b2"]);
+});
+
+test("an unfolded Not Now or Done lane is read on Refresh and after a write, never by the poll; a folded lane is never read", async () => {
+  setup({ closed: 20 });
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  const notNowReads = () => fizzyReads("card", "list", "--board", "b1", "--indexed-by", "not_now").length;
+  const lanes = () => [notNowReads(), donePages().length];
+  assert.deepEqual(lanes(), [0, 0], "folded: not read");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  click(tree, "fizzy-refresh", cx);
+  tree = await draw();
+  assert.deepEqual(lanes(), [0, 0], "folded: not by a poll, not by Refresh");
+  click(tree, "fizzy-section-not-now", cx);
+  click(tree, "fizzy-section-done", cx);
+  tree = await draw();
+  assert.deepEqual([notNowReads(), donePages()], [1, ["1", "2"]], "unfolded: read, Done up to the page that says none follows");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.deepEqual([notNowReads(), donePages().length], [1, 2], "unfolded lanes are not read by the poll");
+  click(tree, "fizzy-refresh", cx);
+  tree = await draw();
+  assert.deepEqual([notNowReads(), donePages()], [2, ["1", "2", "1", "2"]], "Refresh reads them again, Done from page 1");
+  state.shared["fizzy.request"] = { id: "w1", op: { kind: "golden", number: 103, on: true } };
+  tree = await draw();
+  assert.deepEqual([notNowReads(), donePages().length], [3, 6], "so does a write");
+  click(tree, "fizzy-section-not-now", cx);
+  await draw();
+  state.shared["fizzy.request"] = { id: "w2", op: { kind: "golden", number: 103, on: false } };
+  await draw();
+  assert.deepEqual([notNowReads(), donePages().length], [3, 8], "a lane folded again is not read after a write, the one still unfolded is");
+});
+
+test("an unfolded lane with no data is loaded by the board's read: after a restart, and on switching to a board whose saved fold state has it open", async () => {
+  localStorage.setItem("collapsed:b1", JSON.stringify({ "not-now": false }));
+  localStorage.setItem("collapsed:b2", JSON.stringify({ done: false }));
+  acct.cards.push({ ...acct.card(201), id: "id-202", number: 202, title: "Closed elsewhere", closed: true, board: B2, assignees: [] });
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  assert.equal(lanesOf(tree)[104], "not-now", "Not Now had no data and was unfolded: its cards are there");
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /Loading…/);
+  assert.equal(fizzyReads("card", "list", "--board", "b1", "--indexed-by", "not_now").length, 1);
+  assert.equal(donePages().length, 0, "Done is folded: not read");
+  state.shared["fizzy.board"] = { follow: false, board: "b2", id: "pick" };
+  tree = await draw();
+  assert.equal(lanesOf(tree)[202], "done");
+  assert.doesNotMatch(textOf(must(tree, "fizzy-list")), /Loading…/);
+  assert.equal(fizzyReads("card", "list", "--board", "b2", "--indexed-by", "closed").length, 1);
+  assert.equal(fizzyReads("card", "list", "--board", "b2", "--indexed-by", "not_now").length, 0, "Not Now of that board is folded");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(fizzyReads("card", "list", "--board", "b2", "--indexed-by", "closed").length, 1, "once it has data, the poll leaves it");
+});
+
+test("a change made in Mine leaves the board's unfolded lanes stale: the Board view reads them when it shows again, folded ones never", async () => {
+  setup({ closed: 20 });
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  click(tree, "fizzy-section-done", cx);
+  tree = await draw();
+  assert.equal(lanesOf(tree)[101], "c1");
+  click(tree, "fizzy-view-mine", cx);
+  await draw();
+  const doneReads = () => donePages().length;
+  const before = doneReads();
+  state.shared["fizzy.request"] = { id: "w1", op: { kind: "move", number: 101, target: "done" } };
+  await draw();
+  assert.equal(doneReads(), before, "Mine does not read the board's lanes");
+  click(await draw(), "fizzy-home", cx);
+  tree = await draw();
+  assert.equal(lanesOf(tree)[101], "done", "the card closed in Mine is in the unfolded Done lane");
+  assert.equal(fizzyReads("card", "list", "--board", "b1", "--indexed-by", "not_now").length, 0, "Not Now stayed folded: never read");
+  const settled = doneReads();
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(doneReads(), settled, "and the poll leaves it again");
+});
+
+test("a lane that failed to unfold shows its cards and loses its error once the board's read gets it", async () => {
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  acct.fail = args => (args.includes("not_now") ? failure("network", "offline") : undefined);
+  click(tree, "fizzy-section-not-now", cx);
+  tree = await draw();
+  assert.ok(find(tree, "fizzy-retry-not-now"), "the unfold failed: the lane says so, with Retry");
+  assert.equal(lanesOf(tree)[104], undefined);
+  acct.fail = null;
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  tree = await draw();
+  assert.equal(lanesOf(tree)[104], "not-now", "the board's read loaded the lane");
+  assert.equal(find(tree, "fizzy-retry-not-now"), null, "and the old error is gone");
+});
+
+test("with the Inbox showing the 30 s view poll reads nothing; the unread poll's one tray read is the list, the count and the toasts", async () => {
+  localStorage.setItem("view", '"inbox"');
+  const { cx, draw } = await mount();
+  assert.deepEqual(noteIds(await draw()), ["n1", "n2"]);
+  assert.equal(acct.asked("notification", "tray").length, 1, "start: one read");
+  const before = acct.log.length;
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(acct.log.length, before, "the view poll reads nothing");
+  acct.notifications.push(note("n3", { created_at: minutesAgo(0) }));
+  await pollNow(cx);
+  assert.deepEqual(kinds(before), ["notification tray"], "one tray read per 30 s");
+  assert.deepEqual(noteIds(await draw()), ["n3", "n1", "n2"], "and it filled the Inbox");
+  assert.equal(state.shared["fizzy.unread"], 3);
+});
+
+test("opening the Inbox and Refresh in it run the unread poll, once each; in the other views the Inbox is still filled by the poll", async () => {
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  const trays = () => acct.asked("notification", "tray").length;
+  assert.equal(trays(), 1);
+  acct.notifications.push(note("n3", { created_at: minutesAgo(0) }));
+  await pollNow(cx);
+  assert.equal(trays(), 2);
+  click(tree, "fizzy-view-inbox", cx);
+  tree = await draw();
+  assert.equal(trays(), 3, "opening it reads the tray once");
+  assert.deepEqual(noteIds(tree), ["n3", "n1", "n2"]);
+  click(tree, "fizzy-refresh", cx);
+  await draw();
+  assert.equal(trays(), 4, "Refresh reads it once");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(trays(), 4, "the view poll adds none");
+});
+
+test("a failed unread poll shows in the Inbox with Retry, and a good one clears it", async () => {
+  localStorage.setItem("view", '"inbox"');
+  acct.fail = args => (args[0] === "notification" ? failure("network", "offline") : undefined);
+  const { cx, draw } = await mount();
+  let tree = await draw();
+  assert.match(textOf(must(tree, "fizzy-list")), /Can't reach Fizzy/);
+  assert.ok(find(tree, "fizzy-retry"));
+  acct.fail = null;
+  click(tree, "fizzy-retry", cx);
+  tree = await draw();
+  assert.deepEqual(noteIds(tree), ["n1", "n2"]);
+  assert.equal(find(tree, "fizzy-retry"), null);
+});
+
+test("marking a note read, or all of them, reads the tray again through the unread poll", async () => {
+  const { cx, draw } = await mount();
+  click(await draw(), "fizzy-view-inbox", cx);
+  let tree = await draw();
+  const trays = () => acct.asked("notification", "tray").length;
+  const base = trays();
+  click(tree, "fizzy-note-n1", cx);
+  await cx.settle();
+  assert.equal(trays(), base + 1);
+  click(await draw(), "fizzy-back", cx);
+  click(await draw(), "fizzy-read-all", cx);
+  await cx.settle();
+  assert.equal(trays(), base + 2);
+  assert.deepEqual(noteIds(await draw()), []);
+});
+
+test("the pin list is read when a card opens and after a write, not by the poll; the Pins view reads it as the view", async () => {
+  const { cx, draw } = await openDetail();
+  const pinReads = () => acct.asked("pin", "list").length;
+  assert.equal(pinReads(), 1, "opening the card");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(pinReads(), 1, "polls leave it");
+  state.shared["fizzy.request"] = { id: "w1", op: { kind: "golden", number: 101, on: true } };
+  await draw();
+  assert.equal(pinReads(), 2, "a write reads it again");
+  click(must(await draw(), "fizzy-back"), "fizzy-back", cx);
+  click(await draw(), "fizzy-view-pins", cx);
+  await draw();
+  assert.equal(pinReads(), 3, "the Pins view");
+  timer(cx, POLL_VIEW).fn(cx);
+  await cx.settle();
+  assert.equal(pinReads(), 4, "and its poll");
+});
+
+test("with no default board, Mine is one boardless card list, grouped by board; every board has an entry, no progress shows, Not Now and closed are left out", async () => {
+  acct.config = { account: "111", board: null };
+  for (let i = 3; i <= 9; i++) acct.boards.push({ id: `b${i}`, name: `Board ${i}`, url: `u${i}` });
+  acct.cards.push({ ...acct.card(201), id: "id-700", number: 700, title: "Parked", postponed: true, assignees: [ME], board: B2 });
+  acct.cards.push({ ...acct.card(201), id: "id-701", number: 701, title: "Finished", closed: true, assignees: [ME], board: B2 });
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  let release;
+  acct.hold = new Promise(resolve => { release = resolve; });
+  click(tree, "fizzy-view-mine", cx);
+  assert.match(textOf(must(drawn(view, cx), "fizzy-list")), /Loading…/);
+  assert.doesNotMatch(textOf(must(drawn(view, cx), "fizzy-list")), /boards/, "no 'Loading N boards'");
+  release();
+  await cx.settle();
+  acct.hold = null;
+  tree = await draw();
+  const mineReads = acct.asked("card", "list").filter(a => a.includes("--assignee"));
+  assert.deepEqual(mineReads, [["card", "list", "--assignee", "u-me", "--all"]], "one call, no --board, no --indexed-by");
+  assert.deepEqual([...view.mine.keys()], acct.boards.map(b => b.id), "every known board has an entry");
+  assert.deepEqual(view.mine.get("b9"), []);
+  assert.deepEqual(rowIds(tree), [101, 201]);
+  assert.deepEqual(ids(tree).filter(i => i.startsWith("fizzy-mine-")), ["fizzy-mine-b1", "fizzy-mine-b2"]);
+  assert.equal(view.progress, null);
+});
+
+test("with no default board, Mine drops the boards that are gone, shows an error with Retry, and a copy that starts on Mine waits for the config, the boards and the person, then asks once", async () => {
+  acct.config = { account: "111", board: null };
+  localStorage.setItem("view", '"mine"');
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  assert.deepEqual(rowIds(tree), [101, 201]);
+  assert.equal(acct.asked("card", "list").filter(a => a.includes("--assignee")).length, 1, "asked once, after the config, the boards and the person");
+  assert.equal(acct.asked("card", "list", "--board", "b1", "--all").length, 0, "the board's own cards are not read for Mine");
+  acct.boards = [B1];
+  click(tree, "fizzy-refresh", cx);
+  tree = await draw();
+  assert.deepEqual([...view.mine.keys()], ["b1"], "a board that is gone is dropped");
+  assert.deepEqual(rowIds(tree), [101]);
+  acct.fail = args => (args[0] === "card" && args.includes("--assignee") ? failure("network", "offline") : undefined);
+  click(tree, "fizzy-refresh", cx);
+  tree = await draw();
+  assert.match(textOf(must(tree, "fizzy-list")), /Can't reach Fizzy/);
+  assert.deepEqual(rowIds(tree), [101], "what was read stays under the message");
+  acct.fail = null;
+  click(tree, "fizzy-retry", cx);
+  tree = await draw();
+  assert.equal(find(tree, "fizzy-retry"), null);
+  assert.deepEqual(rowIds(tree), [101]);
+});
+
+test("with a default board in the CLI, Mine reads each board itself (a boardless list would read only the default board)", async () => {
+  const { cx, draw } = await mount();
+  click(await draw(), "fizzy-view-mine", cx);
+  await draw();
+  const mineReads = acct.asked("card", "list").filter(a => a.includes("--assignee"));
+  assert.deepEqual(mineReads.map(a => a[3]).sort(), ["b1", "b2"]);
+  assert.ok(mineReads.every(a => a[2] === "--board"), "never boardless");
+});
+
+test("a request's text does not stay in shared state: the panel sets fizzy.request to null once it has handled it, whichever timer saw it", async () => {
+  withAgent();
+  const HANDOFF = "Fizzy #101 \"A private title\"";
+  const { view, cx, draw } = await mount();
+  await draw();
+  state.shared["fizzy.request"] = { id: "p1", op: { kind: "paste", address: "t1", text: HANDOFF } };
+  drawn(view, cx);
+  assert.equal(state.shared["fizzy.request"].id, "p1", "a draw only notes it");
+  await due(cx);
+  assert.equal(state.shared["fizzy.request"], null, "done by the draw's timer: gone");
+  state.shared["fizzy.request"] = { id: "p2", op: { kind: "paste", address: "t1", text: HANDOFF } };
+  await tickRequest(cx);
+  assert.equal(state.shared["fizzy.request"], null, "done by the 300 ms timer: gone");
+  assert.ok(!JSON.stringify(state.shared).includes("A private title"));
+  assert.deepEqual(calls.run.filter(([name]) => name === "terminal.paste").length, 2, "both were done");
+  state.shared["fizzy.request"] = { id: "p3", op: { kind: "paste", address: "t1", text: HANDOFF } };
+  await tickRequest(cx);
+  await tickRequest(cx);
+  assert.equal(calls.run.filter(([name]) => name === "terminal.paste").length, 3, "and nothing is done twice");
+});
+
+test("a request that came in while another was being handled is kept, and done by the next look", async () => {
+  const { view, cx, draw } = await mount();
+  await draw();
+  state.shared["fizzy.request"] = { id: "a", op: { kind: "golden", number: 101, on: true } };
+  drawn(view, cx);
+  state.shared["fizzy.request"] = { id: "b", op: { kind: "golden", number: 103, on: true } };
+  await due(cx);
+  assert.equal(state.shared["fizzy.request"]?.id, "b", "the newer one is not wiped by the older one's clean-up");
+  await tickRequest(cx);
+  assert.deepEqual(acct.writes(), [["card", "golden", "101"], ["card", "golden", "103"]]);
+  assert.equal(state.shared["fizzy.request"], null);
+});
+
+test("a hand-off chosen in a popup row travels in fizzy.request only until the panel has handled it; no other shared key holds it", async () => {
+  withAgent();
+  const { cx, draw } = await mount();
+  fire(must(await draw(), "fizzy-more-101"), "on_click", {}, cx);
+  await cx.settle();
+  menuClick(await mountPopup(), "insert");
+  assert.equal(state.shared["fizzy.request"].op.text, REF_101, "the popup leaves the text for the panel");
+  await draw();
+  assert.equal(state.shared["fizzy.request"], null);
+  assert.ok(!JSON.stringify(state.shared).includes("Fix the login redirect"), "the card's title is in no shared key");
+  assert.equal(calls.run.filter(([name]) => name === "terminal.paste").length, 1, "and the panel did it");
 });

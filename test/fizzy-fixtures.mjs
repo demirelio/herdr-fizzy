@@ -4,7 +4,7 @@
 import { layoutWith, modFile } from "./helpers.mjs";
 import { state } from "./mocks/herdr.mjs";
 
-const { YAML_SCRIPT, AVATAR_SCRIPT, JQ } = await import(modFile("lib.js"));
+const { YAML_SCRIPT, AVATAR_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
 
 export const LAYOUT = layoutWith({ active: "fizzy", children: ["files", "changes", "fizzy"] });
 
@@ -85,6 +85,7 @@ export function makeAccount(opts = {}) {
     config: { account: "111", board: "b1" }, // the account and default board `config show` says the CLI uses
     yaml: {},          // folder -> the text of its .fizzy.yaml (what the folder script finds walking up)
     pageSize: opts.pageSize ?? 15,
+    searchCap: opts.searchCap ?? SEARCH_CAP,
     morePages: opts.morePages ?? false,
     createReturnsNumber: true,
     fail: null,        // (argv) => a failure result, or undefined: made-up trouble
@@ -110,14 +111,16 @@ export function makeAccount(opts = {}) {
     }
     if (a1 === "board" && a2 === "list") return ok(a.boards);
     if (a1 === "column" && a2 === "list") return ok(a.columns[flag(args, "--board")] ?? []);
+    if (a1 === "search") {
+      const words = (args[args.indexOf("--") + 1] ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+      const text = c => [c.title, c.description, ...c.tags, ...(a.comments[c.number] ?? []).map(x => x.body.plain_text)].join(" ").toLowerCase();
+      const hits = a.cards.filter(c => words.every(w => text(c).includes(w)));
+      return ok(hits.sort((x, y) => Date.parse(y.last_active_at) - Date.parse(x.last_active_at)).slice(0, a.searchCap).map(listItem));
+    }
     if (a1 === "card" && a2 === "list") {
-      const board = flag(args, "--board"), by = flag(args, "--indexed-by"), assignee = flag(args, "--assignee"), q = flag(args, "--search");
-      let list = a.cards.filter(c => c.board.id === board);
-      // A search looks through every card of the board, whatever its lane (title, description or tags).
-      if (q != null) {
-        const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-        return ok(list.filter(c => words.every(w => `${c.title} ${c.description} ${c.tags.join(" ")}`.toLowerCase().includes(w))).map(listItem));
-      }
+      // No --board: every board, unless the CLI has a default board, which a boardless list silently stays on.
+      const board = flag(args, "--board") ?? a.config.board, by = flag(args, "--indexed-by"), assignee = flag(args, "--assignee");
+      let list = a.cards.filter(c => board == null || c.board.id === board);
       if (by === "closed") {
         list = list.filter(c => c.closed);
         const page = Number(flag(args, "--page") ?? 1), from = (page - 1) * a.pageSize;
@@ -225,18 +228,25 @@ export function makeAccount(opts = {}) {
   a.exec = async (command, args, options) => {
     if (command === "sh" && args[0] === "-c" && args[1] === AVATAR_SCRIPT) return photo(args);
     if (command === "sh") {
-      // The folder script (walk up to a .fizzy.yaml): the nearest folder in `yaml` at or above the given one.
+      // The folder script (walk up to a .fizzy.yaml): the nearest folder in `yaml` at or above the given one, and of its file
+      // the `board:` line only.
       if (args[0] !== "-c" || args[1] !== YAML_SCRIPT) throw new Error(`unexpected sh script ${args[1]}`);
-      for (let d = args[3]; d; d = d.slice(0, d.lastIndexOf("/"))) if (a.yaml[d] != null) return { code: 0, stdout: a.yaml[d], stderr: "" };
+      for (let d = args[3]; d; d = d.slice(0, d.lastIndexOf("/"))) {
+        if (a.yaml[d] == null) continue;
+        const lines = a.yaml[d].split(/\r?\n/).filter(line => /^board[ \t]*:/.test(line));
+        return lines.length ? { code: 0, stdout: `${lines.join("\n")}\n`, stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      }
       return { code: 1, stdout: "", stderr: "" };
     }
     if (command !== "fizzy") throw new Error(`unexpected command ${command}`);
     if (a.missing) throw new Error("spawn fizzy ENOENT");
     if (a.stopped) throw new Error("fizzy took longer than 30 s and was stopped");
     if (options?.cwd !== state.home) throw new Error(`fizzy must run from the home folder, not ${options?.cwd}`);
-    // The log, `fail` and the answer see the command without the --json it ends with (lib.js withJson) and without its --jq
-    // projection (lib.js JQ); the answer takes the projection's shape where it differs from the CLI's own.
-    const bare = args.at(-1) === "--json" ? args.slice(0, -1) : args;
+    // The log, `fail` and the answer see the command without the --json it ends with (lib.js withJson; a search's ends before
+    // the `--` that its query follows) and without its --jq projection (lib.js JQ); the answer takes the projection's shape
+    // where it differs from the CLI's own.
+    const end = args[0] === "search" ? args.indexOf("--") : args.length;
+    const bare = args[end - 1] === "--json" ? [...args.slice(0, end - 1), ...args.slice(end)] : args;
     const at = bare.indexOf("--jq"), jq = at < 0 ? null : bare[at + 1];
     const plain = at < 0 ? bare : [...bare.slice(0, at), ...bare.slice(at + 2)];
     a.log.push(plain);
@@ -248,7 +258,7 @@ export function makeAccount(opts = {}) {
     } finally { a.inflight--; }
   };
 
-  const reads = new Set(["board list", "column list", "card list", "card show", "comment list", "user list", "tag list", "pin list", "identity show", "notification tray", "config show"]);
+  const reads = new Set(["board list", "column list", "card list", "card show", "comment list", "user list", "tag list", "pin list", "identity show", "notification tray", "config show", "search --"]);
   a.writes = () => a.log.filter(args => !reads.has(`${args[0]} ${args[1]}`));
   a.asked = (...prefix) => a.log.filter(args => prefix.every((p, i) => args[i] === p));
   a.lane = n => lane(find(n));

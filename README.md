@@ -26,7 +26,8 @@ Board view. Then **Mine**, **Inbox** (with the number of unread notifications) a
 board), and at its right **New card** and **Open board in Fizzy**. Board, Mine and Pins have a filter box under that.
 
 **Board.** One section per lane, in the board's own order from Fizzy; Maybe? comes first, and Not Now and Done last,
-when the board's column list leaves them out. Not Now and Done start folded and are read the first time you open them;
+when the board's column list leaves them out. Not Now and Done start folded and are read each time you unfold them (and
+again on Refresh and after a change you make, while they are unfolded; a folded lane is never read);
 Done shows 50 cards, then **Show more**. A click on a section's header folds or unfolds it (kept per board). The **+**
 on Maybe? and on each column opens a field for a new card there: the pencil beside it adds a description, Enter makes
 the card, and the field stays open for the next one. Each card is two lines: a bar in its lane's color, a star when it
@@ -37,8 +38,11 @@ cards; ⌘-click or Ctrl-click one again to unpick it.
 **Filter and search.** The filter keeps the cards whose title, `#number`, tags, assignees' names, column or the first
 300 characters of the description hold every word you type, in any case. On Board, **Me** keeps only the cards
 assigned to you. The filter only sees cards the panel has already read, so on Board and Mine, with words in the box,
-the list ends with **Search all boards for "…"**, which asks Fizzy on every board and shows what it finds, a section
-per board. The x goes back to the list; other words drop the results.
+the list ends with **Search all boards for "…"**, which asks Fizzy once, across every board, in open, Not Now and closed
+cards and in comments, and shows what it finds, a section per board. Fizzy answers with its 15 newest matches at most;
+when it does, the list says so, and more words narrow it. Fizzy limits searches to 300 an hour per person, shared with
+anything else of yours that searches; when it does not answer, the panel says the limit may be used up, and never
+tries again by itself. The x goes back to the list; other words drop the results.
 
 **Mine** lists the cards assigned to you on every board, a section per board. **Pins** lists your pinned cards.
 
@@ -123,8 +127,9 @@ the reference on the clipboard for a moment, then puts back the text you had the
   changed so that it doesn't, apply the patch by hand ([tabs/README.md](tabs/README.md#when-it-doesnt-fit)).
 - **macOS or Linux.** It is built for both; it is tested on macOS, and Linux is untested.
 - **The `fizzy` CLI, version 4 or newer** (https://github.com/basecamp/fizzy-cli), on your PATH and signed in. With
-  Homebrew: `brew tap basecamp/tap && brew install --cask basecamp/tap/fizzy`. Sign in with `fizzy setup` or
-  `fizzy auth login <token>`. The panel ends every command with `--json`, and the CLI answers with its JSON envelope,
+  Homebrew: `brew tap basecamp/tap && brew install --cask basecamp/tap/fizzy`. Sign in with `fizzy setup`, which asks
+  for the token in a masked prompt (a token typed on a command line stays in your shell history). The panel
+  ends every command with `--json` (a search puts it just before its `--`), and the CLI answers with its JSON envelope,
   `{ "ok": true, "data": … }` or `{ "ok": false, "error": …, "code": … }`. When the CLI is missing or signed out, the
   panel says so.
 - **`sh` and `curl`**: `sh` for the `.fizzy.yaml` lookup and the photos, `curl` for the photos. Without `curl` you see
@@ -296,7 +301,7 @@ link in a description or a comment, open in your browser.
 
 - `fizzy`, on this computer, run from your home folder, every command with `--json`. To read: `board list`,
   `column list`, `card list`, `card show`, `comment list`, `user list`, `tag list`, `pin list`, `notification tray`,
-  `identity show` and `config show`. The reads it repeats (`card list`, `pin list`, `notification tray`) and
+  `search`, `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`, `notification tray`) and
   `config show` ask with `--jq` for only the fields the panel uses. To change something, only when you do: `card`,
   `step` and `comment` commands, and `notification read` and `read-all`. Each action is one command, or two (a closed
   card is reopened before it moves; a card made in a column is made in Maybe? and then moved, with a `card list`
@@ -307,7 +312,8 @@ link in a description or a comment, open in your browser.
   image, and deletes that person's older photos (besides shell built-ins such as `[`, `printf` and `echo`, it runs only
   `mkdir`, `mv`, `rm` and `tr`).
 - `sh` on the active space's machine (this computer, or the other machine a remote space is on): a script that walks
-  up from the space's folder and prints the first `.fizzy.yaml` it finds, using only `[` and `cat`.
+  up from the space's folder and prints the `board:` line of the first `.fizzy.yaml` it finds (never the rest of the
+  file, which may hold a token), using only `[` and `grep`.
 - When you open Start, Herdr's `knownAgents` asks the active space's machine which agents are installed; the agent you
   pick runs in a new tab, through Herdr's `tab.new`.
 
@@ -338,15 +344,19 @@ It writes these shared keys, which every mod can read (Herdr keeps them in `shar
 | `fizzy.avatars` | Each person's photo file, by user id |
 | `fizzy.boardGroups` | Your board groups |
 | `fizzy.board` | The last choice made in the board dropdown |
-| `fizzy.request` | The last action a popup handed to the panel (popups are copies of the same mod) |
+| `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod), with the text of a hand-off; the panel sets it to null once it has handled it |
 | `new-menu.agents` | Herdr's own `new-menu` cache of the agents each machine reported; the Start list shows it at once, and writes back what the machine answered |
 
 **When it asks Fizzy.** Every 30 seconds while the panel shows, and at once when it comes back, it reads what is on
-screen: the open card with its comments and the pin list, else the view (Mine, which asks every board, every other
-time), and nothing while you edit a title, a description, a step or a comment. Every 30 seconds, even while the panel
-is hidden, it reads your unread notifications, for the count and the toasts. The board list is read at start and on
-Refresh, the people at start and then daily, the tags the first time a card or a card menu opens, and again after you
-tag a card. The signed-in user is kept between runs for the account the CLI's config names; it is read again on
+screen: the open card with its comments, else the view, and nothing while you edit a title, a description, a step or a
+comment. On Board that is the open cards; the columns are read when they are not known yet (none kept from an earlier
+run), on Refresh and when an open card names a column it does not know, and Not Now and Done are read when you unfold
+them, on Refresh and after a change you make while they are unfolded. Mine asks every board in one call when the CLI has no default board (with one,
+a boardless read would only see that board, so it asks each board), and is read every other time. The pin list is read when a card
+opens, after a change you make and in the Pins view. Every 30 seconds, even while the panel is hidden, it reads your
+unread notifications with one `notification tray`, which fills the Inbox, the count and the toasts; opening the Inbox
+or Refresh in it reads that once more. The board list is read at start and on Refresh, the people at start and then
+daily, the tags the first time a card or a card menu opens, and again after you tag a card. The signed-in user is kept between runs for the account the CLI's config names; it is read again on
 Refresh, and when the config names another account.
 
 ## For other mods: `fizzy.unread`

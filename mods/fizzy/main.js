@@ -6,7 +6,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { exec, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import {
-  ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, parseResult, execFailure, explain, cmd, withJson, laneOf, laneName, moveTo, sections,
+  ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
   columnOf, fullCard, noteCard,
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlForView, textLines, formatted, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
@@ -60,7 +60,7 @@ const keptMe = () => {
 const watchEntries = raw => (Array.isArray(raw) ? raw.filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "boolean").map(([n, on]) => [n, on]) : []);
 
 // Asks the CLI. Always from the home folder, so that no .fizzy.yaml beside the shell changes what it reads
-// (every command here names its board itself).
+// (a default board would narrow the boardless Mine read).
 async function fizzy(args) {
   let result;
   try { result = await exec("fizzy", withJson(args), { cwd: home() }); }
@@ -263,7 +263,7 @@ export default class Fizzy extends View {
     // What is being edited in the detail view (`editing`: "title", "desc", "step" or "comment"): the step's or comment's id.
     this.editId = null;
     this.pressed = null; this.composer = null; this.composerMore = false; this.ticks = 0;
-    this.search = null; // a search of every board: { q, found: Map(board id -> cards), progress, error }
+    this.search = null; // a search of every board: { q, found: Map(board id -> cards), count (cards found), error, waiting }
     clip.saved = undefined; clip.pending = 0; // a new copy has none of the old copy's restores to wait for
     this.unread = Number(shared("fizzy.unread") ?? 0);
     // What the popups sent that was already there when this copy started is not asked of it again.
@@ -313,11 +313,11 @@ export default class Fizzy extends View {
     this.pollUnread(cx);
     this.loadUsers(cx); // the people's photos are fetched once their list is in (and again, once a day: see below)
     this.spaceBoard(cx); // the space's board is asked now, so it is likely known by the first draw
-    // The board's own read follows once its board is known (syncBoard); the other views read now.
-    if (this.view !== "board") this.refreshList(cx);
-    // Every view is read again now and then, only while it shows and nothing is being typed into a card.
+    // The board's own read follows once its board is known (syncBoard); the other views read now, the Inbox's being the unread poll above.
+    if (this.view !== "board" && this.view !== "inbox") this.refreshList(cx);
+    // Every view but the Inbox is read again now and then, only while it shows and nothing is being typed into a card.
     cx.timer.every(POLL_VIEW, cx => { if (fizzyVisible(layout())) this.poll(cx); });
-    // The unread notifications are asked even while the panel is hidden (the toasts, and fizzy.unread for other mods).
+    // The unread notifications are asked even while the panel is hidden (the Inbox's list, the toasts, and fizzy.unread for other mods).
     cx.timer.every(POLL_INBOX, cx => this.pollUnread(cx));
     // A hidden copy is never drawn, so render cannot see the panel go away. Note it here, so the first draw
     // after it shows again knows it is back and reads again.
@@ -503,11 +503,14 @@ export default class Fizzy extends View {
     if (Number(shared("fizzy.unread") ?? 0) !== n) setShared("fizzy.unread", n);
   }
 
-  // The unread notifications, every POLL_INBOX: the count, and a toast for each new one.
+  // The unread notifications, every POLL_INBOX: the Inbox's list, the count, and a toast for each new one. The one
+  // tray read serves all three, so no view reads it again.
   pollUnread(cx) {
     this.load("unread", cx, async () => {
       let list;
-      try { list = (await fizzy(cmd.inbox())) ?? []; } catch { return; /* fizzy.unread keeps its last value */ }
+      try { list = (await fizzy(cmd.inbox())) ?? []; } catch (e) { this.errors.inbox = e; return; /* fizzy.unread keeps its last value */ }
+      this.errors.inbox = null;
+      this.inbox = unreadNotes(list);
       this.noteUnread(list);
       this.meet(list);
       this.announce(list);
@@ -627,7 +630,7 @@ export default class Fizzy extends View {
   }
 
   lazyOf(board) {
-    if (!this.lazy.has(board)) this.lazy.set(board, { notNow: null, done: null, page: 0, end: false, shown: CARD_PAGE, errors: {} });
+    if (!this.lazy.has(board)) this.lazy.set(board, { notNow: null, done: null, stale: false, page: 0, end: false, shown: CARD_PAGE, errors: {} });
     return this.lazy.get(board);
   }
 
@@ -647,21 +650,31 @@ export default class Fizzy extends View {
     return { cards, page, end };
   }
 
-  loadBoard(cx) {
+  unfolded(kind) {
+    return !this.collapsedNow({ key: kind, kind });
+  }
+
+  // The board's open cards. The columns are read when they are not known yet or `columns` asks (Refresh), and when an open card
+  // names one that is not among them. An unfolded Not Now or Done lane is read when it has no data yet or is stale (Refresh or a
+  // write came since it was read, see refreshAll); a folded lane never is.
+  loadBoard(cx, { columns = false } = {}) {
     const board = this.board;
     if (!board) return;
     this.load(`board:${board}`, cx, async () => {
       try {
-        const lazy = this.lazyOf(board);
-        const [columns, open, notNow, done] = await Promise.all([
-          fizzy(cmd.columns(board)), fizzy(cmd.open(board)),
-          lazy.notNow ? fizzy(cmd.notNow(board)) : null,
-          lazy.done ? this.doneCards(board, null, lazy.shown, lazy.page) : null,
+        const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !known, stale = lazy.stale;
+        lazy.stale = false;
+        const [listed, open, notNow, done] = await Promise.all([
+          wantColumns ? fizzy(cmd.columns(board)) : null, fizzy(cmd.open(board)),
+          this.unfolded("not-now") && (stale || !lazy.notNow) ? fizzy(cmd.notNow(board)) : null,
+          this.unfolded("done") && (stale || !lazy.done) ? this.doneCards(board, null, lazy.shown, lazy.page) : null,
         ]);
+        let read = wantColumns ? listed ?? [] : null;
+        if (!read && (open ?? []).some(c => c.column?.id && !known.some(k => k.id === c.column.id))) read = (await fizzy(cmd.columns(board))) ?? [];
         this.meet([open, notNow]);
-        if (notNow) lazy.notNow = notNow.map(slim);
-        if (done) Object.assign(lazy, { done: done.cards, page: done.page, end: done.end });
-        this.columns.set(board, (columns ?? []).map(slimColumn));
+        if (notNow) { lazy.notNow = notNow.map(slim); lazy.errors["not-now"] = null; }
+        if (done) { Object.assign(lazy, { done: done.cards, page: done.page, end: done.end }); lazy.errors.done = null; }
+        if (read) this.columns.set(board, read.map(slimColumn));
         this.cards.set(board, (open ?? []).map(slim));
         keep(`data:${board}`, { columns: this.columns.get(board), open: this.cards.get(board) });
         if (this.board === board) { this.errors.board = null; this.prune(); }
@@ -669,12 +682,11 @@ export default class Fizzy extends View {
     });
   }
 
-  // Not Now and Done are read the first time they are opened.
+  // Not Now and Done are read each time they are unfolded.
   loadLane(kind, cx) {
     const board = this.board;
     if (!board) return;
-    const lazy = this.lazyOf(board), field = kind === "done" ? "done" : "notNow";
-    if (lazy[field]) return;
+    const lazy = this.lazyOf(board);
     this.load(`lane:${kind}:${board}`, cx, async () => {
       try {
         if (kind === "done") {
@@ -703,7 +715,9 @@ export default class Fizzy extends View {
     });
   }
 
-  // Cards assigned to the person on every board, CONCURRENCY boards at a time.
+  // Cards assigned to the person on every board. With no default board in the CLI that is one boardless `card list`; with
+  // one, a boardless list would read that board only, so each board is read, CONCURRENCY at a time. (The person is known only
+  // once `config show` has answered, so `fallback` is settled when this reads.)
   loadMine(cx) {
     if (!this.me) { this.fetchMe(cx); return; }
     const me = this.me, boards = this.boards ?? [];
@@ -719,6 +733,7 @@ export default class Fizzy extends View {
       return;
     }
     this.load("mine", cx, async cx => {
+      if (!this.fallback) { await this.mineAtOnce(me); return; }
       const failures = [];
       let next = 0;
       this.progress = { done: 0, total: boards.length };
@@ -743,51 +758,41 @@ export default class Fizzy extends View {
     });
   }
 
-  // The filter's words on every board, CONCURRENCY boards at a time (the filter itself only sees the cards already
-  // read). Words that change while it runs make it stop and drop what it found.
+  async mineAtOnce(me) {
+    try {
+      const cards = (await fizzy(cmd.mineAll(me))) ?? [];
+      this.meet(cards);
+      const mine = new Map((this.boards ?? []).map(b => [b.id, []]));
+      for (const card of cards.map(slim)) mine.get(card.board?.id)?.push(card);
+      this.mine = mine;
+      this.errors.mine = null;
+      this.prune();
+    } catch (e) { this.errors.mine = e; }
+  }
+
+  // The filter's words on every board and in comments: one `fizzy search`, its cards grouped by board (the filter itself
+  // only sees the cards already read). Words that change while it runs drop what it found.
   searchAll(cx) {
-    const q = this.filter.value().trim(), boards = this.boards ?? [];
-    if (!q || !boards.length) return;
-    const hunt = { q, found: new Map(), progress: { done: 0, total: boards.length }, error: null, failed: 0 };
+    const q = this.filter.value().trim();
+    if (!q || !(this.boards ?? []).length) return;
+    const hunt = { q, found: new Map(), count: 0, error: null, waiting: true };
     this.search = hunt;
     cx.notify();
-    this.load("search", cx, async cx => {
-      const failures = [];
-      let next = 0;
-      const worker = async () => {
-        for (let b = boards[next++]; b && this.search === hunt; b = boards[next++]) {
-          try {
-            const raw = (await fizzy(cmd.search(b.id, q))) ?? [];
-            this.meet(raw);
-            if (this.search === hunt) hunt.found.set(b.id, raw.map(slim));
-          } catch (e) { failures.push(e); }
-          hunt.progress.done++;
-          cx.notify();
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, boards.length) }, worker));
-      if (this.search !== hunt) return;
-      hunt.error = failures.length === boards.length ? failures[0] : null;
-      hunt.failed = failures.length;
-      hunt.progress = null;
+    this.load("search", cx, async () => {
+      try {
+        const cards = (await fizzy(cmd.search(q))) ?? [];
+        this.meet(cards);
+        if (this.search !== hunt) return;
+        for (const card of cards.map(slim)) hunt.found.set(card.board?.id, [...(hunt.found.get(card.board?.id) ?? []), card]);
+        hunt.count = cards.length;
+      } catch (e) { hunt.error = e; }
+      hunt.waiting = false;
     });
   }
 
   closeSearch(cx) {
     this.search = null;
     cx.notify();
-  }
-
-  loadInbox(cx) {
-    this.load("inbox", cx, async () => {
-      try {
-        const notes = await fizzy(cmd.inbox());
-        this.meet(notes);
-        this.inbox = unreadNotes(notes); // a read one in the answer is dropped: the Inbox is what's new
-        this.errors.inbox = null;
-        this.noteUnread(this.inbox);
-      } catch (e) { this.errors.inbox = e; }
-    });
   }
 
   loadPins(cx) {
@@ -813,7 +818,8 @@ export default class Fizzy extends View {
     return read;
   }
 
-  // The open card and its comments, asked together, and (`pins`) the pin list, which is where its pin state comes from.
+  // The open card and its comments, asked together, and (`pins`) the pin list, which is where its pin state comes from: the
+  // poll leaves it alone.
   loadCard(cx, pins = true) {
     const d = this.detail;
     if (!d) return;
@@ -828,32 +834,35 @@ export default class Fizzy extends View {
     if (pins) this.loadPins(cx);
   }
 
-  refreshList(cx) {
-    if (this.view === "board") this.loadBoard(cx);
+  // `fresh.columns`: the Board view reads the columns again, which a poll leaves alone (see loadBoard).
+  refreshList(cx, fresh) {
+    if (this.view === "board") this.loadBoard(cx, fresh);
     else if (this.view === "mine") this.loadMine(cx);
-    else if (this.view === "inbox") this.loadInbox(cx);
+    else if (this.view === "inbox") this.pollUnread(cx);
     else this.loadPins(cx);
   }
 
-  refreshAll(cx) {
-    this.refreshList(cx);
+  // `lanes`: a change or a Refresh leaves every lane read so far stale, to be read where it is unfolded: with the board's next read.
+  refreshAll(cx, fresh) {
+    if (fresh?.lanes) for (const lazy of this.lazy.values()) lazy.stale = true;
+    this.refreshList(cx, fresh);
     if (this.detail) this.loadCard(cx, this.view !== "pins");
   }
 
   // The poll: the card when one is open, else the list; nothing while a title, description, step or comment is edited.
-  // Mine asks every board (one read each), so on the timer it is read every other time; `force`: at once.
+  // Mine is read every other time on the timer; `force`: at once. The Inbox is not read here: the unread poll fills it.
   poll(cx, force = false) {
     if (this.editing) return;
-    if (this.detail) this.loadCard(cx);
-    else if (this.view !== "mine" || force || ++this.ticks % 2 === 0) this.refreshList(cx);
+    if (this.detail) this.loadCard(cx, false);
+    else if (this.view !== "inbox" && (this.view !== "mine" || force || ++this.ticks % 2 === 0)) this.refreshList(cx);
   }
 
   // Refresh and Retry: the boards too (a new one may have been made), the config and the person (the account may have
-  // changed), then whatever shows.
+  // changed), then whatever shows, columns and unfolded lanes included.
   retry(cx) {
     this.fetchBoards(cx);
     this.loadConfig(cx, true);
-    this.refreshAll(cx);
+    this.refreshAll(cx, { columns: true, lanes: true });
     cx.notify();
   }
 
@@ -922,7 +931,7 @@ export default class Fizzy extends View {
   async write(lists, cx, refresh = true) {
     try { for (const argv of lists) await fizzy(argv); }
     catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
-    if (refresh) this.refreshAll(cx);
+    if (refresh) this.refreshAll(cx, { lanes: true });
   }
 
   // `known`: the card as it is, when the caller has just read it. Called from an event handler or a timer, with
@@ -1100,7 +1109,7 @@ export default class Fizzy extends View {
           if (number != null) await fizzy(cmd.column(number, column));
         }
       } catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
-      this.refreshAll(cx);
+      this.refreshAll(cx, { lanes: true });
     });
   }
 
@@ -1569,7 +1578,7 @@ export default class Fizzy extends View {
         this.noteUnread(this.inbox);
         notify({ title: "Fizzy", body: explain(e), level: "error" });
       }
-      this.loadInbox(cx);
+      this.pollUnread(cx);
     });
   }
 
@@ -1594,7 +1603,7 @@ export default class Fizzy extends View {
         this.noteUnread(was ?? []);
         notify({ title: "Fizzy", body: explain(e), level: "error" });
       }
-      this.loadInbox(cx);
+      this.pollUnread(cx);
     });
   }
 
@@ -1922,8 +1931,7 @@ export default class Fizzy extends View {
       .child(svg(ICON("search")).size(13).flex_none())
       .child(div().flex_1().min_w(0).truncate().child(`Results for “${hunt.q}”`))
       .child(this.iconButton(t, "fizzy-search-close", ICON("x"), (_e, cx) => this.closeSearch(cx), true, "Back to the list")));
-    if (hunt.error) out.push(this.status(t, explain(hunt.error), cx, true, cx => this.searchAll(cx), "fizzy-search-retry"));
-    else if (hunt.failed) out.push(this.status(t, `${hunt.failed} board${hunt.failed === 1 ? "" : "s"} could not be searched`, cx));
+    if (hunt.error) out.push(this.status(t, explainSearch(hunt.error), cx, true, cx => this.searchAll(cx), "fizzy-search-retry"));
     let total = 0;
     for (const board of this.boards ?? []) {
       const cards = hunt.found.get(board.id) ?? [];
@@ -1932,10 +1940,9 @@ export default class Fizzy extends View {
       out.push(h_flex().id(`fizzy-search-board-${board.id}`).h(26).flex_none().px(8).items_center().font_medium().text_size(12).text_color(t.muted).child(div().min_w(0).truncate().child(board.name)));
       for (const card of cards) out.push(this.cardRow(t, card, null, laneColor(card)));
     }
-    if (hunt.progress) {
-      const left = hunt.progress.total - hunt.progress.done;
-      out.push(this.status(t, `Searching ${left} board${left === 1 ? "" : "s"}…`, cx));
-    } else if (!total && !hunt.error) out.push(this.status(t, "No cards found", cx));
+    if (hunt.waiting) out.push(this.status(t, "Searching…", cx));
+    else if (!total && !hunt.error) out.push(this.status(t, "No cards found", cx));
+    if (hunt.count === SEARCH_CAP) out.push(this.status(t, `Fizzy shows its ${SEARCH_CAP} newest matches. Add words to narrow it.`, cx));
     return out;
   }
 
@@ -2312,13 +2319,15 @@ export default class Fizzy extends View {
     const req = shared("fizzy.request");
     if (!req?.id || req.id === this.handled) return;
     this.handled = req.id;
-    if (drawing) cx.timer.after(1, cx => this.doRequest(req.op, cx));
-    else this.doRequest(req.op, cx);
+    if (drawing) cx.timer.after(1, cx => this.doRequest(req, cx));
+    else this.doRequest(req, cx);
   }
 
-  doRequest(op, cx) {
+  // The request's text (a hand-off) must not stay in shared state, which Herdr keeps in a file anyone can read.
+  doRequest({ id, op }, cx) {
     try { this.apply(op, cx); }
     catch (e) { notify({ title: "Fizzy", body: why(e), level: "error" }); }
+    if (shared("fizzy.request")?.id === id) setShared("fizzy.request", null);
   }
 
   listFor(t, cx) {

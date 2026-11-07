@@ -75,7 +75,7 @@ export function execFailure(error) {
 export function explain(error) {
   if (typeof error === "string") return error;
   switch (error?.code) {
-    case "auth_required": return "Not signed in to Fizzy: run `fizzy auth login <token>` in a terminal";
+    case "auth_required": return "Not signed in to Fizzy: run `fizzy setup` in a terminal";
     case "network": return "Can't reach Fizzy";
     case "not_found": return "Not found in Fizzy: it was deleted, or you can't see it";
     case "forbidden": return "Fizzy doesn't let you do that";
@@ -84,6 +84,14 @@ export function explain(error) {
     case "TIMEOUT": return "Fizzy took too long to answer";
     default: return error?.message || "Something went wrong with Fizzy";
   }
+}
+
+export const SEARCH_CAP = 15;
+export function explainSearch(error) {
+  if (error?.code === "TIMEOUT" || error?.code === "rate_limit") {
+    return "Fizzy didn't answer the search. Its search limit (300 an hour, shared with your agents) may be used up. Try again later.";
+  }
+  return explain(error);
 }
 
 // --jq projections: an answer cut down to the envelope's `ok` and the fields the panel reads. A failure's envelope passes
@@ -99,7 +107,7 @@ export const JQ = {
   config: "{ok, data: (.data | {account, board})}",
 };
 
-// The argv after "fizzy" for each command; withJson adds the --json every call ends with. Every flag here but --jq, which
+// The argv after "fizzy" for each command; withJson adds the --json. Every flag here but --jq, which
 // every command takes and only `fizzy --help` lists, is one `fizzy <command> --help` lists.
 export const cmd = {
   boards: () => ["board", "list", "--all"],
@@ -108,7 +116,8 @@ export const cmd = {
   notNow: board => ["card", "list", "--board", board, "--indexed-by", "not_now", "--all", "--jq", JQ.cards],
   done: (board, page = 1) => ["card", "list", "--board", board, "--indexed-by", "closed", "--page", String(page), "--jq", JQ.page],
   mine: (board, me) => ["card", "list", "--board", board, "--assignee", me, "--all", "--jq", JQ.cards],
-  search: (board, q) => ["card", "list", "--board", board, "--search", q, "--all", "--jq", JQ.cards],
+  mineAll: me => ["card", "list", "--assignee", me, "--all", "--jq", JQ.cards],
+  search: q => ["search", "--jq", JQ.cards, "--", String(q ?? "").replace(/^\s*#?/, "").trim()],
   card: n => ["card", "show", String(n)],
   comments: n => ["comment", "list", "--card", String(n), "--all"],
   users: () => ["user", "list", "--all"],
@@ -143,8 +152,11 @@ export const cmd = {
   readAll: () => ["notification", "read-all"],
 };
 
-// What runs: a builder's argv with --json last, so the answer is the JSON envelope even where the CLI would pick styled text.
-export const withJson = args => [...args, "--json"];
+// What runs: a builder's argv with --json last, or before a `--` separator (one that follows a value: `--title --` is a title), so the answer is the JSON envelope.
+export function withJson(args) {
+  const at = args.findIndex((a, i) => a === "--" && !String(args[i - 1]).startsWith("-"));
+  return at < 0 ? [...args, "--json"] : [...args.slice(0, at), "--json", ...args.slice(at)];
+}
 
 const idOf = x => (x && typeof x === "object" ? x.id : x);
 
@@ -563,9 +575,10 @@ export function ago(iso, now) {
   return at.getFullYear() === new Date(n).getFullYear() ? day : `${day}, ${at.getFullYear()}`;
 }
 
-// Walks from "$1" up to / and prints the first .fizzy.yaml it finds; exits 1 when there is none (or "$1" is not
-// an absolute path). Only `[` and `cat`: it reads, never writes. Plain POSIX sh, run as sh -c SCRIPT fizzy <folder>.
-export const YAML_SCRIPT = 'd=$1; case $d in /*) ;; *) exit 1;; esac; while :; do while :; do case $d in */) d=${d%/};; *) break;; esac; done; if [ -f "$d/.fizzy.yaml" ]; then cat "$d/.fizzy.yaml"; exit; fi; [ -n "$d" ] || exit 1; d=${d%/*}; done';
+// Walks from "$1" up to / and prints the `board:` line of the first .fizzy.yaml it finds, and nothing else of the file (it may
+// hold a token), also behind a UTF-8 byte-order mark; exits 1 when there is no such file or line (or "$1" is not an absolute
+// path). Only `[`, `printf` and `grep`: it reads, never writes. Plain POSIX sh, run as sh -c SCRIPT fizzy <folder>.
+export const YAML_SCRIPT = "d=$1; case $d in /*) ;; *) exit 1;; esac; bom=$(printf '\\357\\273\\277'); while :; do while :; do case $d in */) d=${d%/};; *) break;; esac; done; if [ -f \"$d/.fizzy.yaml\" ]; then grep -E \"^($bom)?board[ \t]*:\" \"$d/.fizzy.yaml\"; exit; fi; [ -n \"$d\" ] || exit 1; d=${d%/*}; done";
 
 // One value after "key:": quotes come off (and what follows the closing quote, a comment, is dropped); an
 // unquoted value ends where " #" starts.

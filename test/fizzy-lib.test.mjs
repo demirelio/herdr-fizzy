@@ -15,7 +15,7 @@ import {
 
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
-  FizzyError, parseResult, execFailure, explain, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, lanes, sections, filterCards, colorOf, meFrom,
+  FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, lanes, sections, filterCards, colorOf, meFrom,
   ref, refs, tabName, textToHtml, htmlToText, htmlForView, textLines, formatted, initials, hue, ago,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
@@ -47,7 +47,8 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.done("b1"), ["card", "list", "--board", "b1", "--indexed-by", "closed", "--page", "1", "--jq", JQ.page]);
   assert.deepEqual(cmd.done("b1", 3), ["card", "list", "--board", "b1", "--indexed-by", "closed", "--page", "3", "--jq", JQ.page]);
   assert.deepEqual(cmd.mine("b1", "u1"), ["card", "list", "--board", "b1", "--assignee", "u1", "--all", "--jq", JQ.cards]);
-  assert.deepEqual(cmd.search("b1", "login bug"), ["card", "list", "--board", "b1", "--search", "login bug", "--all", "--jq", JQ.cards]);
+  assert.deepEqual(cmd.mineAll("u1"), ["card", "list", "--assignee", "u1", "--all", "--jq", JQ.cards], "no --board: every board");
+  assert.deepEqual(cmd.search("login bug"), ["search", "--jq", JQ.cards, "--", "login bug"]);
   assert.deepEqual(cmd.card(4242), ["card", "show", "4242"]);
   assert.deepEqual(cmd.comments(4242), ["comment", "list", "--card", "4242", "--all"]);
   assert.deepEqual(cmd.users(), ["user", "list", "--all"]);
@@ -95,7 +96,7 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
 
 test("every argv a builder makes is all strings, and the fake fizzy CLI the panel's tests run on answers each one", async () => {
   const argvs = [
-    cmd.boards(), cmd.columns("b1"), cmd.open("b1"), cmd.notNow("b1"), cmd.done("b1", 2), cmd.mine("b1", "u-me"), cmd.search("b1", "login"), cmd.card(101),
+    cmd.boards(), cmd.columns("b1"), cmd.open("b1"), cmd.notNow("b1"), cmd.done("b1", 2), cmd.mine("b1", "u-me"), cmd.mineAll("u-me"), cmd.search("login"), cmd.card(101),
     cmd.comments(101), cmd.users(), cmd.tags(), cmd.pins(), cmd.inbox(), cmd.me(), cmd.config(), cmd.create("b1", "t", "<p>d</p>"),
     cmd.update(101, { title: "t", html: "<p>d</p>" }), cmd.column(101, "c1"), cmd.postpone(101), cmd.untriage(101), cmd.close(101), cmd.reopen(101),
     cmd.golden(101, true), cmd.golden(101, false), cmd.pin(101, true), cmd.pin(101, false), cmd.watch(101, true), cmd.watch(101, false),
@@ -118,6 +119,29 @@ test("withJson: what runs is a builder's argv with --json last, reads and writes
   const argv = cmd.close(7);
   withJson(argv);
   assert.deepEqual(argv, ["card", "close", "7"], "the builder's own list is left as it was");
+});
+
+test("withJson puts --json before the `--` a search's query follows, so the query stays the last word", () => {
+  assert.deepEqual(withJson(cmd.search("login")), ["search", "--jq", JQ.cards, "--json", "--", "login"]);
+  assert.deepEqual(withJson(cmd.search("--json")), ["search", "--jq", JQ.cards, "--json", "--", "--json"], "a query that looks like a flag is still only the query");
+  assert.deepEqual(withJson(cmd.search("--")), ["search", "--jq", JQ.cards, "--json", "--", "--"]);
+});
+
+test("a `--` that is a flag's value is not a separator: a title or a step typed as -- keeps --json last", () => {
+  assert.deepEqual(withJson(cmd.create("b1", "--")), ["card", "create", "--board", "b1", "--title", "--", "--json"]);
+  assert.deepEqual(withJson(cmd.addStep(7, "--")), ["step", "create", "--card", "7", "--content", "--", "--json"]);
+});
+
+test("search: the query loses its surrounding white space and one leading #, and is the one word after `--`", () => {
+  const sent = q => cmd.search(q).slice(4);
+  assert.deepEqual(sent("#12"), ["12"], "a card number is searched as the number");
+  assert.deepEqual(sent("  #12  "), ["12"]);
+  assert.deepEqual(sent("# 12"), ["12"]);
+  assert.deepEqual(sent("##12"), ["#12"], "only one #");
+  assert.deepEqual(sent("  login bug \n"), ["login bug"]);
+  assert.deepEqual(sent("-x --all"), ["-x --all"], "after --, a leading dash is part of the query");
+  assert.deepEqual(sent("a#b & c+d % ü"), ["a#b & c+d % ü"], "the CLI encodes it: nothing is escaped here");
+  assert.deepEqual(cmd.search("x").slice(0, 4), ["search", "--jq", JQ.cards, "--"]);
 });
 
 test("constants", () => {
@@ -224,7 +248,8 @@ test("execFailure: Herdr's stop at its time limit is TIMEOUT, any other rejectio
 
 test("explain says what to do about each kind of error", () => {
   const said = result => { try { parseResult(result); } catch (e) { return explain(e); } return null; };
-  assert.equal(said(NO_TOKEN), "Not signed in to Fizzy: run `fizzy auth login <token>` in a terminal");
+  assert.equal(said(NO_TOKEN), "Not signed in to Fizzy: run `fizzy setup` in a terminal");
+  assert.doesNotMatch(said(NO_TOKEN), /auth login/, "a token typed on a command line stays in shell history");
   assert.equal(said(NOT_FOUND), "Not found in Fizzy: it was deleted, or you can't see it");
   assert.equal(said(USAGE), "unknown flag: --nope");
   assert.equal(explain(new FizzyError("Network error", "network")), "Can't reach Fizzy");
@@ -238,6 +263,17 @@ test("explain says what to do about each kind of error", () => {
   assert.equal(explain("text"), "text");
   assert.equal(explain(null), "Something went wrong with Fizzy");
   assert.equal(explain({}), "Something went wrong with Fizzy");
+});
+
+test("explainSearch: a search Fizzy did not answer (TIMEOUT, rate_limit) points at the search limit; any other error is explained as usual", () => {
+  const LIMIT = "Fizzy didn't answer the search. Its search limit (300 an hour, shared with your agents) may be used up. Try again later.";
+  assert.equal(explainSearch(execFailure(new Error("fizzy took longer than 30 s and was stopped"))), LIMIT);
+  assert.equal(explainSearch(new FizzyError("Rate limited", "rate_limit")), LIMIT);
+  assert.equal(explainSearch(new FizzyError("Network error", "network")), "Can't reach Fizzy");
+  assert.equal(explainSearch(new FizzyError("x", "auth_required")), "Not signed in to Fizzy: run `fizzy setup` in a terminal");
+  assert.equal(explainSearch(execFailure(new Error("cannot start fizzy"))), "The fizzy CLI isn't installed (or not on PATH)");
+  assert.equal(explainSearch(null), "Something went wrong with Fizzy");
+  assert.equal(SEARCH_CAP, 15);
 });
 
 test("laneOf: closed is Done, postponed is Not Now, no column is Maybe?, else the column", () => {
@@ -916,9 +952,11 @@ test("YAML_SCRIPT is plain POSIX sh that only reads", () => {
   assert.doesNotMatch(YAML_SCRIPT, /[>]|\btee\b|\brm\b|\bmv\b|\bcp\b|\btouch\b|\bmkdir\b|\bsed\b|\bcurl\b|\bwget\b|\bnc\b/, "no writes, no network");
   assert.doesNotMatch(YAML_SCRIPT, /\[\[|\bfunction\b|<\(|\$'|\bsource\b|\bpushd\b/, "no bashisms");
   assert.match(YAML_SCRIPT, /\.fizzy\.yaml/);
+  assert.match(YAML_SCRIPT, /grep -E "\^\(\$bom\)\?board/, "it prints the board line only");
+  assert.doesNotMatch(YAML_SCRIPT, /\bcat\b/, "never the whole file");
 });
 
-test("YAML_SCRIPT prints the nearest .fizzy.yaml walking up, and handles odd folder names", async () => {
+test("YAML_SCRIPT prints the board line of the nearest .fizzy.yaml walking up, never the rest of the file, and handles odd folder names", async () => {
   const dir = await mkdtemp(join(tmpdir(), "fizzy-yaml-"));
   try {
     const top = join(dir, "top project"), mid = join(top, "with space", "deeper folder"), odd = join(mid, `$weird 'q' "d" \`x\`;*&`), leaf = join(odd, "leaf");
@@ -927,7 +965,8 @@ test("YAML_SCRIPT prints the nearest .fizzy.yaml walking up, and handles odd fol
     await mkdir(join(trap, ".fizzy.yaml"), { recursive: true });
     await mkdir(join(trap, "inner"), { recursive: true });
     await mkdir(other, { recursive: true });
-    const topText = "# top\naccount: 111\nboard: TOP\n", midText = "board: MID\nnote: ünï çödé 中文\r\nnoeol: yes";
+    const topText = "# top\ntoken: TOP-SECRET\naccount: 111\nboard: TOP\n";
+    const midText = "token: MID-SECRET\nboard: MID\nboards: no\nboardx: no\n  board: nested\nnote: ünï çödé 中文\r\nnoeol: yes";
     await writeFile(join(top, ".fizzy.yaml"), topText);
     await writeFile(join(mid, ".fizzy.yaml"), midText);
 
@@ -940,18 +979,44 @@ test("YAML_SCRIPT prints the nearest .fizzy.yaml walking up, and handles odd fol
         assert.equal(r.stdout, want, `${name}: ${why}`);
         assert.equal(r.stderr, "", `${name}: ${why}: quiet`);
       };
-      found(mid, midText, "the folder that has it, byte for byte (CRLF, no final newline)");
-      found(leaf, midText, "from below, the nearest one wins");
-      found(odd, midText, "a folder named with quotes, $, backticks, ; * & and spaces");
-      found(top, topText, "the outer one from its own folder");
-      found(other, topText, "from a sibling branch with spaces: the outer one");
-      found(`${leaf}/`, midText, "a trailing slash");
-      found(`${leaf}///`, midText, "several trailing slashes");
-      found(join(trap, "inner"), topText, "a folder named .fizzy.yaml is not the file");
-      found(trap, topText, "nor is it the file one level up");
+      const topLine = "board: TOP\n", midLine = "board: MID\n";
+      found(mid, midLine, "the folder that has it: its board line, and no token, other key or indented board");
+      found(leaf, midLine, "from below, the nearest one wins");
+      found(odd, midLine, "a folder named with quotes, $, backticks, ; * & and spaces");
+      found(top, topLine, "the outer one from its own folder");
+      found(other, topLine, "from a sibling branch with spaces: the outer one");
+      found(`${leaf}/`, midLine, "a trailing slash");
+      found(`${leaf}///`, midLine, "several trailing slashes");
+      found(join(trap, "inner"), topLine, "a folder named .fizzy.yaml is not the file");
+      found(trap, topLine, "nor is it the file one level up");
       assert.deepEqual(parseYaml(walk(shell, leaf).stdout), { board: "MID" });
       assert.deepEqual(snapshot(dir), before, `${name}: nothing was written, touched or removed`);
       assert.equal(readFileSync(join(mid, ".fizzy.yaml"), "utf8"), midText);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("YAML_SCRIPT never prints a token: a file with no board line gives exit 1 and no output; a tab, CRLF or leading byte-order mark still parses", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "fizzy-yaml-"));
+  try {
+    const none = join(dir, "none"), tabbed = join(dir, "tabbed"), crlf = join(dir, "crlf"), marked = join(dir, "marked");
+    for (const folder of [none, tabbed, crlf, marked]) await mkdir(folder, { recursive: true });
+    await writeFile(join(none, ".fizzy.yaml"), "token: NONE-SECRET\naccount: 111\n");
+    await writeFile(join(tabbed, ".fizzy.yaml"), "token: TAB-SECRET\nboard\t:\tTAB\n");
+    await writeFile(join(crlf, ".fizzy.yaml"), "token: CRLF-SECRET\r\nboard: CRLF\r\n");
+    await writeFile(join(marked, ".fizzy.yaml"), "\uFEFFboard: MARKED\ntoken: MARKED-SECRET\n");
+    for (const shell of SHELLS) {
+      const name = shell.join(" ");
+      const noBoard = walk(shell, none);
+      assert.deepEqual([noBoard.status, noBoard.stdout], [1, ""], `${name}: only a token and an account`);
+      for (const [folder, board] of [[tabbed, "TAB"], [crlf, "CRLF"], [marked, "MARKED"]]) {
+        const r = walk(shell, folder);
+        assert.equal(r.status, 0, name);
+        assert.doesNotMatch(r.stdout, /SECRET/, name);
+        assert.deepEqual(parseYaml(r.stdout), { board }, name);
+      }
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

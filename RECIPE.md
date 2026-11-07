@@ -38,7 +38,7 @@ theme names.
   - Inbox: a **Mark all read** button, then one block per note: a 7 px `accent` dot, the sender's 16 px avatar, the
     title in semibold; the text (12 px, `dim`, wrapping); `#number · board · sender · time` (11 px, `dim`).
   - Under Board or Mine filtered by words, a 30 px row **Search all boards for "…"**.
-  - States as one dim 12 px line: `Loading…`, `No cards`, `No cards match`, `No cards found` (Search all boards),
+  - States as one dim 12 px line: `Loading…`, `Searching…` (Search all boards), `No cards`, `No cards match`, `No cards found` (Search all boards),
     `No boards`, `No pinned cards`, `You're all caught up`; an error adds a 28 px **Retry** row.
 - **The bar**, at the foot, `chrome` behind it, a 1 px line above it, padding 6: four buttons sharing the width, each 28
   px, rounded 7, `raised`, 12 px medium: **Insert**, **Send** ▾, **Start** ▾, **Copy**, each with a 13 px icon before
@@ -86,8 +86,13 @@ dot after the label while `fizzy.unread` is above zero.
   cards moves it there; the change shows at once and the list reads again after the CLI answers.
 - **Picking.** ⌘-click or Ctrl-click a card toggles it in the picked set (`selected`); a plain click opens it.
 - **Filter.** Every word must appear in the title, `#number`, a tag, an assignee's name, the column or the first 300
-  characters of the description. **Search all boards** asks every board, six at a time, and shows
-  `Searching N boards…`, then a section per board; the x closes it, and changing the words drops it.
+  characters of the description. **Search all boards** is one `fizzy search` (account-wide: every board, open, Not Now
+  and closed cards, comments), shows `Searching…`, then a section per board; the x closes it, and changing the words
+  drops it. A leading `#` and surrounding white space are cut from the words. When 15 cards come back (Fizzy's most),
+  a dim line says `Fizzy shows its 15 newest matches. Add words to narrow it.` When Fizzy does not answer (TIMEOUT or
+  `rate_limit`: its limit is 300 searches an hour per user), the line says `Fizzy didn't answer the search. Its search
+  limit (300 an hour, shared with your agents) may be used up. Try again later.` with Retry, and nothing retries by
+  itself.
 - **Card.** Click the title to rename (Enter saves, Escape or the x cancels); the lane chip opens the lanes popup;
   People and Tags open their pickers (people: you first, with `you` as the hint; tags: a "New tag…" field at the top).
   The description and comments are edited as plain text: blank lines split paragraphs, a single line break stays, and
@@ -112,15 +117,22 @@ dot after the label while `fizzy.unread` is above zero.
   the first line up to 140, `#N`, the board), at most three per poll plus `N more in Fizzy`. A panel with nothing
   remembered learns what is there without toasts. A toast's click opens its card and marks it read, bringing the
   Fizzy page up first when needed.
-- **Inbox.** Only unread notes, newest first. A click marks the note read, removes it and opens its card; Mark all read
-  empties the list. A refusal from Fizzy puts the note back.
-- **Polling.** Every 30 s while the page shows (and at once when it shows again): the open card, its comments and the
-  pin list, else the view (Mine every other time); never while a title, description, step or comment is edited.
+- **Inbox.** Only unread notes, newest first, filled by the same unread poll (one `notification tray` per 30 s in every
+  view; opening the Inbox or Refresh in it runs that poll). A click marks the note read, removes it and opens its card;
+  Mark all read empties the list. A refusal from Fizzy puts the note back.
+- **Polling.** Every 30 s while the page shows (and at once when it shows again): the open card and its comments, else
+  the view (Mine every other time; the Inbox is not read here); never while a title, description, step or comment is
+  edited. The Board view's poll reads the open cards, and the columns only when they are not known yet, on Refresh, or
+  when an open card names a column that is not among them. Not Now and Done are read when unfolded, on Refresh, and
+  after a write while unfolded; a folded lane is never read, and an unfolded lane with no data (after a restart, or on
+  switching to a board whose saved fold state has it open) is read by the board's read. The pin list is read when a
+  card opens, after a write and in the Pins view. Mine is one boardless `card list --assignee <user> --all` grouped by
+  board when the CLI has no default board (with one, a boardless list reads that board only, so each board is read).
 - **Board groups.** + adds a group at the top. Clicking the name or the rule edits it in place; the bin asks once
   (`Delete?`); the eye hides; clicking the rest of the line folds. A press with ⌘ or Ctrl held on a board or group picks
   it up: the block under the pointer is `selected` (for a board) or shows a 2 px `accent` line where a group lands, and
   letting go places it. The dropdown leaves out hidden boards and groups, except the board shown.
-- **Errors** are shown as text: ``Not signed in to Fizzy: run `fizzy auth login <token>` in a terminal``,
+- **Errors** are shown as text: ``Not signed in to Fizzy: run `fizzy setup` in a terminal``,
   `The fizzy CLI isn't installed (or not on PATH)`, `Fizzy took too long to answer`, `Can't reach Fizzy`, `Not found
   in Fizzy: it was deleted, or you can't see it`, `Fizzy doesn't let you do that`, `Fizzy is busy: try again in a
   minute`, else the CLI's own message.
@@ -153,17 +165,19 @@ dot after the label while `fizzy.unread` is above zero.
   `layout.show` (a toast); toast actions `fizzy.open:<n>:<id>`, `layout.show {id: "panel"}`,
   `layout.select {stack: "panel-body", child: "fizzy"}`. The tab bar: `layout.select`, `layout.show`, `layout.hide`.
 - **Shared state.** `fizzy.unread`, `fizzy.boards`, `fizzy.people`, `fizzy.avatars`, `fizzy.boardGroups` (written by
-  the panel); `fizzy.request` and `fizzy.board` (a popup's action and board choice, done by the panel).
+  the panel); `fizzy.request` and `fizzy.board` (a popup's action and board choice, done by the panel, which sets
+  `fizzy.request` to null afterwards so a hand-off's text does not stay in `shared.json`).
 - **Programs.** `fizzy` 4 or newer, always run from the home folder, every command ending with `--json`. It reads with
   `board list --all`, `column list --board`, `card list --board <id> --all` (also with `--indexed-by not_now`,
-  `--assignee <user>` or `--search <words>`; Done as `--indexed-by closed --page <n>`), `card show`,
+  `--assignee <user>`, also with no `--board`; Done as `--indexed-by closed --page <n>`), `search --jq … -- <words>`
+  (words after `--`, so a leading `-` stays a word; `--json` goes before the `--`), `card show`,
   `comment list --card <n> --all`, `user list --all`, `tag list --all`, `pin list`, `notification tray`,
-  `identity show` and `config show`. `card list`, `pin list`, `notification tray` and `config show` carry a `--jq`
-  projection: only the envelope's `ok` and the fields the panel uses come back. It writes with the `card` commands
+  `identity show` and `config show`. `card list`, `search`, `pin list`, `notification tray` and `config show` carry a
+  `--jq` projection: only the envelope's `ok` and the fields the panel uses come back. It writes with the `card` commands
   `create`, `update`, `column`, `postpone`, `untriage`, `close`, `reopen`, `golden`, `ungolden`, `pin`, `unpin`,
   `watch`, `unwatch`, `self-assign`, `assign`, `tag`, `move` and `delete`; `step create`, `update` and `delete`;
   `comment create`, `update` and `delete`; `notification read` and `read-all`. Then `sh -c` with a script that walks
-  up for `.fizzy.yaml` (`[` and `cat` only), run with `exec(…, { on: space.machine })`, and `sh -c` with a script that
+  up for `.fizzy.yaml` and prints its `board:` line only (`[` and `grep` only), run with `exec(…, { on: space.machine })`, and `sh -c` with a script that
   fetches a photo with `curl` into `<appHome>/data/fizzy/avatars/<user id>-<YYYYMMDD>.<ext>`.
 - **Art.** Lucide icons in `mods/fizzy/` (24×24, `stroke="currentColor"`): arrow-left, bot, check, chevron-down,
   chevron-right, copy, external-link, eye, eye-off, insert (Lucide's corner-down-left), kanban (square-kanban), link,
@@ -221,7 +235,7 @@ dot after the label while `fizzy.unread` is above zero.
   current space is on.
 - With the panel hidden, a new notification gives a toast within 30 s and the tab bar's dot; clicking the toast brings
   the Fizzy page up with that card open, and the notification is read.
-- With the CLI signed out, the panel says ``Not signed in to Fizzy: run `fizzy auth login <token>` in a terminal`` and
+- With the CLI signed out, the panel says ``Not signed in to Fizzy: run `fizzy setup` in a terminal`` and
   offers Retry.
 - At 280 px the header, the board row and the bar's four buttons each fit on one line.
 - `npm test` passes.
