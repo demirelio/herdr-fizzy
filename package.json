@@ -1,0 +1,13 @@
+{
+  "name": "herdr-fizzy",
+  "private": true,
+  "description": "A Herdr mod that shows your Fizzy boards, cards and notifications in a side panel, through the fizzy CLI.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --import ./test/register.mjs --test \"test/*.test.mjs\""
+  }
+}

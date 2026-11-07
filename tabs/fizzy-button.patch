@@ -1,0 +1,84 @@
+--- a/main.js
++++ b/main.js
+@@ -1,6 +1,6 @@
+ import { View, div, svg, image } from "gpui-kit";
+ import { h_flex } from "gpui-base";
+-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
++import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, nextCommand } from "herdr";
+ 
+ function find(node, id) {
+   if (node?.id === id) return node;
+@@ -12,9 +12,18 @@
+ }
+ 
+ export default class Tabs extends View {
+-  init() {
++  init(_props, cx) {
+     this.pressed = null;
+     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
++    // This mod's only nextCommand() loop: dispatch any other key command here too.
++    // A reload ends the old build's loop at its next cx use, hence the notify every turn.
++    cx.spawn(async cx => {
++      for (;;) {
++        const command = await nextCommand();
++        try { this.panelCommand(command); } catch {}
++        cx.notify();
++      }
++    });
+   }
+ 
+   // The side panel is remembered per space: switching shows that space's choice
+@@ -45,6 +54,23 @@
+     localStorage.setItem("panels", JSON.stringify(this.panels));
+   }
+ 
++  offeredPanels(body) {
++    const chosen = shared("workspace.panels") ?? ["files", "changes"];
++    return body?.children?.some(c => c.id === "fizzy") ? [...chosen, "fizzy"] : chosen;
++  }
++
++  // "panel:<page>" ("<key>": "<this mod>.panel:fizzy" in keys.json) does what that page's button does.
++  panelCommand(command) {
++    const page = /^\s*panel[:\s]\s*([\w-]+)\s*$/i.exec(String(command))?.[1]?.toLowerCase();
++    if (page && this.offeredPanels(find(layout(), "panel-body")).includes(page)) this.togglePanel(page);
++  }
++
++  togglePanel(id) {
++    const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
++    if (panel && !panel.hidden && body?.active === id) run("layout.hide", { id: "panel" });
++    else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
++  }
++
+   render() {
+     const t = theme();
+     const space = spaces().find(p => p.active);
+@@ -77,17 +103,15 @@
+       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
+       : 10;
+     const panel = find(root, "panel"), body = find(root, "panel-body");
+-    const enabled = shared("workspace.panels") ?? ["files", "changes"];
++    const enabled = this.offeredPanels(body);
+     this.syncPanel(space, panel, body, enabled);
+-    const panelButton = (id, label, icon) => {
++    const panelButton = (id, label, icon, dot = false) => {
+       const on = panel && !panel.hidden && body?.active === id;
+       return h_flex().id(`panel-${id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
+         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
+         .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
+-        .on_click(() => {
+-          if (on) run("layout.hide", { id: "panel" });
+-          else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+-        }).child(svg(icon).size(14)).child(label);
++        .on_click(() => this.togglePanel(id)).child(svg(icon).size(14)).child(label)
++        .when(dot, el => el.child(div().id(`panel-${id}-dot`).size(6).flex_none().rounded(3).bg(t.accent)));
+     };
+     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+       .on_mouse_up("left", () => { this.pressed = null; })
+@@ -96,6 +120,7 @@
+       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })))
+       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
+       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
++      .when(enabled.includes("fizzy"), el => el.child(panelButton("fizzy", "Fizzy", "mods/fizzy/kanban.svg", Number(shared("fizzy.unread")) > 0)))
+       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
+         .child(button("maximize", w.platform === "windows" ? svg(`mods/tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
+         .child(button("close-window", w.platform === "windows" ? svg("mods/tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));

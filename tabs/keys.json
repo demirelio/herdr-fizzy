@@ -1,0 +1,6 @@
+{
+  "global": {
+    "cmd-shift-j": "fizzy-tabs.panel:fizzy",
+    "ctrl-shift-j": "fizzy-tabs.panel:fizzy"
+  }
+}
