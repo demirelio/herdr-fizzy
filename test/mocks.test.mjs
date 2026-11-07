@@ -20,7 +20,7 @@ test("an input state keeps its text, its options and its handlers, and records f
   s.set_value("x");
   assert.equal(s.value(), "x");
   s.replace("y");
-  assert.equal(s.value(), "y");
+  assert.equal(s.value(), "xy", "replace() types at the cursor, which set_value() leaves at the end");
   assert.equal(InputState.new().value(), "", "no value: empty");
 
   const seen = [];
@@ -32,6 +32,29 @@ test("an input state keeps its text, its options and its handlers, and records f
   s.submit();
   assert.deepEqual(seen, [["change", "typed", "cx"], ["submit", "typed"]]);
   assert.equal(typeof s.handlers.change, "function", "handlers sit under state.handlers[event]");
+});
+
+test("a text state keeps inline tokens where they stand: put in at the cursor or over a range, moved by an edit before them, gone when an edit touches them", () => {
+  const s = TextareaState.new();
+  const ada = { id: "user:u1", text: "@Ada", label: "Ada" }, card = { id: "card:7", text: "#7 Fix", label: "#7 Fix" };
+  s.set_value("Hi ");
+  s.replace_with_token(ada);
+  s.replace(" and @");
+  assert.deepEqual(s.content(), { text: "Hi @Ada and @", tokens: [{ range: { start: 3, end: 7 }, token: ada }] });
+  s.replace_range_with_token({ start: 12, end: 13 }, card);
+  assert.deepEqual(s.selection, { start: 18, end: 18 }, "the cursor after the token");
+  assert.deepEqual(s.tokens().map(t => [s.value().slice(t.range.start, t.range.end), t.token.id]), [["@Ada", "user:u1"], ["#7 Fix", "card:7"]]);
+  s.edit(`Oh, ${s.value()}`);
+  assert.deepEqual(s.tokens().map(t => [t.range.start, t.token.id]), [[7, "user:u1"], [16, "card:7"]], "moved by the edit before them");
+  s.edit("Oh, Hi @Adx and #7 Fix");
+  assert.deepEqual(s.tokens().map(t => t.token.id), ["card:7"], "an edit inside a token takes it out");
+  s.set_selected_range({ start: 0, end: 4 });
+  s.replace("");
+  assert.equal(s.value(), "Hi @Adx and #7 Fix", "replace() over a selection");
+  s.set_value({ text: "x @Ada", tokens: [{ range: { start: 2, end: 6 }, token: ada }] });
+  assert.deepEqual(s.content().tokens, [{ range: { start: 2, end: 6 }, token: ada }], "set_value() takes a content with its tokens");
+  s.set_value("plain");
+  assert.deepEqual(s.tokens(), [], "and plain text has none");
 });
 
 test("input and textarea elements carry their state and take the usual style builders", () => {

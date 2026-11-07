@@ -3,9 +3,10 @@
 Your Fizzy boards, cards and notifications in Herdr's side panel, through the `fizzy` CLI.
 
 The **Fizzy** page sits in Herdr's right panel, next to Files and Changes. It shows a board lane by lane, the cards
-assigned to you on every board, your unread notifications and your pinned cards. You can open a card and change it
-without leaving Herdr, and hand it to a coding agent running in Herdr. Nothing is ever sent to an agent for you: a
-hand-off puts the card's reference in the agent's input box, and you press Enter yourself.
+assigned to you on every board, your unread notifications and your pinned cards, and it searches every board. You can
+make a card, open one and change it, comment with mentions, card links and images, and react, without leaving Herdr,
+and hand a card to a coding agent running in Herdr. Nothing is ever sent to an agent for you: a hand-off puts the
+card's reference in the agent's input box, and you press Enter yourself.
 
 The repo holds:
 
@@ -21,40 +22,70 @@ The repo holds:
 ## What you see
 
 **The header.** From the left: **Fizzy** (its icon and name; below 440 px of panel width, the icon alone) shows the
-Board view. Then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, then **Refresh** and
-**Settings**, and in the top right corner **New card**, a button in the primary color: with its plus and its full name
-from 440 px of panel width, as "New" from 340 px, and below that as the plus alone (Refresh is left out there; the
-`refresh` key and the 30-second poll still read again). **New card** opens a picker of your boards under "New card on",
-the board shown ticked and highlighted; choosing one moves the panel to that board (the Board view) and opens the
-new-card field in Maybe? there. On the Board view only, the **board row** sits under the header: a select with the
-board's name (click it to pick another board; it says "Following space" while it follows the space's own board) and
-**Open board in Fizzy** at its right. Board, Mine and Pins have a filter box under the header (on Board, under the
-board row); Inbox has none.
+Board view. Then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, and at the right
+**Search**, **Refresh** and **Settings**. Below 340 px Refresh is left out; the `refresh` key and the 30-second poll
+still read again. On the Board view only, the **board row** sits under the header: a select with the board's name
+(click it to pick another board; it says "Following space" while it follows the space's own board) and **Open board in
+Fizzy** at its right. Mine, Inbox and Pins go straight to their list.
 
-**Board.** One section per lane, in the board's own order from Fizzy; Maybe? comes first, and Not Now and Done last,
-when the board's column list leaves them out. Not Now and Done start folded and are read each time you unfold them (and
-again on Refresh and after a change you make, while they are unfolded; a folded lane is never read);
-Done shows 50 cards, then **Show more**. A click on a section's header folds or unfolds it (kept per board). The **+**
-on Maybe? and on each column opens a field for a new card there: the pencil beside it adds a description, Enter makes
-the card, and the field stays open for the next one. Each card is two lines: a bar in its lane's color, a star when it
-is golden, its number and title; then up to three tags, up to three of the people it is assigned to, and how long ago
-it last changed. Drag a card onto another lane's header or cards to move it there. ⌘-click or Ctrl-click picks several
-cards; ⌘-click or Ctrl-click one again to unpick it.
+**The bar at the foot** follows the view:
 
-**Filter and search.** The filter keeps the cards whose title, `#number`, tags, assignees' names, column or the first
-300 characters of the description hold every word you type, in any case. On Board, **Me** keeps only the cards
-assigned to you. The filter only sees cards the panel has already read, so on Board and Mine, with words in the box,
-the list ends with **Search all boards for "…"**, which asks Fizzy once, across every board, in open, Not Now and closed
-cards and in comments, and shows what it finds, a section per board. Fizzy answers with its 15 newest matches at most;
-when it does, the list says so, and more words narrow it. Fizzy limits searches to 300 an hour per person, shared with
-anything else of yours that searches; when it does not answer, the panel says the limit may be used up, and never
-tries again by itself. The x goes back to the list; other words drop the results.
+- On Board: the filter, **My cards** and **New card**. Below 340 px, My cards and New card show their icon alone.
+- On Mine and Pins: the filter alone.
+- Inside a card, and in a list while you have cards picked: **Insert**, **Send**, **Start** and **Copy**
+  ([Hand a card to an agent](#hand-a-card-to-an-agent)).
+- On a card New card has just made: **Discard** and **Done** (see **New card** below).
+- The Inbox, and the search with no card picked, have no bar.
+
+**Board.** Each lane is a block of its own, in the board's own order from Fizzy; Maybe? comes first, and Not Now and
+Done last, when the board's column list leaves them out. A lane's header is tinted in the lane's color and shows a dot
+in it, the lane's name and the number of its cards. A column has the color it has in Fizzy; Maybe? is blue, Not Now
+gray and Done green. Not Now and Done start folded and are read each time you unfold them (and again on Refresh and
+after a change you make, while they are unfolded; a folded lane is never read); Done shows 50 cards, then **Show
+more**. A click on a lane's header folds or unfolds it (kept per board). The **+** on Maybe? and on each column makes a
+new card there (see **New card** below).
+
+Each card is a tile tinted in its lane's color, with a bar in that color at its left. Golden cards come first in their
+lane and have a gold border; a pinned card has a pin before its title. The tile shows the whole title, on as many lines
+as it needs, with ↵ (Insert in chat) and `⋯` (the card's menu) at its right; under it, the card's number, up to three
+tags, up to three of the people it is assigned to, Fizzy's inactivity warning when there is one, and how long ago the
+card last changed. The warning is the one Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a
+quarter of the board's auto-postpone period is left since the card last changed, counted in calendar days, else
+"Stalled" when Fizzy lists the card as stalled. A card in Not Now or Done has none.
+
+Drag a card onto another lane, anywhere in its block, to move it there. ⌘-click or Ctrl-click picks several cards;
+⌘-click or Ctrl-click one again to unpick it. While cards are picked, the hand-off buttons take the filter's place at
+the foot.
+
+**Filter and My cards.** The filter at the foot narrows the list as you type: it keeps the cards whose title,
+`#number`, tags, assignees' names, column or the first 300 characters of the description hold every word you type, in
+any case. The x empties it. Board has a filter of its own; Mine and Pins share one. On Board, **My cards** keeps only
+the cards assigned to you, and while a filter or My cards is on, every lane that holds a match is open, folded or not;
+the fold kept for the lane does not change. The filter only sees cards the panel has already read; search finds the
+rest.
+
+**Search.** The search icon in the header turns the header into a search field, and the results take the place of the
+list, in any view. Press Enter: the panel asks Fizzy once, across every board, in open, Not Now and closed cards and in
+comments, and shows what it finds, a section per board. Fizzy answers with its 15 newest matches at most; when it
+does, the list says so, and more words narrow it. Fizzy limits searches to 300 an hour per person, shared with anything
+else of yours that searches, so the panel never searches as you type; when Fizzy does not answer, the panel says the
+limit may be used up, and never tries again by itself. A card's number with its `#`, such as `#42`, opens that card
+instead, from any board: at once when you paste it, on Enter when you type it. The arrow or Escape closes the search,
+and the field keeps its words for next time; the x empties the field and closes the search.
 
 **Mine** lists the cards assigned to you on every board, a section per board. **Pins** lists your pinned cards.
 
 **Inbox** lists your unread notifications, newest first, each with who, the card's number and board, and when. A
 click marks one read (it leaves the list) and opens its card; **Mark all read** empties the list. A read notification
 is never listed; with none left it says "You're all caught up".
+
+**New card.** Fizzy has no drafts: a card is on the board the moment it is made. So **New card** makes the card at
+once. The button in the Board view's bar (and the `new` key) opens a picker of your boards under "New card on", the
+board shown ticked and highlighted. Choosing one shows that board, makes a card titled "New card" in its Maybe?, and
+opens it with an empty title field, ready for you to type the title and press Enter; the description, steps, people and
+the rest are there at once. The bar at its foot has **Discard**, which deletes the card again, and **Done**, which
+keeps it and goes back to the list. A lane's **+** does the same in that lane, without the picker. A title you never
+save leaves the card as "New card".
 
 **A card.** Click one to open it. Its top bar has Back, the card's number and board, three toggles (**pin**, **watch**
 and **golden**), Open in Fizzy (left out when the panel is narrow) and `⋯`, the card's menu. Fizzy doesn't tell anyone
@@ -64,22 +95,69 @@ you then. Click the title to rename the card; the lane button at its right moves
 pickers: the account's people with their photos, you first, and its tags, with a field for a new one; a tick marks
 what the card has. Then come:
 
-- the description: the pencil edits it as plain text. Line breaks are kept, and so are lists of lines that start with
-  `- `, `* ` or `• ` (the mark, then a space). A numbered list comes back as a bulleted one; other formatting is lost on
-  save, and the editor says so when there is some;
-- the steps: tick the box, click the text to change it, the bin removes one, and the field at the bottom adds one;
-- the comments, oldest first: write one at the bottom; edit your own as plain text, as the description is, and delete
-  your own (deleting takes two clicks). Fizzy's own lines, such as "… moved this to Not Now", are folded under
-  **Activity** after the comments.
+- the description, drawn by the panel with its formatting, mentions, card links, images and files. The pencil edits it
+  as text. Line breaks are kept, and so are lists of lines that start with `- `, `* ` or `• ` (the mark, then a space),
+  and mentions, card links and files stay what they are. A numbered list comes back as a bulleted one; other formatting
+  is lost on save, and the editor says so when there is some;
+- the steps: tick the box, click the text to change it, the bin removes one, and the field at the bottom adds one.
+  Steps are plain text: `@` and `#` open no picker there, and a file can't go in one;
+- the comments, oldest first, each with its reactions: write one at the bottom; edit your own as text, as the
+  description is, and delete your own (deleting takes two clicks). Fizzy's own lines, such as "… moved this to Not
+  Now", are folded under **Activity** after the comments.
+
+**Reactions.** Under each comment: one chip per emoji, with how many people put it there (point at it for their names),
+yours outlined. Click a chip to add yours or take it back; the smiley with a plus offers 👍 👎 😄 🎉 ❤️ 👀 🚀 🙏 ✅,
+yours ticked. The change shows at once, and goes back when Fizzy refuses it. A comment's reactions are read the first
+time its card opens, and again on Refresh.
+
+**Mentions and card links.** In the description and comment boxes, `@` typed at the start or after a space opens a
+picker of the account's people (you first), and `#` a picker of cards: those of the board shown (its Not Now and Done
+as far as read), Mine, Pins and the search. Type to narrow it, by name, or by a card's number or the words of its
+title; a number the picker doesn't hold is looked up in Fizzy. Up and Down move, Enter or Tab takes the highlighted
+one, and Escape closes the picker, leaving what you typed. The choice takes the place of the `@` or `#`: a person in
+bold blue, a card in bold yellow, then a space. Saved, a person becomes a real Fizzy mention, which notifies them, and a
+card a link to it. `@` and a person's full name, typed out, work too. Where the panel shows a description or comment,
+mentions are bold blue and card links bold yellow; a click on a card link opens that card in the panel.
+
+The panel can only mention someone whose mention id it knows. Fizzy gives each person one, but no command lists them
+and none can be made, so the panel learns them from mentions already in Fizzy, in every card and comment it reads.
+Until it has someone's, the picker says "can't tag yet" beside their name, their name in the box is dim, and saving
+keeps "@Name" as plain text, with a toast that says they were not notified. **Settings > Mentions** shows how many of
+the account's people can be tagged, and who can't yet, and has three ways to learn more:
+
+- **Find mentions automatically** (on to begin with): while someone can't be tagged, the panel reads Fizzy's recent
+  activity in the background, at most once a week, and learns from the mentions made there.
+- **Find mentions now** reads the activity once, newest first: at most 40 pages (600 events), stopping sooner once
+  everyone can be tagged.
+- **Learn from a card**: in Fizzy, post one comment on any card that @-mentions each person, then enter that card's
+  number here and press Enter. The panel reads its description and comments.
+
+**Images and files.** An image in a description or comment shows in place, at its own shape and no wider than the
+text; until it is downloaded, a box of its size says "Loading image…". Click it to open it in your system's viewer.
+Images are downloaded once, three at a time, and kept in Herdr's app folder, in `data/fizzy/files`: one attached in
+Fizzy through the `fizzy` CLI, one linked from the web through `curl`. Any other file, an image over 15 MiB, and an
+image that won't download show as a chip with a paperclip, the file's name and its size. Click the chip to save the
+file in your Downloads folder under its own name (with " (2)" and so on when that is taken), shown in Finder (on Linux,
+its folder opens); a web image that won't download opens in your browser instead. Refresh tries the images that failed
+again.
+
+To add a file, drop it on the description or comment box: it is uploaded to Fizzy, goes in at the cursor as "🖼 name"
+for an image or "📎 name" for another file, and becomes an attachment when you save. Pasting an image (a clipboard
+with no text) puts it in the same way, as a PNG: the panel reads it through `osascript` on macOS, and `wl-paste`
+(Wayland) or `xclip` (X11) on Linux. Where that fails, the panel says so; drop the file instead.
 
 **The card's menu**, from `⋯` or a right-click on a card: Insert in chat, Send to session…, Start new session…, Copy
 reference, Copy link, Reopen (on a closed card), Move to (every lane), Assign to me (or Unassign me), Assign…, Tags…,
 Pin or Unpin, Watch or Unwatch, Mark golden (or Remove golden), Move to board…, Open in Fizzy and Delete card… (two
 clicks).
 
+**Settings** (the gear) is a list of pages, each with what it is set to now: **Mentions** (how many people can be
+tagged, and whether the panel finds new ones by itself; see above) and **Board groups** (how many groups). Click one to
+open it. Back goes from a page to the list, and from the list out of Settings.
+
 **Board groups.** The board dropdown lists **Follow current space** ([Which board](#which-board)), then the boards in no
-group, then each group under its name. A new user starts with no groups. **Settings** (the gear) has a **Board
-groups** section: each group with its boards, then **No group**.
+group, then each group under its name. A new user starts with no groups. **Settings > Board groups** lists each group
+with its boards, then **No group**.
 
 - **+** adds a group. Click a group's name to rename it, or its rule to change it: a board whose name contains the
   rule's text (in any case) goes to the first group whose rule it matches, unless you placed it by hand.
@@ -87,8 +165,8 @@ groups** section: each group with its boards, then **No group**.
   move it.
 - The bin deletes a group (two clicks); the eye hides a group or one board; a click elsewhere on a group's line folds
   it.
-- Hiding only takes a board out of the dropdown and the New card picker: Mine, Search all boards, Follow current space and the board shown
-  are not affected. Every change is kept at once.
+- Hiding only takes a board out of the dropdown and the New card picker: Mine, the search, Follow current space and the
+  board shown are not affected. Every change is kept at once.
 
 **Notifications.** Every 30 seconds, also while the panel is hidden, the panel asks Fizzy for your unread
 notifications. Each new one pops up as a Herdr toast: its title, the first line of its text, the card's number and the
@@ -98,17 +176,19 @@ toast and its card opens in the panel, which brings the Fizzy page up first when
 front, and the notification is marked read.
 
 **Photos.** People show with their Fizzy profile photo, round, wherever they appear: a card's assignees, People, the
-comments, the Assign list and the Inbox. Without a photo, or until it is fetched, you see their initials on a color of
-their own. How the photos are fetched and kept is under [What it runs, reads and stores](#what-it-runs-reads-and-stores).
+comments, the Assign list, the `@` picker and the Inbox. Without a photo, or until it is fetched, you see their
+initials on a color of their own. How the photos are fetched and kept is under
+[What it runs, reads and stores](#what-it-runs-reads-and-stores).
 
-**Not in the panel:** reactions, attachments, and making or changing boards and columns. Open in Fizzy is there for
-those.
+**Not in the panel:** reactions on the card itself, and making or changing boards and columns. Open in Fizzy is there
+for those.
 
 ### Hand a card to an agent
 
-The bar at the foot of the panel, in every view and in a card, has four buttons: **Insert**, **Send**, **Start** and
-**Copy**. They act on the open card; else on the cards you picked; else, in the Board view, on the board shown. In
-Mine, Inbox and Pins, with no card open or picked, they are dim and do nothing.
+Inside a card, and in a list while you have cards picked, the bar at the foot of the panel has four buttons:
+**Insert**, **Send**, **Start** and **Copy**. They act on the open card, else on the cards you picked. The `insert`,
+`send`, `start` and `copy` keys ([Keys](#keys)) do the same, and in the Board view, with no card open or picked, act on
+the board shown.
 
 Each one puts a one-line reference, `Fizzy #42 "Fix the login redirect" (<the card's link>)` for a card (one line per
 card) or `Fizzy board "Roadmap" (<the board's link>)` for a board, into an agent's input box or on the clipboard.
@@ -138,8 +218,10 @@ the reference on the clipboard for a moment, then puts back the text you had the
   ends every command with `--json` (a search puts it just before its `--`), and the CLI answers with its JSON envelope,
   `{ "ok": true, "data": … }` or `{ "ok": false, "error": …, "code": … }`. When the CLI is missing or signed out, the
   panel says so.
-- **`sh` and `curl`**: `sh` for the `.fizzy.yaml` lookup and the photos, `curl` for the photos. Without `curl` you see
-  initials.
+- **`sh` and `curl`**: `sh` for the `.fizzy.yaml` lookup, the photos and the images, `curl` for the photos and the
+  images linked from the web. Without `curl` you see initials, and a web image shows as a file.
+- **To open, save and paste files**: on macOS, `open` and `osascript`, which come with it; on Linux, `xdg-open`, and
+  `wl-paste` or `xclip` to paste an image. Without a paste tool, drop the file on the box instead.
 - For `install.sh`: **bash** (macOS's own 3.2 will do), **jq**, **patch**, **diff** and **cmp**. `--mod-only` needs
   only diff and cmp; `--uninstall` needs only jq.
 - **Node.js**, only for `install.sh --add-key` and `--uninstall` to add the key to `keys.json` or take it out (without
@@ -251,9 +333,9 @@ of yours shows it, prints the line that points that layout back at Herdr's own t
 stay as well; those count as done.
 
 It leaves, in Herdr's app folder, Herdr's own records (the `fizzy.*` keys in `shared.json`, and the clicks Herdr kept
-for the layout in `layouts/.state/fizzy-core.json`) and the profile photos the panel fetched into `data/fizzy`; delete
-that folder yourself to remove them. Its lines near the end say where these are. The panel's local storage, which Herdr
-keeps, is not touched either.
+for the layout in `layouts/.state/fizzy-core.json`) and the profile photos and images the panel fetched into
+`data/fizzy`; delete that folder yourself to remove them. Files you saved to Downloads stay there. Its lines near the
+end say where these are. The panel's local storage, which Herdr keeps, is not touched either.
 
 ## Which board
 
@@ -287,37 +369,49 @@ command only while the Fizzy page is shown, so with the panel hidden or another 
 | Command | What it does |
 |---|---|
 | `refresh` | What Refresh does: the boards, the CLI's config, the signed-in user and what shows, read again |
-| `view:<board\|mine\|inbox\|pins>` | Shows that view, leaving an open card or Settings; `view` alone shows the next one |
+| `view:<board\|mine\|inbox\|pins>` | Shows that view, leaving an open card, Settings or the search; `view` alone shows the next one |
 | `board:<id or name>` | Picks that board for the Board view and stops following the space |
 | `follow` | Follows the current space again |
 | `open:<number>` | Opens that card; `open:<number>:<notification id>`, what a toast's click sends, also marks the notification read |
-| `back` | Leaves the open card or Settings; else closes the results of Search all boards |
+| `back` | Goes from a Settings page to the list of settings; else leaves Settings or the open card; else closes the search |
 | `settings` | Opens Settings |
-| `insert`, `send`, `start`, `copy` | The bar's buttons: for the open card, else the picked cards, else (Board view) the board shown |
-| `new` | Opens the **New card** board picker (nothing happens until a board shows); choosing a board opens the new-card field in Maybe? there |
-| `filter` | Puts the cursor in the filter box (from the Inbox, which has none, it shows the Board view first) |
+| `insert`, `send`, `start`, `copy` | The hand-off buttons: for the open card, else the picked cards, else (Board view) the board shown |
+| `new` | Opens the **New card** board picker (nothing happens until a board shows); choosing a board makes a card in its Maybe? and opens it |
+| `search` | Opens the search in the header, leaving an open card or Settings |
+| `filter` | Puts the cursor in the filter at the foot, closing the search and unpicking cards (from the Inbox, which has none, it shows the Board view first) |
 | `menu:<number>` | Opens that card's menu |
 
 ## What it runs, reads and stores
 
 **Network.** The mod makes no requests of its own. Everything that reaches Fizzy goes through the `fizzy` CLI, to the
-account the CLI is set up for, and the only other download is people's profile photos, by `curl`. Open in Fizzy, and a
-link in a description or a comment, open in your browser.
+account the CLI is set up for, attachments and uploads included; the only other downloads are people's profile photos
+and the images a description or comment links from the web, by `curl`. Open in Fizzy, and a link in a description or a
+comment, open in your browser.
 
 **Programs.**
 
 - `fizzy`, on this computer, run from your home folder, every command with `--json`. To read: `board list`,
-  `column list`, `card list`, `card show`, `comment list`, `user list`, `tag list`, `pin list`, `notification tray`,
-  `search`, `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`, `notification tray`) and
-  `config show` ask with `--jq` for only the fields the panel uses. To change something, only when you do: `card`,
-  `step` and `comment` commands, and `notification read` and `read-all`. Each action is one command, or two (a closed
-  card is reopened before it moves; a card made in a column is made in Maybe? and then moved, with a `card list`
-  between the two when the CLI's answer does not give the new card's number), and the panel reads again afterwards
-  (not after Watch or Unwatch).
+  `column list`, `card list`, `card show`, `comment list`, `reaction list`, `user list`, `tag list`, `pin list`,
+  `notification tray`, `activity list`, `search`, `card attachments show`, `identity show` and `config show`. The reads
+  it repeats (`card list`, `search`, `pin list`, `notification tray`, `reaction list`, `activity list`,
+  `card attachments show`) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
+  download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
+  change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `upload file` for a file you
+  drop or paste, and `notification read` and `read-all`. Each action is one command, or two (a closed card is reopened
+  before it moves), and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is
+  `card create`, then a `card list` when the CLI's answer does not give the new card's number, and a `card column` when
+  the card goes in a column.
 - `sh` on this computer, for the photos: a short script that runs `curl` for one photo address (http or https only,
   following redirects, at most 4 MiB and 20 seconds), keeps the file only when it is a png, jpeg, webp, svg or gif
   image, and deletes that person's older photos (besides shell built-ins such as `[`, `printf` and `echo`, it runs only
   `mkdir`, `mv`, `rm` and `tr`).
+- `sh` on this computer, for the images from the web: a short script that runs `curl` for one image address (http or
+  https only, following redirects, at most 15 MiB and 25 seconds) and keeps the file only when it is a png, jpeg, gif,
+  webp, svg or bmp image (besides shell built-ins, it runs only `mkdir`, `mv`, `rm` and `tr`).
+- `sh` on this computer, for files: a script that finds a free name in Downloads (`mkdir`), one that opens a file or
+  shows it in its folder (`uname`, then `open` on macOS, `dirname` and `xdg-open` on Linux), and one that writes the
+  clipboard's image to a PNG (`uname`, then `osascript` on macOS, `wl-paste` or `xclip` on Linux, and `rm`). The panel
+  also runs `mkdir`, `mv` and `rm` itself, in the images folder.
 - `sh` on the active space's machine (this computer, or the other machine a remote space is on): a script that walks
   up from the space's folder and prints the `board:` line of the first `.fizzy.yaml` it finds (never the rest of the
   file, which may hold a token), using only `[` and `grep`.
@@ -327,19 +421,28 @@ link in a description or a comment, open in your browser.
 **Files it reads.** The nearest `.fizzy.yaml` in or above the space's folder ([Which board](#which-board)), of which it
 keeps only `board:`. It opens none of the CLI's own files: the CLI's account and default board come from
 `fizzy config show`, asked at start and on Refresh with `--jq` for those two values only, so nothing of your CLI token
-reaches the panel.
+reaches the panel. A file you drop on a box is read by `fizzy upload file`, which sends it to Fizzy, and a paste with
+no text reads the clipboard's image.
 
 **Files it writes.** Profile photos, under Herdr's app folder in `data/fizzy/avatars`: one file per person, named after
 their user id and the day it was fetched. A photo is kept a week; the list of people is read again every day, and what
-is missing or older is fetched again, at most four at a time. A photo that fails is tried again after an hour. The mod
-writes no other file; the rest goes to Herdr's storage.
+is missing or older is fetched again, at most four at a time. A photo that fails is tried again after an hour.
+
+Images from descriptions and comments, under Herdr's app folder in `data/fizzy/files`: one file per image, named after a
+short hash of its attachment id or its address, kept until you delete it. A pasted image is written there first, and
+becomes the copy of that image once it is uploaded; when the upload fails, it is deleted. A file whose chip you click
+is saved in `~/Downloads`. The mod writes no other file; the rest goes to Herdr's storage.
 
 **Herdr's storage.** The mod keeps in its local storage (Herdr's `localStorage`): the view, the board you picked and
-whether you follow the space, the list of boards, the CLI's account and default board (from `config show`), the
-signed-in user's id and account, a copy of each board you opened
-(its columns and open cards, each description cut to 300 characters) so it shows at once next time, which lanes and
-groups are folded, the photos' file names, the ids of the last 300 notifications already announced, and what you set
-for watching on the last 200 cards.
+whether you follow the space, the list of boards (with each board's auto-postpone period), the CLI's account and
+default board (from `config show`), the signed-in user's id and account, a copy of each board you opened (its columns
+and open cards, each description cut to 300 characters) so it shows at once next time, which lanes and groups are
+folded, the photos' and the images' file names, the ids of the last 300 notifications already announced, what you set
+for watching on the last 200 cards, the mention id it learned for each person, when it last looked through Fizzy's
+activity for them, and whether it may do so by itself.
+
+The mention ids stay on this computer, in that local storage only: the shared `fizzy.people` says only who can be
+tagged, and an id goes nowhere but back to Fizzy, inside a comment or description you save.
 
 It writes these shared keys, which every mod can read (Herdr keeps them in `shared.json`):
 
@@ -347,24 +450,28 @@ It writes these shared keys, which every mod can read (Herdr keeps them in `shar
 |---|---|
 | `fizzy.unread` | The number of your unread notifications (see below) |
 | `fizzy.boards` | Your boards' ids and names |
-| `fizzy.people` | The account's people (id, name, role, active), its tags, and the signed-in user's id |
+| `fizzy.people` | The account's people (id, name, role, active), its tags, the signed-in user's id, and the ids of the people the panel can tag (not their mention ids) |
 | `fizzy.avatars` | Each person's photo file, by user id |
 | `fizzy.boardGroups` | Your board groups |
 | `fizzy.board` | The last choice made in the board dropdown or the New card picker |
-| `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod), with the text of a hand-off; the panel sets it to null once it has handled it |
+| `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod): a change, a reaction, the person or card picked for a box, or a hand-off with its text; the panel sets it to null once it has handled it |
 | `new-menu.agents` | Herdr's own `new-menu` cache of the agents each machine reported; the Start list shows it at once, and writes back what the machine answered |
 
 **When it asks Fizzy.** Every 30 seconds while the panel shows, and at once when it comes back, it reads what is on
 screen: the open card with its comments, else the view, and nothing while you edit a title, a description, a step or a
 comment. On Board that is the open cards; the columns are read when they are not known yet (none kept from an earlier
-run), on Refresh and when an open card names a column it does not know, and Not Now and Done are read when you unfold
-them, on Refresh and after a change you make while they are unfolded. Mine asks every board in one call when the CLI has no default board (with one,
-a boardless read would only see that board, so it asks each board), and is read every other time. The pin list is read when a card
-opens, after a change you make and in the Pins view. Every 30 seconds, even while the panel is hidden, it reads your
-unread notifications with one `notification tray`, which fills the Inbox, the count and the toasts; opening the Inbox
-or Refresh in it reads that once more. The board list is read at start and on Refresh, the people at start and then
-daily, the tags the first time a card or a card menu opens, and again after you tag a card. The signed-in user is kept between runs for the account the CLI's config names; it is read again on
-Refresh, and when the config names another account.
+run) and on Refresh, each time with the board's stalled cards, and when an open card names a column it does not know;
+Not Now and Done are read when you unfold them, on Refresh and after a change you make while they are unfolded. Mine
+asks every board in one call when the CLI has no default board (with one, a boardless read would only see that board,
+so it asks each board), and is read every other time. The pin list is read at start, when a card opens, after a change
+you make and in the Pins view. When a card is read, the reactions of its comments are read the first time (six at a
+time, and all again on Refresh), and its images that are not on disk yet are downloaded. Every 30 seconds, even while
+the panel is hidden, it reads your unread notifications with one `notification tray`, which fills the Inbox, the count
+and the toasts; opening the Inbox or Refresh in it reads that once more. The board list is read at start and on
+Refresh, the people at start and then daily, the tags the first time a card or a card menu opens, and again after you
+tag a card. After the people are read, while someone can't be tagged and **Find mentions automatically** is on, the
+activity is read too, at most once a week. The signed-in user is kept between runs for the account the CLI's config
+names; it is read again on Refresh, and when the config names another account.
 
 ## For other mods: `fizzy.unread`
 

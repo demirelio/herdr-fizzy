@@ -4,7 +4,7 @@
 import { layoutWith, modFile } from "./helpers.mjs";
 import { state } from "./mocks/herdr.mjs";
 
-const { YAML_SCRIPT, AVATAR_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
+const { YAML_SCRIPT, AVATAR_SCRIPT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
 
 export const LAYOUT = layoutWith({ active: "fizzy", children: ["files", "changes", "fizzy"] });
 
@@ -45,6 +45,8 @@ function card(number, title, board, more = {}) {
 }
 
 export const CLOSED_FROM = 4500;
+// Events per page of `activity list`, as Fizzy pages it.
+export const ACTIVITY_PAGE = 15;
 
 // opts.closed: how many extra closed cards board b1 has (to page through), numbered from CLOSED_FROM;
 // opts.pageSize: this fake's own page size, small so that a few cards make several pages;
@@ -84,12 +86,18 @@ export function makeAccount(opts = {}) {
     identity: { id: "login-1", accounts: [{ id: "acct-1", name: "Example Co", slug: "/111", user: ME }] },
     config: { account: "111", board: "b1" }, // the account and default board `config show` says the CLI uses
     yaml: {},          // folder -> the text of its .fizzy.yaml (what the folder script finds walking up)
+    stalled: [],       // the numbers of the open cards Fizzy lists as stalled
+    activity: [],      // the activity feed, newest first: events as `activity list` gives them ({ eventable: { body: { html } } | { description_html } })
+    reactions: {},     // comment id -> its reactions ([{ id, content, reacter }])
+    attachments: {},   // card number -> its attachments' sgids, in the order `card attachments download` numbers them
+    clipboardImage: false, // the clipboard holds an image (what the paste script reads)
+    webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
     pageSize: opts.pageSize ?? 15,
     searchCap: opts.searchCap ?? SEARCH_CAP,
     morePages: opts.morePages ?? false,
     createReturnsNumber: true,
     fail: null,        // (argv) => a failure result, or undefined: made-up trouble
-    hold: null,        // a promise every fizzy call waits for first
+    hold: null,        // a promise every fizzy call waits for first (unhold() lets them all go, whatever it does)
     missing: false,    // the program cannot start
     stopped: false,    // Herdr stops every fizzy call at its time limit
     trayShowsRead: false, // the tray answers read notifications too, flag or not (a CLI that ignores the unread filter)
@@ -130,9 +138,32 @@ export function makeAccount(opts = {}) {
         return ok({ cards, more: a.morePages || !cards.length || from + a.pageSize < list.length });
       }
       list = by === "not_now" ? list.filter(c => c.postponed && !c.closed) : list.filter(c => !c.closed && !c.postponed);
+      if (by === "stalled") list = list.filter(c => a.stalled.includes(c.number));
       if (assignee) list = list.filter(c => c.assignees.some(u => u.id === assignee));
-      return ok(list.map(listItem));
+      return ok(jq === JQ.numbers ? list.map(c => c.number) : list.map(listItem));
     }
+    if (a1 === "card" && a2 === "attachments") {
+      const sgids = a.attachments[Number(args[3])] ?? [];
+      if (args[2] === "show") return ok(jq === JQ.attachments ? sgids : sgids.map(sgid => ({ sgid })));
+      return sgids[Number(args[4]) - 1] ? ok({ path: flag(args, "-o") }) : failure("not_found", "Attachment not found");
+    }
+    if (a1 === "activity" && a2 === "list") {
+      const page = Number(flag(args, "--page") ?? 1), from = (page - 1) * ACTIVITY_PAGE, events = a.activity.slice(from, from + ACTIVITY_PAGE);
+      if (jq !== JQ.mentions) return ok(events);
+      const html = events.flatMap(e => [e.eventable?.body?.html ?? "", e.eventable?.description_html ?? ""]).filter(h => h.includes("vnd.actiontext.mention"));
+      return ok({ html: [...new Set(html)], more: from + ACTIVITY_PAGE < a.activity.length });
+    }
+    if (a1 === "reaction") {
+      const comment = flag(args, "--comment"), list = a.reactions[comment] ??= [];
+      if (a2 === "list") return ok(list.map(r => ({ id: r.id, content: r.content, reacter: { id: r.reacter.id, name: r.reacter.name } })));
+      if (a2 === "create") {
+        const made = { id: `r-new${++sequence}`, content: flag(args, "--content"), reacter: ME };
+        list.push(made);
+        return ok(made);
+      }
+      if (a2 === "delete") { a.reactions[comment] = list.filter(r => r.id !== n); return ok(null); }
+    }
+    if (a1 === "upload" && a2 === "file") return ok({ attachable_sgid: `sgid-upload-${++sequence}`, filename: n.split("/").pop() });
     if (a1 === "card" && a2 === "show") return find(n) ? ok(typed(find(n))) : failure("not_found", `Resource not found: https://app.fizzy.do/111/cards/${n}`);
     if (a1 === "comment" && a2 === "list") return ok(a.comments[Number(flag(args, "--card"))] ?? []);
     if (a1 === "user" && a2 === "list") return ok(a.users);
@@ -217,7 +248,7 @@ export function makeAccount(opts = {}) {
     p.log.push({ url, dir, base });
     p.inflight++; p.peak = Math.max(p.peak, p.inflight);
     try {
-      if (p.hold) await p.hold;
+      if (p.hold) await Promise.race([p.hold, unheld]);
       await Promise.resolve();
       if (p.throws) throw new Error("spawn sh ENOENT");
       if (p.fail?.(url)) return { code: 22, stdout: "", stderr: "curl: (22) The requested URL returned error: 404" };
@@ -225,8 +256,28 @@ export function makeAccount(opts = {}) {
     } finally { p.inflight--; }
   }
 
+  // The scripts that handle files, as the panel runs them (sh -c SCRIPT fizzy ...): a web image is "fetched" under its base name,
+  // the clipboard holds an image only when `clipboardImage` says so, the free name is always the first one tried, and opening works.
+  function fileScript(script, params) {
+    const done = (code, stdout = "") => ({ code, stdout, stderr: "" });
+    if (script === IMAGE_SCRIPT) {
+      const [url, , base] = params;
+      return a.webImageFails?.(url) ? done(22) : done(0, `${base}.png\n`);
+    }
+    if (script === CLIP_SCRIPT) return done(a.clipboardImage ? 0 : 1);
+    if (script === OPEN_SCRIPT) return done(0);
+    if (script === FREE_NAME_SCRIPT) {
+      const [folder, name, ext] = params;
+      return done(0, `${folder}/${name}${ext}`);
+    }
+    return null;
+  }
+
   a.exec = async (command, args, options) => {
     if (command === "sh" && args[0] === "-c" && args[1] === AVATAR_SCRIPT) return photo(args);
+    const scripted = command === "sh" && args[0] === "-c" ? fileScript(args[1], args.slice(3)) : null;
+    if (scripted) return scripted;
+    if (["mkdir", "mv", "rm"].includes(command)) return { code: 0, stdout: "", stderr: "" };
     if (command === "sh") {
       // The folder script (walk up to a .fizzy.yaml): the nearest folder in `yaml` at or above the given one, and of its file
       // the `board:` line only.
@@ -252,13 +303,19 @@ export function makeAccount(opts = {}) {
     a.log.push(plain);
     a.inflight++; a.peak = Math.max(a.peak, a.inflight);
     try {
-      if (a.hold) await a.hold;
+      if (a.hold) await Promise.race([a.hold, unheld]);
       await Promise.resolve();
       return a.fail?.(plain) ?? answer(plain, jq);
     } finally { a.inflight--; }
   };
 
-  const reads = new Set(["board list", "column list", "card list", "card show", "comment list", "user list", "tag list", "pin list", "identity show", "notification tray", "config show", "search --"]);
+  // Lets every held call and photo go, now and from now on: a test that ends with a hold in place leaves nothing waiting.
+  let unhold;
+  const unheld = new Promise(resolve => { unhold = resolve; });
+  a.unhold = () => unhold();
+
+  const reads = new Set(["board list", "column list", "card list", "card show", "card attachments", "comment list", "user list", "tag list", "pin list", "identity show",
+    "notification tray", "config show", "search --", "activity list", "reaction list"]);
   a.writes = () => a.log.filter(args => !reads.has(`${args[0]} ${args[1]}`));
   a.asked = (...prefix) => a.log.filter(args => prefix.every((p, i) => args[i] === p));
   a.lane = n => lane(find(n));

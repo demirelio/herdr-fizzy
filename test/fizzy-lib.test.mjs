@@ -16,7 +16,8 @@ import {
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
   FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, lanes, sections, filterCards, colorOf, meFrom,
-  ref, refs, tabName, textToHtml, htmlToText, htmlForView, textLines, formatted, initials, hue, ago,
+  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, inactivity,
+  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
   defaultGroups, groupsConfig, choiceOf, groupOf, ruleGroupOf, ownHidden, boardGroups, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, moveBoard, placeBoard, moveGroup, setBoardHidden,
@@ -92,6 +93,14 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.dropComment(7, "c9"), ["comment", "delete", "c9", "--card", "7"]);
   assert.deepEqual(cmd.read("n1"), ["notification", "read", "n1"]);
   assert.deepEqual(cmd.readAll(), ["notification", "read-all"]);
+  assert.deepEqual(cmd.stalled("b1"), ["card", "list", "--board", "b1", "--indexed-by", "stalled", "--all", "--jq", JQ.numbers]);
+  assert.deepEqual(cmd.activity(3), ["activity", "list", "--page", "3", "--jq", JQ.mentions]);
+  assert.deepEqual(cmd.reactions(7, "c9"), ["reaction", "list", "--card", "7", "--comment", "c9", "--jq", JQ.reactions]);
+  assert.deepEqual(cmd.react(7, "c9", "👍"), ["reaction", "create", "--card", "7", "--comment", "c9", "--content", "👍"]);
+  assert.deepEqual(cmd.unreact(7, "c9", "r1"), ["reaction", "delete", "r1", "--card", "7", "--comment", "c9"]);
+  assert.deepEqual(cmd.attachments(7), ["card", "attachments", "show", "7", "--include-comments", "--jq", JQ.attachments]);
+  assert.deepEqual(cmd.download(7, 2, "/tmp/x.png"), ["card", "attachments", "download", "7", "2", "--include-comments", "-o", "/tmp/x.png"]);
+  assert.deepEqual(cmd.upload("/home/a/b c.png"), ["upload", "file", "/home/a/b c.png"]);
 });
 
 test("every argv a builder makes is all strings, and the fake fizzy CLI the panel's tests run on answers each one", async () => {
@@ -103,11 +112,15 @@ test("every argv a builder makes is all strings, and the fake fizzy CLI the pane
     cmd.selfAssign(101), cmd.assign(101, "u-bob"), cmd.tag(101, "bug"), cmd.moveBoard(101, "b2"), cmd.remove(101), cmd.addStep(101, "s"),
     cmd.step(101, "s1", true), cmd.step(101, "s1", false), cmd.editStep(101, "s1", "t"), cmd.dropStep(101, "s1"), cmd.comment(101, "<p>c</p>"),
     cmd.editComment(101, "cm1", "<p>c</p>"), cmd.dropComment(101, "cm1"), cmd.read("n1"), cmd.readAll(),
+    cmd.stalled("b1"), cmd.activity(1), cmd.reactions(101, "cm1"), cmd.react(101, "cm1", "👍"), cmd.unreact(101, "cm1", "r1"),
+    cmd.attachments(101), cmd.download(101, 1, "/home/tester/x.png"), cmd.upload("/home/tester/x.png"),
   ];
   assert.equal(argvs.length, Object.keys(cmd).length + 4, "every builder, and both sides of golden, pin, watch and step, is covered");
   for (const argv of argvs) {
     assert.ok(argv.every(a => typeof a === "string"), `${argv.join(" ")}: all strings`);
-    const answer = await makeAccount().exec("fizzy", withJson(argv), { cwd: state.home });
+    const account = makeAccount();
+    account.attachments[101] = ["sgid-attached"];
+    const answer = await account.exec("fizzy", withJson(argv), { cwd: state.home });
     assert.doesNotThrow(() => parseResult(answer), argv.join(" "));
   }
 });
@@ -814,6 +827,180 @@ test("textToHtml -> htmlToText gives the text back (paragraphs, breaks, escapes,
   assert.equal(htmlToText(textToHtml("  a\r\nb\n\n\n\nc  ")), "a\nb\n\nc");
 });
 
+// A mention as Fizzy writes it: the person's photo (its title their full name, its address their user id), then their first name.
+const MENTION_TYPE = "application/vnd.actiontext.mention";
+const fizzyMention = (sgid, userId, name) =>
+  `<action-text-attachment sgid="${sgid}" content-type="${MENTION_TYPE}"><img title="${name}" src="/111/users/${userId}/avatar">${name.split(" ")[0]}</action-text-attachment>`;
+// A mention as the panel writes it back.
+const mentionOut = sgid => `<action-text-attachment sgid="${sgid}" content-type="${MENTION_TYPE}"></action-text-attachment>`;
+const CARD_URL = n => `https://app.fizzy.do/111/cards/${n}`;
+
+test("mentionsIn: each mention's person and mention id, the person from the photo's address, else from the sgid; other attachments and unknown people are left out", () => {
+  const bySgid = `${btoa('{"_rails":{"data":"gid://fizzy/User/u-bob"}}')}--sig`;
+  const html = `<p>${fizzyMention("sgid-ada", "u-ada", "Ada Lovelace")} and <action-text-attachment sgid="${bySgid}" content-type="${MENTION_TYPE}">Bob</action-text-attachment>, `
+    + `<action-text-attachment sgid="opaque" content-type="${MENTION_TYPE}">Who</action-text-attachment> and <action-text-attachment sgid="sgid-file" content-type="image/png" filename="a.png"></action-text-attachment></p>`;
+  assert.deepEqual(mentionsIn(html), [{ sgid: "sgid-ada", user: "u-ada" }, { sgid: bySgid, user: "u-bob" }]);
+  assert.deepEqual(mentionsIn(""), []);
+  assert.deepEqual(mentionsIn(null), []);
+});
+
+test("mentionsOf: the people a text names as \"@<name>\", the longest name first, any case, not inside a word, once each", () => {
+  const people = [{ id: "u-ada", name: "Ada" }, { id: "u-al", name: "Ada Lovelace" }, { id: "u-bob", name: "Bob" }];
+  assert.deepEqual(mentionsOf("@ada, @Ada Lovelace and @ADA again", people).map(p => p.id), ["u-ada", "u-al"]);
+  assert.deepEqual(mentionsOf("me@bob.org, @Bobby, @bob_x", people), [], "inside a word or a longer word");
+  assert.deepEqual(mentionsOf("@Bob", []), []);
+});
+
+test("textToHtml writes each \"@<name>\" of a person whose mention id is known as their mention, in paragraphs and list items alike; a person with none stays text", () => {
+  const people = [{ id: "u-ada", name: "Ada", sgid: "sgid-ada" }, { id: "u-al", name: "Ada Lovelace", sgid: "sgid-al" }, { id: "u-bob", name: "Bob" }];
+  assert.equal(textToHtml("Hi @ada and @Ada Lovelace", people), `<p>Hi ${mentionOut("sgid-ada")} and ${mentionOut("sgid-al")}</p>`);
+  assert.equal(textToHtml("• @Ada\n• @Bob", people), `<ul><li>${mentionOut("sgid-ada")}</li><li>@Bob</li></ul>`);
+  assert.equal(textToHtml("me@ada.org and @Adam", people), "<p>me@ada.org and @Adam</p>", "inside a word, or a longer name: text");
+  assert.equal(textToHtml("@Ada & <b>", people), `<p>${mentionOut("sgid-ada")} &amp; &lt;b&gt;</p>`, "the rest is escaped as before");
+});
+
+test("textToHtml puts a text box's tokens where they stand: a person's as their mention (text while their id is not known), a card's as a link to it, a file's as its attachment", () => {
+  const people = [{ id: "u-ada", name: "Ada", sgid: "sgid-ada" }, { id: "u-bob", name: "Bob" }];
+  const text = "See @Ada, @Bob and #12 Fix it\n\n📎 notes.pdf";
+  const at = s => { const start = text.indexOf(s); return { start, end: start + s.length }; };
+  const tokens = [
+    { range: at("#12 Fix it"), token: cardToken(12, "Fix it") },
+    { range: at("@Ada"), token: personToken("u-ada", "Ada") },
+    { range: at("@Bob"), token: personToken("u-bob", "Bob") },
+    { range: at("📎 notes.pdf"), token: fileToken("sgid-file", "notes.pdf") },
+  ];
+  assert.equal(textToHtml(text, people, tokens, CARD_URL),
+    `<p>See ${mentionOut("sgid-ada")}, @Bob and <a href="${CARD_URL(12)}">#12 Fix it</a></p><p><action-text-attachment sgid="sgid-file"></action-text-attachment></p>`,
+    "the tokens in any order");
+  assert.equal(textToHtml(text, people, tokens), `<p>See ${mentionOut("sgid-ada")}, @Bob and #12 Fix it</p><p><action-text-attachment sgid="sgid-file"></action-text-attachment></p>`,
+    "no card address to make a link from: the card stays text");
+  const [open, close] = [String.fromCharCode(0xe000), String.fromCharCode(0xe001)];
+  assert.equal(textToHtml(`a${open}0${close}b`), "<p>a0b</p>", "the characters that stand in for tokens are dropped when typed");
+  assert.equal(htmlToText(`<p>a${open}0${close}b</p>`), "a0b", "and when Fizzy's HTML holds them");
+});
+
+test("htmlToContent: a mention is the token \"@<full name>\", a link to a card \"#<n> <title>\", a file its own token on a line of its own; each token's range is where its text stands", () => {
+  const html = `<div><p>Ask ${fizzyMention("sgid-ada", "u-ada", "Ada Lovelace")} about <a href="${CARD_URL(12)}">#12 Fix it</a> and <a href="/111/cards/7">the old one</a>, `
+    + `not <a href="https://example.com/cards">this</a>.</p><action-text-attachment sgid="sgid-pic" content-type="image/png" filename="shot.png"></action-text-attachment><p>End</p></div>`;
+  const { text, tokens } = htmlToContent(html);
+  assert.equal(text, "Ask @Ada Lovelace about #12 Fix it and #7 the old one, not this.\n\n🖼 shot.png\n\nEnd");
+  assert.deepEqual(tokens.map(s => [text.slice(s.range.start, s.range.end), s.token.id]),
+    [["@Ada Lovelace", "user:u-ada"], ["#12 Fix it", "card:12"], ["#7 the old one", "card:7"], ["🖼 shot.png", "file:sgid-pic"]]);
+  assert.equal(htmlToText(html), text);
+  // Back to HTML, the tokens are what they were.
+  assert.equal(textToHtml(text, [{ id: "u-ada", name: "Ada Lovelace", sgid: "sgid-ada" }], tokens, CARD_URL),
+    `<p>Ask ${mentionOut("sgid-ada")} about <a href="${CARD_URL(12)}">#12 Fix it</a> and <a href="${CARD_URL(7)}">#7 the old one</a>, not this.</p>`
+    + "<p><action-text-attachment sgid=\"sgid-pic\"></action-text-attachment></p><p>End</p>");
+});
+
+test("htmlToContent names a mentioned person by their photo's title, else from the people list, else by what Fizzy wrote; a mention of nobody known is plain text", () => {
+  const bob = `<action-text-attachment sgid="sgid-bob" content-type="${MENTION_TYPE}"><img src="/111/users/u-bob/avatar">Bob</action-text-attachment>`;
+  assert.deepEqual(htmlToContent(`<p>${bob}</p>`, [{ id: "u-bob", name: "Bob Builder" }]).text, "@Bob Builder");
+  assert.deepEqual(htmlToContent(`<p>${bob}</p>`).text, "@Bob", "no people list: Fizzy's first name");
+  const nobody = htmlToContent(`<p><action-text-attachment sgid="opaque" content-type="${MENTION_TYPE}">Who</action-text-attachment></p>`);
+  assert.deepEqual([nobody.text, nobody.tokens], ["@Who", []]);
+});
+
+test("formatted: the mentions, files and card links the panel writes back lose nothing; other formatting still warns", () => {
+  assert.equal(formatted(`<p>${fizzyMention("sgid-ada", "u-ada", "Ada")} <a href="${CARD_URL(3)}">#3</a></p><action-text-attachment sgid="s" content-type="image/png"></action-text-attachment>`), false);
+  assert.equal(formatted(`<p><a href="https://example.com">a page</a></p>`), true, "a link to a page is formatting");
+  assert.equal(formatted(`<p>${fizzyMention("sgid-ada", "u-ada", "Ada")} <b>bold</b></p>`), true);
+});
+
+test("tokens: a person's is \"@<name>\", a card's \"#<n> <title>\" (the link's text when it starts with the number), a file's its icon and name", () => {
+  assert.deepEqual(personToken("u-ada", " Ada  Lovelace "), { id: "user:u-ada", text: "@Ada Lovelace", label: "Ada Lovelace" });
+  assert.deepEqual(cardToken(12, "Fix it"), { id: "card:12", text: "#12 Fix it", label: "#12 Fix it" });
+  assert.deepEqual(cardToken(12, "#12 Fix it").text, "#12 Fix it", "not numbered twice");
+  assert.deepEqual(cardToken(12, "#120 Other").text, "#12 #120 Other", "another number is part of the title");
+  assert.deepEqual(cardToken(12, "").text, "#12");
+  assert.deepEqual(cardToken(12, CARD_URL(12)).text, "#12", "a bare address is no title");
+  assert.deepEqual(fileToken("sgid-1", "shot.png"), { id: "file:sgid-1", text: "🖼 shot.png", label: "shot.png" });
+  assert.equal(fileToken("sgid-2", "photo", "image/jpeg").text, "🖼 photo", "an image by its type");
+  assert.equal(fileToken("sgid-3", "spec.pdf", "application/pdf").text, "📎 spec.pdf");
+  assert.equal(fileToken("sgid-4", "  ").text, "📎 attachment");
+});
+
+test("cardUrl makes a card's address from another card's of the same account, and nothing from anything else", () => {
+  assert.equal(cardUrl(CARD_URL(101), 7), CARD_URL(7));
+  assert.equal(cardUrl(`${CARD_URL(101)}/`, 7), CARD_URL(7));
+  for (const base of [null, "", "https://app.fizzy.do/111/boards/b1", `${CARD_URL(101)}?x=1`]) assert.equal(cardUrl(base, 7), null, String(base));
+});
+
+test("fileSize: KB under a megabyte (at least 1), MB with one decimal above; nothing when it is not known", () => {
+  assert.deepEqual([100, 2048, 1048575, 1048576, 3565158].map(fileSize), ["1 KB", "2 KB", "1024 KB", "1.0 MB", "3.4 MB"]);
+  for (const none of [0, -1, null, undefined, NaN]) assert.equal(fileSize(none), "", String(none));
+});
+
+test("shortHash is 16 hex digits, the same for the same text and different for another; isCachedFile takes only such a name with an image extension", () => {
+  assert.match(shortHash("sgid-1"), /^[0-9a-f]{16}$/);
+  assert.equal(shortHash("sgid-1"), shortHash("sgid-1"));
+  assert.notEqual(shortHash("sgid-1"), shortHash("sgid-2"));
+  assert.match(shortHash(null), /^[0-9a-f]{16}$/);
+  const name = `${shortHash("x")}.png`;
+  assert.equal(isCachedFile(name), true);
+  for (const bad of [`${shortHash("x")}.pdf`, `../${name}`, "abc.png", `${shortHash("x")}.PNG`, null]) assert.equal(isCachedFile(bad), false, String(bad));
+});
+
+const runsOf = line => line.runs.map(r => [r.text, r.kind, `${r.bold ? "b" : ""}${r.italic ? "i" : ""}${r.code ? "c" : ""}`]);
+
+test("richLines: a line's runs keep bold, italic and code, a link its address; a mention is one \"@<full name>\" run, a link to a card one \"#<n> <title>\" run", () => {
+  const html = `<div><p>Plain <b>bold <i>both</i></b> <code>x()</code> <a href="https://example.com">a link</a> ${fizzyMention("sgid-ada", "u-ada", "Ada Lovelace")} <a href="/111/cards/12">#12 Fix it</a></p></div>`;
+  const lines = richLines(html);
+  assert.equal(lines.length, 1);
+  const [line] = lines;
+  assert.deepEqual(runsOf(line), [
+    ["Plain ", "text", ""], ["bold ", "text", "b"], ["both", "text", "bi"], [" ", "text", ""], ["x()", "text", "c"], [" ", "text", ""],
+    ["a link", "link", ""], [" ", "text", ""], ["@Ada Lovelace", "mention", ""], [" ", "text", ""], ["#12 Fix it", "card", ""],
+  ]);
+  assert.equal(line.runs.find(r => r.kind === "link").href, "https://example.com");
+  assert.equal(line.runs.find(r => r.kind === "mention").user, "u-ada");
+  assert.equal(line.runs.find(r => r.kind === "card").number, 12);
+  assert.deepEqual([line.depth, line.marker, line.quote, line.heading, line.pre, line.gap], [0, null, false, false, false, true]);
+  assert.deepEqual(richLines(`<p>${fizzyMention("s", "u-bob", "Bob")}</p>`, [{ id: "u-bob", name: "Bob Builder" }])[0].runs[0].text, "@Bob", "the photo's title wins over the list");
+});
+
+test("richLines: headings are bold, list items carry their depth and marker (• or 1., 2.), a quote and a pre are marked, a pre keeps its spaces and line breaks; a block starts with a gap", () => {
+  const html = "<h1>Title</h1><ol><li>one<ul><li>inner</li></ul></li><li>two</li></ol><blockquote>quoted</blockquote><pre>a  b\n  c</pre><p>after<br>next</p>";
+  const lines = richLines(html);
+  assert.deepEqual(lines.map(l => [l.runs.map(r => r.text).join(""), l.depth, l.marker, l.quote, l.heading, l.pre, l.gap]), [
+    ["Title", 0, null, false, true, false, true],
+    ["one", 1, "1.", false, false, false, true],
+    ["inner", 2, "•", false, false, false, false],
+    ["two", 1, "2.", false, false, false, false],
+    ["quoted", 0, null, true, false, false, true],
+    ["a  b", 0, null, false, false, true, true],
+    ["  c", 0, null, false, false, true, false],
+    ["after", 0, null, false, false, false, true],
+    ["next", 0, null, false, false, false, false],
+  ]);
+  assert.equal(lines[0].runs[0].bold, true, "a heading is bold");
+  assert.equal(lines[5].runs[0].code, true, "a pre is code");
+  assert.deepEqual(richLines(""), []);
+  assert.deepEqual(richLines("<p> </p><!-- a note --><p></p>"), [], "nothing to draw: no line");
+});
+
+test("richLines: a file is a line of its own: Fizzy's attachment (an image drawn, any other file as a file), an image from the web; an attachment of Fizzy's own kind is nothing, another with an address a link", () => {
+  const html = `<p>Look:</p><action-text-attachment sgid="sgid-pic" content-type="image/png" filename="shot.png" filesize="2048" width="800" height="600" caption="The bug"></action-text-attachment>`
+    + `<action-text-attachment sgid="sgid-doc" content-type="application/pdf" filename="spec.pdf" filesize="3145728"></action-text-attachment>`
+    + `<p><img src="https://example.com/cat.jpg?x=1" alt=""> after</p>`
+    + `<action-text-attachment content-type="application/vnd.actiontext.horizontal-rule"></action-text-attachment>`
+    + `<action-text-attachment url="https://example.com/doc" content-type="text/html" filename="Doc"></action-text-attachment>`;
+  const lines = richLines(html);
+  assert.deepEqual(lines.map(l => (l.file ? `file:${l.file.filename}` : l.runs.map(r => r.text).join(""))), ["Look:", "file:shot.png", "file:spec.pdf", "file:cat.jpg", "after", "Doc"]);
+  assert.deepEqual(lines[1], {
+    runs: [], depth: 0, marker: null, quote: false, heading: false, pre: false, gap: true,
+    file: { key: shortHash("sgid-pic"), sgid: "sgid-pic", url: null, type: "image/png", filename: "shot.png", size: 2048, width: 800, height: 600, caption: "The bug", image: true, ext: "png", remote: false },
+  });
+  assert.deepEqual(lines[2].file, { key: shortHash("sgid-doc"), sgid: "sgid-doc", url: null, type: "application/pdf", filename: "spec.pdf", size: 3145728, width: null, height: null, caption: "", image: false, ext: null, remote: false });
+  assert.deepEqual(lines[3].file, {
+    key: shortHash("https://example.com/cat.jpg?x=1"), sgid: null, url: "https://example.com/cat.jpg?x=1", type: "", filename: "cat.jpg", size: null, width: null, height: null, caption: "",
+    image: true, ext: null, remote: true,
+  }, "from the web: named by its address, its extension known only once fetched");
+  assert.deepEqual(runsOf(lines[5]), [["Doc", "link", ""]]);
+  assert.equal(lines[5].runs[0].href, "https://example.com/doc");
+  assert.ok(IMAGE_MAX >= 1048576, "large images are downloaded too, up to IMAGE_MAX");
+});
+
 test("initials: first and last word, uppercase, ? for nobody", () => {
   assert.equal(initials("Ada"), "A");
   assert.equal(initials("ada"), "A");
@@ -884,6 +1071,25 @@ test("ago accepts now as a Date, a number or a timestamp, copes with the future,
   assert.equal(ago(new Date(Date.now() - 2 * 3600000).toISOString()), "2h");
   for (const bad of ["", "garbage", null, undefined, "2026-13-45"]) assert.equal(ago(bad, now), "", String(bad));
   assert.equal(ago(iso, "garbage"), "");
+});
+
+test("inactivity: an open card says it closes in N days once fewer than a quarter of the board's period are left (in calendar days), else Stalled when Fizzy lists it so", () => {
+  const now = new Date(2026, 4, 20, 12, 0).getTime(), daysAgo = (d, hour = 12) => new Date(2026, 4, 20 - d, hour, 0).toISOString();
+  const at = (d, opts = {}) => inactivity(card(1, { last_active_at: daysAgo(d) }), { period: 30, now, ...opts });
+  assert.equal(at(0), null, "active today: 30 days left");
+  assert.equal(at(22), null, "8 left: not under a quarter (7.5, rounded to 8)");
+  assert.deepEqual(at(23), { kind: "closing", label: "Closes in 7d" });
+  assert.deepEqual(at(29), { kind: "closing", label: "Closes in 1d" });
+  assert.deepEqual(at(30), { kind: "closing", label: "Closes today" });
+  assert.deepEqual(at(45), { kind: "closing", label: "Closes today" }, "overdue: still today");
+  assert.deepEqual(inactivity(card(1, { last_active_at: daysAgo(23, 23) }), { period: 30, now }), { kind: "closing", label: "Closes in 7d" }, "the hour does not count, the day does");
+  assert.deepEqual(at(0, { stalled: true }), { kind: "stalled", label: "Stalled" });
+  assert.deepEqual(at(25, { stalled: true }).kind, "closing", "closing wins over stalled");
+  assert.deepEqual(at(25, { period: undefined, stalled: true }), { kind: "stalled", label: "Stalled" }, "no period known: only stalled");
+  assert.equal(at(25, { period: 0 }), null);
+  assert.deepEqual(inactivity(card(1, { last_active_at: "garbage" }), { period: 30, stalled: true, now }), { kind: "stalled", label: "Stalled" });
+  for (const done of [{ closed: true }, { postponed: true }]) assert.equal(inactivity(card(1, { last_active_at: daysAgo(29), ...done }), { period: 30, stalled: true, now }), null, JSON.stringify(done));
+  assert.equal(inactivity(null, { period: 30, now }), null);
 });
 
 test("parseYaml reads the top-level board and account, nothing else", () => {
@@ -1869,13 +2075,84 @@ test("moveBoard menu: every board but the card's own, each moves by id", () => {
   assert.deepEqual(menuRows({ kind: "moveBoard", card: card(1) }, {}).map(r => r.type), ["note"]);
 });
 
+test("mention menu: the active people, you first, each putting a mention of them in its editor; who can't be tagged yet says so; the field's words narrow them", () => {
+  const users = [user("u2", "Grace Hopper"), user("me", "Ada"), user("u3", "Linus", { active: false }), user("bot", "Helper", { role: "system" })];
+  const rows = menuRows({ kind: "mention", target: "comment" }, { users, me: "me", mentionable: ["me"] });
+  assert.deepEqual(ids(rows), ["user-me", "user-u2"], "no one inactive, no system user");
+  assert.deepEqual(byId(rows, "user-u2").act, { request: { kind: "mention", target: "comment", user: "u2", name: "Grace Hopper" } });
+  assert.deepEqual(rows.map(r => r.hint), ["you", "can't tag yet"]);
+  assert.deepEqual(rows.map(r => r.user), [{ id: "me", name: "Ada" }, { id: "u2", name: "Grace Hopper" }], "each with their photo or initials");
+  assert.equal(byId(menuRows({ kind: "mention", target: "desc" }, { users, me: "me", mentionable: ["me", "u2"] }), "user-u2").hint, undefined, "taggable: no hint");
+  assert.deepEqual(ids(menuRows({ kind: "mention", target: "desc" }, { users, me: "me", query: " HOP " })), ["user-u2"], "any part of the name, any case");
+  assert.deepEqual(menuRows({ kind: "mention" }, { users, me: "me", query: "zz" }).map(r => [r.type, r.label]), [["note", "Nobody by that name"]]);
+  assert.deepEqual(menuRows({ kind: "mention" }, { users: [] }).map(r => r.label), ["No people"]);
+  assert.deepEqual(menuRows({ kind: "mention" }, {}).map(r => r.label), ["Loading people…"]);
+});
+
+test("card reference menu: the cards handed to it, narrowed by a number (the cards it starts) or by words (every word in the title); each puts a link to the card in its editor", () => {
+  const cards = [{ number: 120, title: "Fix the login", board: "Roadmap" }, { number: 12, title: "Write docs", board: "Personal" }, { number: 7, title: "Login page copy" }];
+  const menu = { kind: "cardref", target: "commentEdit", cards };
+  const rows = menuRows(menu, {});
+  assert.deepEqual(ids(rows), ["card-120", "card-12", "card-7"], "no words: all, in the order handed");
+  assert.deepEqual(rows.map(r => [r.label, r.hint]), [["#120 Fix the login", "Roadmap"], ["#12 Write docs", "Personal"], ["#7 Login page copy", undefined]]);
+  assert.deepEqual(byId(rows, "card-12").act, { request: { kind: "cardref", target: "commentEdit", number: 12, title: "Write docs" } });
+  assert.deepEqual(ids(menuRows(menu, { query: "login" })), ["card-120", "card-7"], "words: the titles that hold them");
+  assert.deepEqual(ids(menuRows(menu, { query: "login fix" })), ["card-120"], "every word");
+  assert.deepEqual(ids(menuRows(menu, { query: "#12" })), ["card-12", "card-120"], "a number: the cards it starts, lowest first");
+  assert.deepEqual(menuRows(menu, { query: "zz" }).map(r => [r.type, r.label]), [["note", "No cards match"]]);
+  assert.deepEqual(menuRows({ ...menu, cards: [] }, {}).map(r => r.label), ["No cards"]);
+});
+
+test("card reference menu: a number none of its cards has is looked up; it says so meanwhile, then lists the card found or why there is none", () => {
+  const menu = { kind: "cardref", target: "comment", cards: [{ number: 12, title: "Write docs" }] };
+  assert.deepEqual(menuRows(menu, { query: "4" }).map(r => [r.type, r.label]), [["note", "Looking up #4…"]]);
+  assert.deepEqual(menuRows(menu, { query: "1" }).map(r => [r.type, r.label]), [["row", "#12 Write docs"], ["note", "Looking up #1…"]], "12 starts with 1, and #1 itself is still to find");
+  const found = menuRows(menu, { query: "4", looked: { number: 4, title: "Found it", board: "Roadmap" } });
+  assert.deepEqual(found.map(r => [r.type, r.label, r.hint]), [["row", "#4 Found it", "Roadmap"]], "found: listed, nothing left to say");
+  assert.deepEqual(found[0].act, { request: { kind: "cardref", target: "comment", number: 4, title: "Found it" } });
+  assert.deepEqual(menuRows(menu, { query: "4", looked: { number: 4, error: "Not found in Fizzy" } }).map(r => r.label), ["Not found in Fizzy"]);
+  assert.deepEqual(menuRows(menu, { query: "5", looked: { number: 4, title: "Found it" } }).map(r => r.label), ["Looking up #5…"], "an older lookup is not this number's");
+});
+
+test("react menu: the nine reactions, the ones you have put on the comment ticked; each toggles yours", () => {
+  const rows = menuRows({ kind: "react", number: 7, comment: "c9", mine: ["🎉"] });
+  assert.deepEqual(rows.map(r => r.label), ["👍", "👎", "😄", "🎉", "❤️", "👀", "🚀", "🙏", "✅"]);
+  assert.deepEqual(rows.filter(r => r.checked).map(r => r.label), ["🎉"]);
+  assert.deepEqual(rows[0].act, { request: { kind: "react", number: 7, comment: "c9", content: "👍" } });
+  unique(rows);
+  assert.deepEqual(menuRows({ kind: "react", number: 7 }), [], "no comment, no rows");
+});
+
+test("typedAt finds the one '@' or '#' just typed where a mention or a card reference starts: at the start, or after white space", () => {
+  assert.equal(typedAt("", "@"), 0);
+  assert.equal(typedAt("", "#"), 0);
+  assert.equal(typedAt("Hi ", "Hi @"), 3);
+  assert.equal(typedAt("Hi there", "Hi @there"), 3, "typed before a word");
+  assert.equal(typedAt("a\n", "a\n#"), 2, "after a line break");
+  assert.equal(typedAt("mail me", "mail me@"), -1, "at the end of a word: an address, not a mention");
+  assert.equal(typedAt("ab", "a@b"), -1, "inside a word");
+  assert.equal(typedAt("issue", "issue#"), -1);
+  assert.equal(typedAt("Hi ", "Hi x"), -1, "another character");
+  assert.equal(typedAt("Hi ", "Hi @@"), -1, "more than one at once: a paste");
+  assert.equal(typedAt("Hi @", "Hi "), -1, "a deletion");
+  assert.equal(typedAt("Hi", "Hi"), -1, "no change");
+});
+
+test("activePeople: the active people who are not the system user, you first", () => {
+  const users = [user("u2", "Grace"), user("me", "Ada"), user("u3", "Linus", { active: false }), user("bot", "Helper", { role: "system" }), user("u4", "Alan")];
+  assert.deepEqual(activePeople(users, "me").map(u => u.id), ["me", "u2", "u4"]);
+  assert.deepEqual(activePeople(users, null).map(u => u.id), ["u2", "me", "u4"], "no person known: Fizzy's order");
+});
+
 test("menuRows: an unknown or empty menu has no rows, and no menu needs a ctx", () => {
   assert.deepEqual(menuRows({ kind: "nope" }, {}), []);
   assert.deepEqual(menuRows({}, {}), []);
   assert.deepEqual(menuRows(null, {}), []);
   assert.deepEqual(menuRows(undefined), []);
   for (const kind of ["card", "users", "tags", "moveBoard", "lanes"]) assert.deepEqual(menuRows({ kind }, {}), [], `${kind} without a card`);
-  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) }, { kind: "lanes", card: card(1) }]) {
+  assert.deepEqual(menuRows({ kind: "react" }, {}), [], "react without a comment");
+  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) }, { kind: "lanes", card: card(1) },
+    { kind: "mention" }, { kind: "cardref" }]) {
     assert.doesNotThrow(() => menuRows(m), JSON.stringify(m));
   }
 });
@@ -1892,6 +2169,8 @@ test("every row is well formed, and every icon the menus use is in mods/fizzy", 
     { kind: "card", card: c, columns: COLUMNS, pinned: true }, { kind: "lanes", card: c, columns: COLUMNS },
     { kind: "agents", cards: [c] }, { kind: "start", cards: [c] },
     { kind: "users", card: c }, { kind: "tags", card: c }, { kind: "moveBoard", card: c },
+    { kind: "react", number: 4242, comment: "c9", mine: ["👍"] }, { kind: "mention", target: "comment" },
+    { kind: "cardref", target: "desc", cards: [{ number: 12, title: "Write docs", board: "Personal" }, { number: 7, title: "Copy" }] },
   ];
   const used = new Set();
   for (const menu of menus) {

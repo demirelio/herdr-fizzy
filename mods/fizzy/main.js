@@ -369,10 +369,10 @@ export default class Fizzy extends View {
     this.fetchBoards(cx);
     this.pollUnread(cx);
     this.loadUsers(cx); // the people's photos are fetched once their list is in (and again, once a day: see below)
-    this.loadPins(cx); // the lists mark pinned cards
+    this.loadPins(cx); // the lists mark pinned cards, and it is the Pins view's own read
     this.spaceBoard(cx); // the space's board is asked now, so it is likely known by the first draw
-    // The board's own read follows once its board is known (syncBoard); the other views read now, the Inbox's being the unread poll above.
-    if (this.view !== "board" && this.view !== "inbox") this.refreshList(cx);
+    // The board's own read follows once its board is known (syncBoard); Mine reads now, the Inbox's read being the unread poll above.
+    if (this.view === "mine") this.refreshList(cx);
     // Every view but the Inbox is read again now and then, only while it shows and nothing is being typed into a card.
     cx.timer.every(POLL_VIEW, cx => { if (fizzyVisible(layout())) this.poll(cx); });
     // The unread notifications are asked even while the panel is hidden (the Inbox's list, the toasts, and fizzy.unread for other mods).
