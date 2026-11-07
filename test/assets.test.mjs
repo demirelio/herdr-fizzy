@@ -48,10 +48,12 @@ test("the Fizzy folder has every icon the panel's code names", () => {
 });
 
 // Every asset path drawn in every state the Fizzy panel and its popups can draw an icon in: the board (lanes open, a
-// composer, a selection), a card (read, editing), the other views, and each kind of popup.
+// selection, the filter and the search), a new card, a card (read, editing, a file in it), the other views, Settings, and each
+// kind of popup.
 async function panelPaths() {
   const account = makeAccount({ closed: 2 });
   account.pins = [account.card(102)];
+  account.card(101).description_html = '<div><p>Notes</p><action-text-attachment sgid="sgid-notes" content-type="application/pdf" filename="notes.pdf" filesize="2048"></action-text-attachment></div>';
   reset({
     layout: LAYOUT, exec: account.exec,
     spaces: [space("s1", "work", { active: true, folder: "/work" })],
@@ -69,24 +71,29 @@ async function panelPaths() {
     return fire(el, "on_click", { click_count: 1, modifiers: {}, ...event }, cx);
   };
 
-  // The board: the lanes opened, a composer, a selection (the bottom bar: its four icons and the chevrons), then a golden card's detail.
+  // The board: the lanes opened, a selection (the bar of hand-offs: its four icons and the chevrons), then a golden card's detail.
   let tree = await draw();
   for (const id of ["not-now", "done"]) press(tree, `fizzy-section-${id}`);
-  press(tree, "fizzy-add-c1");
   press(tree, "fizzy-card-101", { modifiers: { platform: true } });
   tree = await draw();
   for (const name of ["insert", "send", "bot", "copy", "chevron-down"]) assert.ok(drawn(find(tree, "fizzy-bar")).includes(`mods/fizzy/${name}.svg`), `the bottom bar draws ${name}.svg`);
-  // The composer's description box, and the search of every board (its row, then its results).
-  press(tree, "fizzy-composer-more");
-  panel.filter.edit("login", cx);
-  tree = await draw();
-  press(tree, "fizzy-search-all");
-  tree = await draw();
-  press(tree, "fizzy-search-close");
-  panel.filter.edit("", cx);
-  tree = await draw();
   press(tree, "fizzy-card-101", { modifiers: { platform: true } });
-  press(tree, "fizzy-card-102");
+  // The filter with words (its clear button), then the search of every board (its field, then its results).
+  panel.boardFilter.edit("login", cx);
+  tree = await draw();
+  for (const name of ["search", "x", "user", "plus"]) assert.ok(drawn(find(tree, "fizzy-list-bar")).includes(`mods/fizzy/${name}.svg`), `the list bar draws ${name}.svg`);
+  panel.boardFilter.edit("", cx);
+  press(await draw(), "fizzy-search-open");
+  panel.searchField.edit("login", cx);
+  panel.searchField.submit(cx);
+  tree = await draw();
+  press(tree, "fizzy-search-back");
+  // A new card: its foot, Discard and Done.
+  press(await draw(), "fizzy-add-c1");
+  tree = await draw();
+  assert.ok(find(tree, "fizzy-fresh-bar"), "the new card's page");
+  press(tree, "fizzy-fresh-done");
+  press(await draw(), "fizzy-card-102");
   tree = await draw();
   press(tree, "fizzy-back");
   // A card with steps and comments, its title and description being edited, a comment and the card about to go.
@@ -113,7 +120,9 @@ async function panelPaths() {
   tree = await draw();
   assert.ok(drawn(find(tree, "fizzy-open-settings")).includes("mods/fizzy/settings.svg"), "the gear draws settings.svg");
   press(tree, "fizzy-open-settings");
-  await draw();
+  press(await draw(), "fizzy-setting-mentions");
+  press(await draw(), "fizzy-back");
+  press(await draw(), "fizzy-setting-groups");
   state.shared["fizzy.boardGroups"] = { groups: [{ id: "team", name: "Team", match: "[team]", hidden: false }, { id: "g-2", name: "Quiet", match: "", hidden: true }], boards: { b2: { hidden: true } } };
   tree = await draw();
   press(tree, "fizzy-group-head-g-2");
@@ -132,9 +141,10 @@ async function panelPaths() {
   state.shared["fizzy.people"] = { me: "u-me", users: [{ id: "u-me", name: "Ada", active: true, role: "owner" }], tags: [{ id: "t1", title: "bug" }] };
   state.shared["fizzy.boards"] = [{ id: "b1", name: "Roadmap" }, { id: "b2", name: "Personal" }];
   const menus = [{ kind: "card", card, columns }, { kind: "card", card, columns, pinned: true }, { kind: "card", card: { ...card, closed: true, golden: true }, columns, pinned: true, watching: true },
-    { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "agents", cards: [card] },
+    { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "newCard", current: "b1" }, { kind: "agents", cards: [card] },
     { kind: "start", cards: [card] },
-    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }, { kind: "lanes", card, columns }];
+    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }, { kind: "lanes", card, columns },
+    { kind: "react", number: 101, comment: "cm1", mine: ["👍"] }, { kind: "mention", target: "comment" }, { kind: "cardref", target: "comment", cards: [{ number: 101, title: "T", board: "Roadmap" }] }];
   for (const menu of menus) {
     state.props = { menu, overlay: "o" };
     const view = new Fizzy(), mcx = makeCx();

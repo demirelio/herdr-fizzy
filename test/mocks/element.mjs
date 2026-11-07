@@ -9,7 +9,8 @@ const STYLES = new Set(`size size_full w h min_w min_h max_w max_h w_full h_full
   spin transition frames loop tooltip key_context`.split(/\s+/));
 // More the Fizzy panel draws with (every one is a builder in Herdr's gpui-kit.d.ts).
 export const PANEL_STYLES = `whitespace_normal line_through flex_wrap italic text_ellipsis overflow_x_hidden overflow_y_hidden cursor_default
-  self_center self_start items_baseline flex_shrink_0 justify_start text_left content_center gap_x gap_y flex_row items_stretch cursor_grabbing`.split(/\s+/);
+  self_center self_start items_baseline flex_shrink_0 justify_start text_left content_center gap_x gap_y flex_row items_stretch cursor_grabbing
+  token`.split(/\s+/);
 for (const name of PANEL_STYLES) STYLES.add(name);
 const HANDLERS = new Set(["on_click", "on_key_down", "on_key_up", "on_hover", "on_scroll_wheel", "on_size_change", "on_drop", "on_mouse_move", "on_mouse_down_out", "on_action"]);
 // Things a test runner or inspector may probe on any object.

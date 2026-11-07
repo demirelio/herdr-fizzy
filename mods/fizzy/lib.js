@@ -21,6 +21,9 @@ export const AGENTS = 6;
 // is fetched again, how long a photo that failed is left alone, how many are fetched at once, and how often the people are
 // read again (ms).
 export const AVATAR_DIR = "data/fizzy/avatars", AVATAR_TTL = 7 * 86400000, AVATAR_BACKOFF = 3600000, AVATAR_PARALLEL = 4, AVATAR_EVERY = 86400000;
+// The images in descriptions and comments: where they are cached (under the app's folder too), how many are downloaded at once,
+// and the largest one downloaded (bytes); a larger one is shown as a file.
+export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576;
 
 // `code` is the CLI's own ("auth_required", "not_found", "network", "forbidden", "rate_limit", "api_error", "usage"), or
 // ours: "MISSING" (the program would not start), "TIMEOUT" (Herdr stopped it) and "PARSE" (stdout was not the JSON
@@ -104,7 +107,13 @@ export const JQ = {
   // A Done page, and whether a page follows: the last page says none; a page past the end still says one does.
   page: `{ok, data: {cards: [(.data // [])[] | ${CARD_JQ}], more: (.context.pagination.has_next // false)}}`,
   notes: `{ok, data: [(.data // [])[] | ${NOTE_JQ}]}`,
+  numbers: "{ok, data: [(.data // [])[] | .number]}",
   config: "{ok, data: (.data | {account, board})}",
+  reactions: "{ok, data: [(.data // [])[] | {id, content, reacter: {id: .reacter.id, name: .reacter.name}}]}",
+  // An activity page cut down to the comments and descriptions that hold a mention, and whether a page follows.
+  mentions: '{ok, data: {html: [(.data // [])[] | .eventable | ((.body.html? // ""), (.description_html? // ""))] | map(select(contains("vnd.actiontext.mention"))) | unique, more: (.context.pagination.has_next // false)}}',
+  // A card's attachments as their sgids, in the order `card attachments download` numbers them (from 1).
+  attachments: "{ok, data: [(.data // [])[] | .sgid]}",
 };
 
 // The argv after "fizzy" for each command; withJson adds the --json. Every flag here but --jq, which
@@ -113,6 +122,7 @@ export const cmd = {
   boards: () => ["board", "list", "--all"],
   columns: board => ["column", "list", "--board", board],
   open: board => ["card", "list", "--board", board, "--all", "--jq", JQ.cards],
+  stalled: board => ["card", "list", "--board", board, "--indexed-by", "stalled", "--all", "--jq", JQ.numbers],
   notNow: board => ["card", "list", "--board", board, "--indexed-by", "not_now", "--all", "--jq", JQ.cards],
   done: (board, page = 1) => ["card", "list", "--board", board, "--indexed-by", "closed", "--page", String(page), "--jq", JQ.page],
   mine: (board, me) => ["card", "list", "--board", board, "--assignee", me, "--all", "--jq", JQ.cards],
@@ -125,6 +135,7 @@ export const cmd = {
   pins: () => ["pin", "list", "--jq", JQ.cards],
   inbox: () => ["notification", "tray", "--jq", JQ.notes],
   me: () => ["identity", "show"],
+  activity: page => ["activity", "list", "--page", String(page), "--jq", JQ.mentions],
   config: () => ["config", "show", "--jq", JQ.config],
   create: (board, title, html = "") => ["card", "create", "--board", board, "--title", title, ...(html ? ["--description", html] : [])],
   update: (n, { title, html } = {}) => ["card", "update", String(n), ...(title != null ? ["--title", title] : []), ...(html != null ? ["--description", html] : [])],
@@ -148,8 +159,14 @@ export const cmd = {
   comment: (n, html) => ["comment", "create", "--card", String(n), "--body", html],
   editComment: (n, id, html) => ["comment", "update", id, "--card", String(n), "--body", html],
   dropComment: (n, id) => ["comment", "delete", id, "--card", String(n)],
+  reactions: (n, comment) => ["reaction", "list", "--card", String(n), "--comment", comment, "--jq", JQ.reactions],
+  react: (n, comment, content) => ["reaction", "create", "--card", String(n), "--comment", comment, "--content", content],
+  unreact: (n, comment, id) => ["reaction", "delete", id, "--card", String(n), "--comment", comment],
   read: id => ["notification", "read", id],
   readAll: () => ["notification", "read-all"],
+  attachments: n => ["card", "attachments", "show", String(n), "--include-comments", "--jq", JQ.attachments],
+  download: (n, index, path) => ["card", "attachments", "download", String(n), String(index), "--include-comments", "-o", path],
+  upload: path => ["upload", "file", path],
 };
 
 // What runs: a builder's argv with --json last, or before a `--` separator (one that follows a value: `--title --` is a title), so the answer is the JSON envelope.
@@ -303,26 +320,186 @@ export function tabName(card) {
 const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const escapeHtml = s => s.replace(/[&<>"']/g, c => ESCAPES[c]);
 
+const MENTION_TYPE = "application/vnd.actiontext.mention";
+// An attachment in Fizzy's rich text: [1] its attributes, [2] what Fizzy put inside. A mention's inside is the person's photo,
+// <img title="<name>" src="/<account>/users/<user id>/avatar">, and their first name.
+const ATTACHMENT = /<action-text-attachment\b([^>]*)>([\s\S]*?)<\/action-text-attachment\s*>/gi;
+const attrOf = (attrs, name) => new RegExp(`(?:^|\\s)${name}\\s*=\\s*"([^"]*)"`, "i").exec(attrs)?.[1];
+
+// A mention's { sgid, user }, or null for any other attachment. The user id is in the photo's address, else in the sgid, whose
+// part before "--" is base64 JSON naming gid://…/User/<user id>.
+function mentionOf(attrs, inner) {
+  if (attrOf(attrs, "content-type") !== MENTION_TYPE) return null;
+  const sgid = decode(attrOf(attrs, "sgid") ?? "");
+  if (!sgid) return null;
+  let user = /\/users\/([A-Za-z0-9_-]+)\/avatar\b/.exec(inner)?.[1];
+  if (!user) {
+    try { user = /\/User\/([A-Za-z0-9_-]+)/.exec(atob(sgid.split("--")[0]))?.[1]; } catch { /* no base64 in it: no user */ }
+  }
+  return { sgid, user: user ?? null };
+}
+
+// The mentions in Fizzy's HTML whose person is known: [{ user, sgid }].
+export function mentionsIn(html) {
+  return [...String(html ?? "").matchAll(ATTACHMENT)].map(m => mentionOf(m[1], m[2])).filter(m => m?.user);
+}
+
+// A mention's person's name: the photo's title, else the people list's, else what Fizzy wrote inside it (the first name).
+function mentionName(found, inner, users) {
+  const title = attrOf(/<img\b[^>]*>/i.exec(inner)?.[0] ?? "", "title");
+  return flat(title ? decode(title) : (users ?? []).find(u => u.id === found.user)?.name || decode(inner.replace(/<[^>]*>/g, "")));
+}
+
+const mentionHtml = sgid => `<action-text-attachment sgid="${escapeHtml(sgid)}" content-type="${MENTION_TYPE}"></action-text-attachment>`;
+const attachmentHtml = sgid => `<action-text-attachment sgid="${escapeHtml(sgid)}"></action-text-attachment>`;
+
+// A short steady name for a string (an attachment's sgid, an image's address): 16 hex digits.
+export function shortHash(s) {
+  let a = 0x811c9dc5, b = 0x9747b28c;
+  for (const ch of String(s ?? "")) {
+    const c = ch.codePointAt(0);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x5bd1e995) >>> 0;
+  }
+  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
+}
+
+// The images Herdr draws, by content type, and their cached copy's extension.
+const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg", "image/bmp": "bmp" };
+const IMAGE_NAME = /\.(?:png|jpe?g|gif|webp|svg|bmp|heic|heif|avif|tiff?)$/i;
+// Is this a file name the image cache can hold: shortHash's and an extension of IMAGE_TYPES?
+export const isCachedFile = name => typeof name === "string" && /^[0-9a-f]{16}\.(?:png|jpg|gif|webp|svg|bmp)$/.test(name);
+
+// A file in Fizzy's rich text, out of an attachment's attributes (or an <img>'s, with its `src` as `url`): { key, sgid, url,
+// filename, type, size, width, height, caption, image, ext, remote }, or null for Fizzy's own kinds of attachment and a link
+// to a page. `key` names its cached copy; `image`: it is drawn; `ext`: the cached copy's extension, which a remote image (an
+// address on the web, no sgid) only gets once it is fetched.
+function fileOf(attrs, url = decode(attrOf(attrs, "url") ?? "")) {
+  const value = name => decode(attrOf(attrs, name) ?? "");
+  const sgid = value("sgid"), type = value("content-type").toLowerCase(), remote = !sgid && /^https?:\/\//i.test(url);
+  if (/^application\/vnd\.actiontext\./.test(type) || !(sgid || url) || (remote && type && !type.startsWith("image"))) return null;
+  const number = name => Number(value(name)) || null, ext = remote ? null : IMAGE_TYPES[type] ?? null;
+  return {
+    key: shortHash(sgid || url), sgid: sgid || null, url: url || null, type,
+    filename: flat(value("filename") || value("alt") || (remote ? url.split(/[?#]/)[0].split("/").pop() : "")) || "attachment",
+    size: number("filesize"), width: number("width"), height: number("height"), caption: flat(value("caption")),
+    image: remote || Boolean(ext), ext, remote,
+  };
+}
+
+// The token a text box shows an attachment as; textToHtml writes it back as that attachment. `type`: its content type, if known.
+export function fileToken(sgid, filename, type = "") {
+  const label = flat(filename) || "attachment";
+  return { id: `file:${sgid}`, text: `${/^image\//i.test(type) || IMAGE_NAME.test(label) ? "🖼" : "📎"} ${label}`, label };
+}
+
+// "820 KB", "3.4 MB"; "" when the size isn't known.
+export function fileSize(bytes) {
+  if (!(bytes > 0)) return "";
+  return bytes < 1048576 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+// A link in Fizzy's rich text: [1] its attributes, [2] its text. One whose path is /<account>/cards/<n> is a card reference.
+const LINK = /<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi;
+const linkedCard = attrs => {
+  const n = /^(?:https?:\/\/[^/]+)?\/[^/?#]+\/cards\/(\d+)\/?(?:[?#]|$)/i.exec(decode(attrOf(attrs, "href") ?? ""))?.[1];
+  return n ? Number(n) : null;
+};
+const linkText = inner => decode(inner.replace(/<[^>]*>/g, ""));
+
+// "#<n> <title>". `text` is the title, or a link's text, which already starts with the number when Fizzy's picker wrote it.
+function cardLabel(n, text) {
+  const t = flat(text);
+  if (new RegExp(`^#${n}(?!\\d)`).test(t)) return t;
+  return t && !/^https?:\/\//i.test(t) ? `#${n} ${t}` : `#${n}`;
+}
+
+// The tokens a text box shows a person and a card reference as.
+export const personToken = (id, name) => ({ id: `user:${id}`, text: `@${flat(name)}`, label: flat(name) });
+export function cardToken(number, text) {
+  const label = cardLabel(number, text);
+  return { id: `card:${number}`, text: label, label };
+}
+
+// A card's address, made from another card's of the same account (`base`), or null when `base` is not a card's.
+export function cardUrl(base, n) {
+  const m = /^(https?:\/\/[^?#]*\/cards\/)\d+\/?$/.exec(String(base ?? ""));
+  return m ? `${m[1]}${n}` : null;
+}
+
+// Private-use characters stand in for tokens while the text around them is converted; any the text brings itself are dropped.
+const SLOT = /(\d+)/g;
+const slotFree = s => s.replace(/[]/g, "");
+
+const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// "@<name>" for the people's names, each written by `form`: the longest name that fits first, any case, not inside a word.
+// [1] is what comes before the "@", [2] the name; `by` finds the person by that name in lower case.
+function atNames(people, form) {
+  const by = new Map();
+  for (const p of people ?? []) if (p?.name) by.set(form(p.name).toLowerCase(), p);
+  if (!by.size) return null;
+  const names = [...by.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp).join("|");
+  return { by, at: new RegExp(`(^|[^\\p{L}\\p{N}_])@(${names})(?![\\p{L}\\p{N}_])`, "giu") };
+}
+
+// The people ([{ name }]) that `text` names as "@<name>".
+export function mentionsOf(text, people) {
+  const found = atNames(people, name => name);
+  if (!found) return [];
+  return [...new Set([...String(text ?? "").matchAll(found.at)].map(m => found.by.get(m[2].toLowerCase())).filter(Boolean))];
+}
+
+// Escaped text -> the same with each "@<name>" of a person who has an sgid as their mention.
+function mentioning(people) {
+  const found = atNames(people, escapeHtml);
+  if (!found) return html => html;
+  return html => html.replace(found.at, (whole, before, name) => {
+    const sgid = found.by.get(name.toLowerCase())?.sgid;
+    return sgid ? `${before}${mentionHtml(sgid)}` : whole;
+  });
+}
+
+// A text box's token as HTML: a person ("user:<id>") is their mention when `people` has their sgid, a card ("card:<n>") a link
+// to `hrefOf(n)`, a file ("file:<sgid>") its attachment; else null, and its text stays text.
+function tokenHtml({ id, text }, people, hrefOf) {
+  if (String(id).startsWith("file:")) return attachmentHtml(String(id).slice("file:".length));
+  const [kind, key] = String(id).split(":");
+  const sgid = kind === "user" ? people.find(p => p.id === key)?.sgid : null;
+  if (sgid) return mentionHtml(sgid);
+  const href = kind === "card" ? hrefOf(Number(key)) : null;
+  return href ? `<a href="${escapeHtml(href)}">${escapeHtml(text)}</a>` : null;
+}
+
 const BULLET_LINE = /^[ \t]*[•*-][ \t]+(\S.*)$/;
 
-function paragraphHtml(paragraph) {
+function paragraphHtml(paragraph, mention) {
   const runs = [];
   for (const line of paragraph.split("\n")) {
     const item = BULLET_LINE.exec(line), list = Boolean(item), last = runs.at(-1);
     if (last?.list === list) last.lines.push(item ? item[1] : line);
     else runs.push({ list, lines: [item ? item[1] : line] });
   }
+  const html = text => mention(escapeHtml(text));
   return runs.map(({ list, lines }) => list
-    ? `<ul>${lines.map(l => `<li>${escapeHtml(l.trimEnd())}</li>`).join("")}</ul>`
-    : `<p>${lines.map(escapeHtml).join("<br>")}</p>`).join("");
+    ? `<ul>${lines.map(l => `<li>${html(l.trimEnd())}</li>`).join("")}</ul>`
+    : `<p>${lines.map(l => html(l)).join("<br>")}</p>`).join("");
 }
 
 // What the person typed -> the HTML Fizzy takes: blank lines split paragraphs, a single line break is <br>, a run of
-// lines starting "• ", "- " or "* " is a list.
-export function textToHtml(text) {
-  const t = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+// lines starting "• ", "- " or "* " is a list. `people` ([{ id, name, sgid }]): "@<name>" becomes that person's mention; one
+// with no sgid stays text. `tokens` (a text box's [{ range, token }]) go in where they stand, as tokenHtml writes them.
+export function textToHtml(text, people = [], tokens = [], hrefOf = () => null) {
+  const source = String(text ?? ""), spans = [...tokens].sort((a, b) => a.range.start - b.range.start);
+  let slotted = "", at = 0;
+  spans.forEach((s, i) => {
+    slotted += `${slotFree(source.slice(at, s.range.start))}${i}`;
+    at = Math.max(at, s.range.end);
+  });
+  const t = (slotted + slotFree(source.slice(at))).replace(/\r\n?/g, "\n").trim();
   if (!t) return "";
-  return t.split(/\n(?:[ \t]*\n)+/).map(p => p.trim()).filter(Boolean).map(paragraphHtml).join("");
+  const mention = mentioning(people);
+  return t.split(/\n(?:[ \t]*\n)+/).map(p => p.trim()).filter(Boolean).map(p => paragraphHtml(p, mention)).join("")
+    .replace(SLOT, (_m, i) => tokenHtml(spans[i].token, people, hrefOf) ?? escapeHtml(spans[i].token.text));
 }
 
 const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
@@ -335,16 +512,147 @@ const decode = s => s.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos|nbs
 // Fizzy's HTML -> plain text for a text box: line ends where a line, paragraph, item or heading ends (a paragraph
 // and a list leave a blank line), list items get a bullet, other tags go. Newlines and indentation in the source are only
 // white space, as in a browser (Fizzy pretty-prints its HTML). Tags are removed before entities are read, so
-// "&lt;b&gt;" stays the text "<b>".
-export function htmlToText(html) {
-  const text = decode(String(html ?? "")
+// "&lt;b&gt;" stays the text "<b>". The answer is a text box's content, { text, tokens }: a mention is the token "@<full name>"
+// (`users`, [{ id, name }], names the person its photo doesn't), a link to a card the token "#<n> <title>", another attachment
+// the token fileToken makes, which ends its paragraph.
+export function htmlToContent(html, users = []) {
+  const found = [], slot = token => `${found.push(token) - 1}`;
+  const text = decode(slotFree(String(html ?? ""))
     .replace(/\s+/g, " ")
+    .replace(ATTACHMENT, (whole, attrs, inner) => {
+      const mention = mentionOf(attrs, inner);
+      if (!mention) {
+        const sgid = decode(attrOf(attrs, "sgid") ?? "");
+        return sgid ? `<p>${slot(fileToken(sgid, decode(attrOf(attrs, "filename") ?? ""), attrOf(attrs, "content-type")))}</p>` : whole;
+      }
+      const name = mentionName(mention, inner, users);
+      return !name ? "" : mention.user ? slot(personToken(mention.user, name)) : escapeHtml(`@${name}`);
+    })
+    .replace(LINK, (whole, attrs, inner) => {
+      const n = linkedCard(attrs);
+      return n ? slot(cardToken(n, linkText(inner))) : whole;
+    })
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(?:p|ul|ol)\s*>/gi, "\n\n")
     .replace(/<\/(?:div|li|h[1-6])\s*>/gi, "\n")
     .replace(/<li\b[^>]*>/gi, "• ")
-    .replace(/<[^>]*>/g, ""));
-  return text.replace(/\r\n?/g, "\n").replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    .replace(/<[^>]*>/g, ""))
+    .replace(/\r\n?/g, "\n").replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  const out = { text: "", tokens: [] };
+  let last = 0;
+  for (const m of text.matchAll(SLOT)) {
+    const token = found[m[1]];
+    if (!token) continue;
+    out.text += text.slice(last, m.index);
+    out.tokens.push({ range: { start: out.text.length, end: out.text.length + token.text.length }, token });
+    out.text += token.text;
+    last = m.index + m[0].length;
+  }
+  out.text += text.slice(last);
+  return out;
+}
+
+export const htmlToText = (html, users = []) => htmlToContent(html, users).text;
+
+const BLOCK_TAG = /^(?:p|div|table|tr|figure|figcaption|hr|section|article|header|footer|details|summary|dl|dt|dd|address)$/;
+
+// Fizzy's rich text -> the lines the panel draws: [{ runs, depth, marker, quote, heading, pre, gap }]. `depth`: how many lists it
+// sits in; `marker`: a list item's "•" or "<n>."; `gap`: a block, not a line break, ends before it. A run is { text, kind: "text" |
+// "link" | "mention" | "card", bold, italic, code, href?, user?, number? }: a mention is "@<full name>" (`users` names the person
+// its photo doesn't), a link to a card "#<n> <title>", each one run. A file (an attachment, or an <img> from the web) is a line of
+// its own, { file, gap } (see fileOf); another attachment with an address is a link to it.
+export function richLines(html, users = []) {
+  const atoms = [], slot = run => `${atoms.push(run) - 1}`;
+  const source = slotFree(String(html ?? ""))
+    .replace(ATTACHMENT, (whole, attrs, inner) => {
+      const mention = mentionOf(attrs, inner);
+      if (mention) {
+        const name = mentionName(mention, inner, users);
+        return name ? slot({ text: `@${name}`, kind: "mention", user: mention.user }) : "";
+      }
+      const file = fileOf(attrs);
+      if (file) return slot({ file });
+      const url = attrOf(attrs, "url");
+      return url ? slot({ text: decode(attrOf(attrs, "filename") || "attachment"), kind: "link", href: decode(url) }) : inner;
+    })
+    .replace(LINK, (whole, attrs, inner) => {
+      const n = linkedCard(attrs);
+      return n ? slot({ text: cardLabel(n, linkText(inner)), kind: "card", number: n }) : whole;
+    });
+  const lines = [], lists = [], links = [], on = { bold: 0, italic: 0, code: 0 };
+  let line = null, gap = false, marker = null, quote = 0, heading = false, pre = false;
+  const end = block => {
+    if (line) {
+      const last = line.runs.at(-1);
+      if (!line.pre) last.text = last.text.trimEnd();
+      if (line.runs.some(r => r.text)) lines.push(line);
+      line = null;
+    }
+    gap ||= block;
+  };
+  const add = run => {
+    if (!line) {
+      if (!pre) run.text = run.text.trimStart();
+      if (!run.text) return;
+      line = { runs: [], depth: lists.length, marker, quote: quote > 0, heading, pre, gap };
+      marker = null; gap = false;
+    } else if (!pre && line.runs.at(-1).text.endsWith(" ") && run.text.startsWith(" ")) run.text = run.text.slice(1);
+    if (run.text) line.runs.push(run);
+  };
+  const fileLine = file => {
+    end(true);
+    lines.push({ runs: [], file, depth: lists.length, marker: null, quote: quote > 0, heading: false, pre: false, gap: true });
+  };
+  const styled = run => ({ ...run, bold: on.bold > 0 || heading, italic: on.italic > 0, code: on.code > 0 || pre });
+  const words = raw => {
+    const s = pre ? decode(raw) : decode(raw).replace(/\s+/g, " ");
+    s.split("\n").forEach((part, i) => {
+      if (i) end(false);
+      if (part) add(styled({ text: part, kind: links.at(-1) ? "link" : "text", ...(links.at(-1) ? { href: links.at(-1) } : {}) }));
+    });
+  };
+  const text = raw => {
+    let last = 0;
+    for (const m of raw.matchAll(SLOT)) {
+      words(raw.slice(last, m.index));
+      const atom = atoms[m[1]];
+      if (atom.file) fileLine(atom.file);
+      else add(styled({ ...atom }));
+      last = m.index + m[0].length;
+    }
+    words(raw.slice(last));
+  };
+  const bump = (key, close) => { on[key] = Math.max(0, on[key] + (close ? -1 : 1)); };
+  const tag = (close, name, attrs) => {
+    if (name === "br") end(false);
+    else if (name === "b" || name === "strong") bump("bold", close);
+    else if (name === "i" || name === "em") bump("italic", close);
+    else if (name === "code") bump("code", close);
+    else if (name === "a") { if (close) links.pop(); else links.push(decode(attrOf(attrs, "href") ?? "") || null); }
+    else if (name === "ul" || name === "ol") {
+      if (close) { lists.pop(); end(!lists.length); }
+      else { end(!lists.length); lists.push({ ordered: name === "ol", n: 0 }); }
+    } else if (name === "li") {
+      end(false);
+      const list = lists.at(-1);
+      marker = close ? null : list?.ordered ? `${++list.n}.` : "•";
+    } else if (/^h[1-6]$/.test(name)) { end(true); heading = !close; }
+    else if (name === "blockquote") { end(true); quote = Math.max(0, quote + (close ? -1 : 1)); }
+    else if (name === "pre") { end(true); pre = !close; }
+    else if (name === "img") {
+      const src = decode(attrOf(attrs, "src") ?? ""), file = /^https?:\/\//i.test(src) ? fileOf(attrs, src) : null;
+      if (file) fileLine(file);
+    } else if (BLOCK_TAG.test(name)) end(true);
+  };
+  let last = 0;
+  for (const m of source.matchAll(/<!--[\s\S]*?-->|<(\/?)([a-z][a-z0-9-]*)\b([^>]*)>/gi)) {
+    text(source.slice(last, m.index));
+    last = m.index + m[0].length;
+    if (m[2]) tag(m[1] === "/", m[2].toLowerCase(), m[3]);
+  }
+  text(source.slice(last));
+  end(true);
+  return lines;
 }
 
 export function textLines(text) {
@@ -481,9 +789,11 @@ export function htmlForView(html) {
 }
 
 // Whether saving this HTML as plain text (textToHtml) would lose something: any tag but the p, br, ul and li that
-// textToHtml writes, the div Fizzy wraps it in and a plain ol; a list inside a list item loses its nesting.
+// textToHtml writes, the mentions, attachments and card links it writes back, the div Fizzy wraps it in and a plain ol; a
+// list inside a list item loses its nesting.
 export const formatted = html => {
-  const s = String(html ?? "");
+  const s = String(html ?? "").replace(ATTACHMENT, (whole, attrs, inner) => (mentionOf(attrs, inner) || attrOf(attrs, "sgid") ? "" : whole))
+    .replace(LINK, (whole, attrs) => (linkedCard(attrs) ? "" : whole));
   return /<\/?(?!(?:p|br|div|ul|ol|li)\b)[a-z]/i.test(s) || /<li\b(?:(?!<\/li\b)[\s\S])*<(?:ul|ol)\b/i.test(s);
 };
 
@@ -542,6 +852,57 @@ export function avatarBase(id, at = Date.now()) {
 // Is this a file name AVATAR_SCRIPT can have printed (what the index keeps, and what an image path is built from)?
 export const isAvatarFile = name => typeof name === "string" && /^[A-Za-z0-9_]+-\d{8}\.(?:png|jpg|webp|svg|gif)$/.test(name);
 
+// IMAGE_SCRIPT fetches "$1" (an image on the web) into the folder "$2" as "$3.<ext>" and prints that file name. "$3" is a
+// shortHash; the extension comes from the content type, and anything but an image Herdr draws, or one over IMAGE_MAX bytes, fails.
+// A half-done download is "$2/.$3.part", removed on any failure. Plain POSIX sh, run as sh -c SCRIPT fizzy <url> <folder> <base>.
+export const IMAGE_SCRIPT = `case $1 in http://*|https://*) ;; *) exit 1;; esac
+case $3 in ''|*[!0-9a-f]*) exit 1;; esac
+p="$2/.$3.part"
+mkdir -p "$2" || exit 1
+t=$(curl -sfL --max-time 25 --max-filesize ${IMAGE_MAX} --proto '=http,https' --proto-redir '=http,https' -o "$p" -w '%{content_type}' "$1") || { rm -f "$p"; exit 1; }
+case $(printf %s "$t" | tr 'A-Z' 'a-z') in
+  image/png*) e=png;;
+  image/jpeg*|image/jpg*) e=jpg;;
+  image/gif*) e=gif;;
+  image/webp*) e=webp;;
+  image/svg+xml*) e=svg;;
+  image/bmp*) e=bmp;;
+  *) rm -f "$p"; exit 1;;
+esac
+[ -s "$p" ] && mv -f "$p" "$2/$3.$e" || { rm -f "$p"; exit 1; }
+echo "$3.$e"`;
+
+// CLIP_SCRIPT writes the clipboard's image to the file "$1" as a PNG: through osascript on macOS, else wl-paste or xclip. It exits
+// non-zero, leaving no file, when the clipboard holds no image or none of these programs can read it. Run as sh -c SCRIPT fizzy <file>.
+export const CLIP_SCRIPT = `f=$1
+if [ "$(uname -s)" = Darwin ]; then
+  osascript -e 'on run argv' -e 'set d to the clipboard as «class PNGf»' -e 'set h to open for access (POSIX file (item 1 of argv)) with write permission' \\
+    -e 'set eof h to 0' -e 'write d to h' -e 'close access h' -e 'end run' "$f" >/dev/null 2>&1
+else
+  wl-paste --type image/png >"$f" 2>/dev/null || xclip -selection clipboard -t image/png -o >"$f" 2>/dev/null
+fi
+[ -s "$f" ] || { rm -f "$f"; exit 1; }`;
+
+// OPEN_SCRIPT opens the file "$2" with the system's own program ("$1" is open), or shows it in its folder ("$1" is reveal: Finder
+// on macOS, else the folder itself). Run as sh -c SCRIPT fizzy <open|reveal> <path>.
+export const OPEN_SCRIPT = `f=$2
+if [ "$(uname -s)" = Darwin ]; then
+  [ "$1" = reveal ] && exec open -R "$f"
+  exec open "$f"
+fi
+[ "$1" = reveal ] && f=$(dirname "$f")
+exec xdg-open "$f"`;
+
+// FREE_NAME_SCRIPT prints the path, in the folder "$1" (made when missing), of a file named "$2$3" (a name with no slash, an
+// extension with its dot) that is not there yet: "$2$3", else "$2 (2)$3", "$2 (3)$3" and so on. Run as sh -c SCRIPT fizzy
+// <folder> <name> <extension>.
+export const FREE_NAME_SCRIPT = `d=$1; b=$2; e=$3
+case $b$e in ''|.|..) exit 1;; esac
+mkdir -p "$d" || exit 1
+p="$d/$b$e"; i=2
+while [ -e "$p" ]; do p="$d/$b ($i)$e"; i=$((i + 1)); done
+printf %s "$p"`;
+
 // Every user in what the CLI answered that has a photo, once each: [{ id, url }] (assignees, creators, authors, the people list).
 export function photosIn(data) {
   const found = new Map();
@@ -573,6 +934,21 @@ export function ago(iso, now) {
   if (days < 14) return `${days}d`;
   const at = new Date(t), day = `${MONTHS[at.getMonth()]} ${at.getDate()}`;
   return at.getFullYear() === new Date(n).getFullYear() ? day : `${day}, ${at.getFullYear()}`;
+}
+
+const DAY = 86400000;
+const dayStart = ms => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+// Fizzy's warning on an open card that is not postponed, as its card bubble decides it: "Closes in N days" once fewer days
+// than a quarter of the board's auto-postpone period (`period`, in days) are left, counted in calendar days; else "Stalled"
+// when Fizzy lists the card as stalled. { kind: "closing" | "stalled", label } or null.
+export function inactivity(card, { period, stalled = false, now }) {
+  if (card?.closed || card?.postponed) return null;
+  const last = stamp(card?.last_active_at);
+  if (period > 0 && !Number.isNaN(last)) {
+    const left = Math.round((dayStart(last + period * DAY) - dayStart(stamp(now))) / DAY);
+    if (left < Math.round(period * 0.25)) return { kind: "closing", label: left < 1 ? "Closes today" : `Closes in ${left}d` };
+  }
+  return stalled ? { kind: "stalled", label: "Stalled" } : null;
 }
 
 // Walks from "$1" up to / and prints the `board:` line of the first .fizzy.yaml it finds, and nothing else of the file (it may
@@ -838,11 +1214,13 @@ export function noteReady(root, before) {
 //   { insert: text }          into the current chat (the agent in view) | { paste: { address, text } } into that session, brought to focus first
 //   { start: { name, argv, text, agent } }  a new tab with an agent (`agent`: its name), the text pasted once it is ready
 //   { copy: text } | { open: url }
-//   { choose: { follow, board } }    the board picker's answer (board null: keep the picked one)
+//   { choose: { follow, board, compose? } }    the board picker's answer (board null: keep the picked one); `compose`: New card's, which also opens the new-card field
 //   { menu: next }            closes this popup, opens another | { arm: rowId }  re-render with that row armed
 // ops: { kind: "move", number, target } | { kind: "golden"|"pin"|"watch", number, on } | { kind: "selfAssign", number }
 //   | { kind: "assign", number, user } | { kind: "tag", number, name } | { kind: "moveBoard", number, board }
-//   | { kind: "remove", number } | { kind: "reopen", number }
+//   | { kind: "remove", number } | { kind: "reopen", number } | { kind: "react", number, comment, content } (toggles yours)
+//   | { kind: "mention", target, user, name } | { kind: "cardref", target, number, title } (a person's or a card's token into an
+//     editor: "comment", "commentEdit" or "desc"; nothing is written)
 // A row may carry `user` ({ id, name }): the popup draws that person's photo (or their initials) before the label.
 // Other row types ("label", "sep", "note") are not selectable.
 
@@ -853,13 +1231,14 @@ const label = (id, text) => ({ type: "label", id, label: text });
 const note = (id, text) => ({ type: "note", id, label: text });
 const sep = id => ({ type: "sep", id });
 
-// ctx: { agents, focused, known, checking, failed, boards, groups (the saved board groups), users, tags, me, armed }, read live by the caller
-// (`agents`: running agents; `known`: knownAgents(), the ones that can be started).
+// ctx: { agents, focused, known, checking, failed, boards, groups (the saved board groups), users, tags, me, mentionable, armed }, read live by the
+// caller (`agents`: running agents; `known`: knownAgents(), the ones that can be started; `mentionable`: the ids of the users the panel can mention).
 // A card menu opened by the panel carries `to`: the label of the agent its Insert goes to (null: it copies), and `pinned` and
 // `watching` (true or false) when it knows them; a toggle row offers both verbs while its state is missing.
 export function menuRows(menu, ctx = {}) {
   switch (menu?.kind) {
     case "boards": return boardRows(menu, ctx);
+    case "newCard": return newCardRows(menu, ctx);
     case "card": return menu.card ? cardRows(menu, ctx) : [];
     case "agents": return agentRows(menu, ctx);
     case "start": return startRows(menu, ctx);
@@ -867,25 +1246,42 @@ export function menuRows(menu, ctx = {}) {
     case "tags": return menu.card ? tagRows(menu, ctx) : [];
     case "moveBoard": return menu.card ? moveBoardRows(menu, ctx) : [];
     case "lanes": return menu.card ? laneRows(menu.card, menu.columns) : [];
+    case "react": return menu.comment ? reactRows(menu) : [];
+    case "mention": return mentionRows(menu, ctx);
+    case "cardref": return cardRefRows(menu, ctx);
     default: return [];
   }
 }
 
-// Follow current space; the boards that are in no group; then each group that has a board to show, as a label and its boards.
+// The boards that are in no group; then each group that has a board to show, as a label and its boards (`pick` makes a board's row).
 // The board the panel shows (`current`) is listed whatever is hidden.
-function boardRows(menu, ctx) {
-  const boards = ctx.boards ?? [], own = boards.find(b => b.id === menu.spaceBoard);
+function groupedBoards(menu, ctx, pick) {
+  const boards = ctx.boards ?? [];
   const { ungrouped, groups } = boardGroups(boards, groupsConfig(ctx.groups), { keep: menu.current });
+  return [
+    ...ungrouped.map(pick),
+    ...groups.filter(g => g.boards.length).flatMap(g => [label(`group-${g.group.id}`, g.group.name), ...g.boards.map(pick)]),
+    ...(boards.length ? [] : [note("boards-note", "No boards")]),
+  ];
+}
+
+// Follow current space, then the boards.
+function boardRows(menu, ctx) {
+  const own = (ctx.boards ?? []).find(b => b.id === menu.spaceBoard);
   const pick = b => row(`board-${b.id}`, b.name, null, { choose: { follow: false, board: b.id } }, { checked: !menu.follow && b.id === menu.current });
   return [
     row("follow", "Follow current space", null, { choose: { follow: true, board: null } }, {
       hint: menu.spaceBoard ? (own?.name ?? "unknown board") : "no .fizzy.yaml", checked: !!menu.follow,
     }),
     sep("sep-follow"),
-    ...ungrouped.map(pick),
-    ...groups.filter(g => g.boards.length).flatMap(g => [label(`group-${g.group.id}`, g.group.name), ...g.boards.map(pick)]),
-    ...(boards.length ? [] : [note("boards-note", "No boards")]),
+    ...groupedBoards(menu, ctx, pick),
   ];
+}
+
+// The boards, each opening the new-card field on it; the one the panel shows is ticked.
+function newCardRows(menu, ctx) {
+  const pick = b => row(`board-${b.id}`, b.name, null, { choose: { follow: false, board: b.id, compose: true } }, { checked: b.id === menu.current });
+  return [label("new-label", "New card on"), ...groupedBoards(menu, ctx, pick)];
 }
 
 // One row per lane: choosing it moves the card there.
@@ -951,15 +1347,69 @@ function startRows(menu, ctx) {
   ];
 }
 
+// The active people (no system user), you first.
+export function activePeople(users, meId) {
+  const active = users.filter(u => u.active !== false && u.role !== "system");
+  return [...active.filter(u => meId && u.id === meId), ...active.filter(u => !meId || u.id !== meId)];
+}
+
 function userRows(menu, ctx) {
   if (ctx.users == null) return [note("users-note", "Loading people…")];
   const meId = idOf(ctx.me), assigned = new Set((menu.card.assignees ?? []).map(u => u.id));
-  const active = ctx.users.filter(u => u.active !== false && u.role !== "system");
-  const people = [...active.filter(u => meId && u.id === meId), ...active.filter(u => !meId || u.id !== meId)];
+  const people = activePeople(ctx.users, meId);
   return [
     ...people.map(u => row(`user-${u.id}`, u.name, null, { request: { kind: "assign", number: menu.card.number, user: u.id } }, { user: { id: u.id, name: u.name }, checked: assigned.has(u.id), hint: meId && u.id === meId ? "you" : undefined })),
     ...(people.length ? [] : [note("users-note", "No people")]),
   ];
+}
+
+// Someone the panel has no mention id for yet "can't tag yet": their "@<name>" is saved as plain text.
+// `ctx.query`: the words typed in the popup's field; a person stays when their name holds them.
+function mentionRows(menu, ctx) {
+  if (ctx.users == null) return [note("users-note", "Loading people…")];
+  const meId = idOf(ctx.me), known = new Set(ctx.mentionable ?? []), q = String(ctx.query ?? "").trim().toLowerCase();
+  const people = activePeople(ctx.users, meId).filter(u => !q || u.name.toLowerCase().includes(q));
+  return [
+    ...people.map(u => row(`user-${u.id}`, u.name, null, { request: { kind: "mention", target: menu.target, user: u.id, name: u.name } }, { user: { id: u.id, name: u.name }, hint: !known.has(u.id) ? "can't tag yet" : meId && u.id === meId ? "you" : undefined })),
+    ...(people.length ? [] : [note("users-note", q ? "Nobody by that name" : "No people")]),
+  ];
+}
+
+const CARD_REF_ROWS = 50;
+// The cards the panel passed (`menu.cards`: [{ number, title, board }]) that the field's words fit (`ctx.query`): a number, the
+// cards whose number starts with it; words, the cards whose title holds them all. A number none of them has is looked up by the
+// popup: `ctx.looked` is { number, title, board } once found, { number, error } when that failed.
+function cardRefRows(menu, ctx) {
+  const q = String(ctx.query ?? "").trim().replace(/^#/, "").toLowerCase(), digits = /^\d+$/.test(q) ? q : null;
+  const words = q.split(/\s+/).filter(Boolean);
+  const cards = (menu.cards ?? []).filter(c => (digits ? String(c.number).startsWith(digits) : words.every(w => String(c.title ?? "").toLowerCase().includes(w))));
+  if (digits) cards.sort((a, b) => a.number - b.number);
+  const looked = digits && ctx.looked?.number === Number(digits) ? ctx.looked : null;
+  if (looked && !looked.error && !cards.some(c => c.number === looked.number)) cards.unshift(looked);
+  const exact = cards.some(c => c.number === Number(digits));
+  const pick = c => row(`card-${c.number}`, cardLabel(c.number, c.title ?? ""), null, { request: { kind: "cardref", target: menu.target, number: c.number, title: c.title ?? "" } }, { hint: c.board || undefined });
+  return [
+    ...cards.slice(0, CARD_REF_ROWS).map(pick),
+    ...(digits && !exact ? [note("cards-note", looked?.error ?? `Looking up #${digits}…`)] : []),
+    ...(!digits && !cards.length ? [note("cards-note", q ? "No cards match" : "No cards")] : []),
+  ];
+}
+
+// Where one "@" or "#" was typed at the start of the text or after white space (where a mention or a card reference starts), going
+// from `before` to `after`: its index in `after`, else -1.
+export function typedAt(before, after) {
+  if (after.length !== before.length + 1) return -1;
+  let i = 0;
+  while (i < before.length && before[i] === after[i]) i++;
+  const mark = after[i] === "@" || after[i] === "#";
+  return mark && after.slice(i + 1) === before.slice(i) && (i === 0 || /\s/.test(after[i - 1])) ? i : -1;
+}
+
+const REACTIONS = ["👍", "👎", "😄", "🎉", "❤️", "👀", "🚀", "🙏", "✅"];
+// `menu.mine`: the emoji you have already put on the comment, ticked.
+function reactRows(menu) {
+  const mine = new Set(menu.mine ?? []);
+  return REACTIONS.map((content, i) => row(`react-${i}`, content, null, { request: { kind: "react", number: menu.number, comment: menu.comment, content } }, { checked: mine.has(content) }));
 }
 
 function tagRows(menu, ctx) {
