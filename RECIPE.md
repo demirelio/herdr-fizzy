@@ -13,15 +13,35 @@ Top to bottom, inside the panel (Herdr's `main` layout gives it 368 px, at least
 column, rounded 10, with a 1 px `border` and the `background` color; text is 13 px in `foreground`. Colors here are
 theme names.
 
-- **Header**, 42 px, padding 10, a 1 px line under it. At the left, **Fizzy**: the kanban icon (14 px) and the word
-  "Fizzy" in semibold, 26 px high; it is `selected` while the Board view shows, and below 340 px of panel width it
-  loses the word. Then **Mine**, **Inbox** and **Pins** (12 px, `selected` when shown); while there are unread
-  notifications, Inbox carries a round 16 px badge in `accent` with their number. At the right, Refresh and Settings:
-  26 px icon buttons, 14 px icons in `muted`, `hover` behind them on hover.
-- **Board row**, 34 px: a 26 px dropdown in `raised` with the board's name (12 px, cut with an ellipsis) and a 12 px
-  chevron; at the right, New card (+) and Open board in Fizzy.
-- **Filter row**, 36 px, in every view but Inbox: a 28 px field ("Filter cards…", rounded 7, 1 px `input` border) and,
-  on Board, a **Me** toggle (28 px, `accent` border and `selected` fill when on).
+- **Header**, 42 px, padding 10, a 1 px line under it. At the left, **Fizzy**: the kanban icon (14 px) and, from 440 px
+  of panel width, the word "Fizzy" in semibold, 26 px high; it is `selected` while the Board view shows, and without
+  the word it has the tooltip "Board". Then **Mine**, **Inbox** and **Pins** (12 px, `selected` when shown); while
+  there are unread notifications, Inbox carries a round 16 px badge in `accent` with their number. At the right,
+  Refresh and Settings (gap 2): 26 px icon buttons, 14 px icons in `muted`, `hover` behind them on hover; then, last,
+  in the corner, **New card**. The panel's width has three tiers, measured on the panel's root (its border included):
+
+  | Panel width | Fizzy and the views | Gap | Refresh | New card |
+  |---|---|---|---|---|
+  | 440 px and up | icon and word, padding 8 | 8, 3 between the views | shown | plus and "New card", padding 10 |
+  | 340 to 439 px (368 by default) | icon alone, padding 6 | 6, 2 between the views | shown | plus and "New", padding 8, tooltip "New card" |
+  | under 340 px | icon alone, padding 6 | 6, 2 between the views | left out | the plus alone, 26×26, tooltip "New card" |
+
+  **New card** is 26 px high, rounded 6, 12 px medium, with a 13 px plus and 5 px between it and the label, in the
+  primary-button colors (`solid` behind `solid_foreground`; `opacity` 0.88 on hover). Until a board shows it is
+  `raised` and `dim`, with no hover, pointer or click. Without Refresh, Refresh stays reachable by the
+  `refresh` key and the 30 s poll.
+- **Board row**, 36 px, padding 10, gap 6, **in the Board view only** (Mine, Inbox and Pins go straight from the header
+  to the filter row, and the Inbox to its list; it stays while the results of Search all boards show): a select over a
+  field. The select takes the room: 28 px, rounded 7, 1 px `input` border, `background`, padding 8, gap 7, `hover`
+  behind it on hover; a 14 px kanban icon in `muted`, the board's name (13 px medium, `foreground`, `dim` with no
+  board, cut with an ellipsis), "Following space" (11 px `dim`, left out when narrow) while following and showing the
+  space's own board, and a 12 px chevron in `dim` at the right end. Its tooltip is "Following the current space" in
+  that case, else "Switch board". At its right, **Open board in Fizzy**: 36×28, rounded 7, 1 px `input` border,
+  `background`, a 14 px external-link icon in `muted` (`foreground` and `hover` behind it on hover; `dim` and inert
+  without a url), tooltip "Open board in Fizzy".
+- **Filter row**, 36 px, padding 10, gap 6, in every view but Inbox: a 28 px field ("Filter cards…", rounded 7, 1 px
+  `input` border) and, on Board, a **Me** toggle (36×28, its text centered so its edges line up with Open board above
+  it; `accent` border and `selected` fill when on).
 - **The list**, scrolling, padding 6:
   - Board: a 28 px header per lane: a 12 px chevron, an 8 px dot in the lane's color, the lane's name (medium), its
     count (11 px, `dim`) and, on Maybe? and the columns, a 22 px +. Column colors are Fizzy's names as hex: blue
@@ -80,6 +100,14 @@ dot after the label while `fizzy.unread` is above zero.
   first board. That default is kept for the next start; the very first start waits for it before it picks a board.
   Picking a board in the dropdown stops following; its first row, **Follow current space**, starts it again and shows
   the space's board (or `no .fizzy.yaml`) as its hint.
+- **New card.** The header's button opens the `newCard` popup: the label "New card on", then the boards as the dropdown
+  lists them (hidden ones left out, except the board shown), the board shown ticked and highlighted so that Enter
+  means "on this board", and no Follow row. Choosing a board writes `fizzy.board` with `compose: true`. The panel moves
+  to that board as for any pick (following off, the pick kept), except when it is the board already shown: then
+  following and the pick stay as they are. A moment later (a draw may not act) it leaves an open card or Settings, shows
+  the Board view, closes the results of Search all boards, unfolds Maybe? and focuses the new-card field there. The
+  `new` key opens the same picker, and does nothing without a board. A lane header's + still opens the field in that
+  lane at once.
 - **Board.** Lanes in the order of `fizzy column list`; Maybe? first and Not Now and Done last when missing. Not Now
   and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show more** (50
   more). A header's click folds its lane (kept per board). Pressing a card and letting go over another lane's header or
@@ -152,7 +180,7 @@ dot after the label while `fizzy.unread` is above zero.
   `content.mod` pointed at the patched tab bar (`fizzy-tabs`). `layout/add-fizzy.jq` makes both changes.
 - **Mods.** `fizzy` (`mod.json`: `{ "place": "none", "title": "Fizzy" }`): one class that is the panel, and also every
   popup, opened as `openOverlay({ mod: "fizzy", kind: "popup", props: { menu } })` with `menu.kind` one of `boards`,
-  `card`, `agents`, `start`, `users`, `tags`, `moveBoard`, `lanes`. `lib.js` holds the pure parts (no imports).
+  `newCard`, `card`, `agents`, `start`, `users`, `tags`, `moveBoard`, `lanes`. `lib.js` holds the pure parts (no imports).
   `fizzy-tabs` is Herdr's `tabs` cloned, plus `tabs/fizzy-button.patch`: a Fizzy button when `panel-body` has a `fizzy`
   child, its dot from `fizzy.unread`, and a `nextCommand()` loop taking `panel:<page>`.
 - **Shipped mods it relies on.** `tabs` (cloned), `toast` (draws `notify`), `new-menu` (its `new-menu.agents` cache is
@@ -165,7 +193,7 @@ dot after the label while `fizzy.unread` is above zero.
   `layout.show` (a toast); toast actions `fizzy.open:<n>:<id>`, `layout.show {id: "panel"}`,
   `layout.select {stack: "panel-body", child: "fizzy"}`. The tab bar: `layout.select`, `layout.show`, `layout.hide`.
 - **Shared state.** `fizzy.unread`, `fizzy.boards`, `fizzy.people`, `fizzy.avatars`, `fizzy.boardGroups` (written by
-  the panel); `fizzy.request` and `fizzy.board` (a popup's action and board choice, done by the panel, which sets
+  the panel); `fizzy.request` and `fizzy.board` (a popup's action and board choice, New card's included, done by the panel, which sets
   `fizzy.request` to null afterwards so a hand-off's text does not stay in `shared.json`).
 - **Programs.** `fizzy` 4 or newer, always run from the home folder, every command ending with `--json`. It reads with
   `board list --all`, `column list --board`, `card list --board <id> --all` (also with `--indexed-by not_now`,
@@ -227,6 +255,8 @@ dot after the label while `fizzy.unread` is above zero.
   and Done folded; unfolding Done shows up to 50 cards and Show more.
 - Dragging a card from one lane onto another lane's header moves it in Fizzy (`fizzy card show` agrees), and the list
   shows it there after the next read.
+- New card, from any view, opens the board picker; choosing a board shows the Board view on it with the new-card field
+  focused, and Enter makes the card in Maybe? there (`fizzy card show` agrees).
 - With an agent in the focused pane, Insert puts `Fizzy #N "Title" (url)`, followed by a space, in its input, and
   nothing is submitted; with none, the reference is on the clipboard and a toast says so.
 - Start on a card opens a tab named `#N Title`, running the chosen agent, and the reference appears in its input once

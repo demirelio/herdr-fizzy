@@ -838,7 +838,7 @@ export function noteReady(root, before) {
 //   { insert: text }          into the current chat (the agent in view) | { paste: { address, text } } into that session, brought to focus first
 //   { start: { name, argv, text, agent } }  a new tab with an agent (`agent`: its name), the text pasted once it is ready
 //   { copy: text } | { open: url }
-//   { choose: { follow, board } }    the board picker's answer (board null: keep the picked one)
+//   { choose: { follow, board, compose? } }    the board picker's answer (board null: keep the picked one); `compose`: New card's, which also opens the new-card field
 //   { menu: next }            closes this popup, opens another | { arm: rowId }  re-render with that row armed
 // ops: { kind: "move", number, target } | { kind: "golden"|"pin"|"watch", number, on } | { kind: "selfAssign", number }
 //   | { kind: "assign", number, user } | { kind: "tag", number, name } | { kind: "moveBoard", number, board }
@@ -860,6 +860,7 @@ const sep = id => ({ type: "sep", id });
 export function menuRows(menu, ctx = {}) {
   switch (menu?.kind) {
     case "boards": return boardRows(menu, ctx);
+    case "newCard": return newCardRows(menu, ctx);
     case "card": return menu.card ? cardRows(menu, ctx) : [];
     case "agents": return agentRows(menu, ctx);
     case "start": return startRows(menu, ctx);
@@ -871,21 +872,35 @@ export function menuRows(menu, ctx = {}) {
   }
 }
 
-// Follow current space; the boards that are in no group; then each group that has a board to show, as a label and its boards.
+// The boards that are in no group; then each group that has a board to show, as a label and its boards (`pick` makes a board's row).
 // The board the panel shows (`current`) is listed whatever is hidden.
-function boardRows(menu, ctx) {
-  const boards = ctx.boards ?? [], own = boards.find(b => b.id === menu.spaceBoard);
+function groupedBoards(menu, ctx, pick) {
+  const boards = ctx.boards ?? [];
   const { ungrouped, groups } = boardGroups(boards, groupsConfig(ctx.groups), { keep: menu.current });
+  return [
+    ...ungrouped.map(pick),
+    ...groups.filter(g => g.boards.length).flatMap(g => [label(`group-${g.group.id}`, g.group.name), ...g.boards.map(pick)]),
+    ...(boards.length ? [] : [note("boards-note", "No boards")]),
+  ];
+}
+
+// Follow current space, then the boards.
+function boardRows(menu, ctx) {
+  const own = (ctx.boards ?? []).find(b => b.id === menu.spaceBoard);
   const pick = b => row(`board-${b.id}`, b.name, null, { choose: { follow: false, board: b.id } }, { checked: !menu.follow && b.id === menu.current });
   return [
     row("follow", "Follow current space", null, { choose: { follow: true, board: null } }, {
       hint: menu.spaceBoard ? (own?.name ?? "unknown board") : "no .fizzy.yaml", checked: !!menu.follow,
     }),
     sep("sep-follow"),
-    ...ungrouped.map(pick),
-    ...groups.filter(g => g.boards.length).flatMap(g => [label(`group-${g.group.id}`, g.group.name), ...g.boards.map(pick)]),
-    ...(boards.length ? [] : [note("boards-note", "No boards")]),
+    ...groupedBoards(menu, ctx, pick),
   ];
+}
+
+// The boards, each opening the new-card field on it; the one the panel shows is ticked.
+function newCardRows(menu, ctx) {
+  const pick = b => row(`board-${b.id}`, b.name, null, { choose: { follow: false, board: b.id, compose: true } }, { checked: b.id === menu.current });
+  return [label("new-label", "New card on"), ...groupedBoards(menu, ctx, pick)];
 }
 
 // One row per lane: choosing it moves the card there.

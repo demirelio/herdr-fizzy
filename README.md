@@ -20,10 +20,16 @@ The repo holds:
 
 ## What you see
 
-**The header.** From the left: **Fizzy** (its icon and name; below 340 px of panel width, the icon alone) shows the
-Board view. Then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, and at the right
-**Refresh** and **Settings**. Under it, the board row: one dropdown with the board's name (click it to pick another
-board), and at its right **New card** and **Open board in Fizzy**. Board, Mine and Pins have a filter box under that.
+**The header.** From the left: **Fizzy** (its icon and name; below 440 px of panel width, the icon alone) shows the
+Board view. Then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, then **Refresh** and
+**Settings**, and in the top right corner **New card**, a button in the primary color: with its plus and its full name
+from 440 px of panel width, as "New" from 340 px, and below that as the plus alone (Refresh is left out there; the
+`refresh` key and the 30-second poll still read again). **New card** opens a picker of your boards under "New card on",
+the board shown ticked and highlighted; choosing one moves the panel to that board (the Board view) and opens the
+new-card field in Maybe? there. On the Board view only, the **board row** sits under the header: a select with the
+board's name (click it to pick another board; it says "Following space" while it follows the space's own board) and
+**Open board in Fizzy** at its right. Board, Mine and Pins have a filter box under the header (on Board, under the
+board row); Inbox has none.
 
 **Board.** One section per lane, in the board's own order from Fizzy; Maybe? comes first, and Not Now and Done last,
 when the board's column list leaves them out. Not Now and Done start folded and are read each time you unfold them (and
@@ -81,7 +87,7 @@ groups** section: each group with its boards, then **No group**.
   move it.
 - The bin deletes a group (two clicks); the eye hides a group or one board; a click elsewhere on a group's line folds
   it.
-- Hiding only takes a board out of the dropdown: Mine, Search all boards, Follow current space and the board shown
+- Hiding only takes a board out of the dropdown and the New card picker: Mine, Search all boards, Follow current space and the board shown
   are not affected. Every change is kept at once.
 
 **Notifications.** Every 30 seconds, also while the panel is hidden, the panel asks Fizzy for your unread
@@ -260,7 +266,8 @@ Without one, or with a board that is not in your list, it shows the board you pi
 default board (what `fizzy config show` says from your home folder), then your first board. The panel keeps that
 default for its next start; on its very first start it waits for `config show` before it shows a board. Picking a
 board in the dropdown turns following off; **Follow current space** turns it back on, and shows the space's board
-beside it, or "no .fizzy.yaml".
+beside it, or "no .fizzy.yaml". A board chosen in the **New card** picker is picked the same way (following off), unless
+it is the board already shown: then following and the pick stay as they are.
 
 ## Keys
 
@@ -287,7 +294,7 @@ command only while the Fizzy page is shown, so with the panel hidden or another 
 | `back` | Leaves the open card or Settings; else closes the results of Search all boards |
 | `settings` | Opens Settings |
 | `insert`, `send`, `start`, `copy` | The bar's buttons: for the open card, else the picked cards, else (Board view) the board shown |
-| `new` | Opens the new-card field in Maybe? on the board shown |
+| `new` | Opens the **New card** board picker (nothing happens until a board shows); choosing a board opens the new-card field in Maybe? there |
 | `filter` | Puts the cursor in the filter box (from the Inbox, which has none, it shows the Board view first) |
 | `menu:<number>` | Opens that card's menu |
 
@@ -343,7 +350,7 @@ It writes these shared keys, which every mod can read (Herdr keeps them in `shar
 | `fizzy.people` | The account's people (id, name, role, active), its tags, and the signed-in user's id |
 | `fizzy.avatars` | Each person's photo file, by user id |
 | `fizzy.boardGroups` | Your board groups |
-| `fizzy.board` | The last choice made in the board dropdown |
+| `fizzy.board` | The last choice made in the board dropdown or the New card picker |
 | `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod), with the text of a hand-off; the panel sets it to null once it has handled it |
 | `new-menu.agents` | Herdr's own `new-menu` cache of the agents each machine reported; the Start list shows it at once, and writes back what the machine answered |
 

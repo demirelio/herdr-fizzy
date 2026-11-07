@@ -132,7 +132,7 @@ async function panelPaths() {
   state.shared["fizzy.people"] = { me: "u-me", users: [{ id: "u-me", name: "Ada", active: true, role: "owner" }], tags: [{ id: "t1", title: "bug" }] };
   state.shared["fizzy.boards"] = [{ id: "b1", name: "Roadmap" }, { id: "b2", name: "Personal" }];
   const menus = [{ kind: "card", card, columns }, { kind: "card", card, columns, pinned: true }, { kind: "card", card: { ...card, closed: true, golden: true }, columns, pinned: true, watching: true },
-    { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "agents", cards: [card] },
+    { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "newCard", current: "b1" }, { kind: "agents", cards: [card] },
     { kind: "start", cards: [card] },
     { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }, { kind: "lanes", card, columns }];
   for (const menu of menus) {

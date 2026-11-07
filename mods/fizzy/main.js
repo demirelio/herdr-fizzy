@@ -29,8 +29,9 @@ const AVATARS = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6", "ansi9", 
 const MAX_MENU = 560, INPUT_ROW = 40;
 // The bottom bar: one line of four buttons, each as high as BAR_BUTTON. Below NARROW px of panel width (its narrowest is
 // 280) the buttons drop their icons and keep their labels, so the four still fit in that one line; the header drops
-// its "Fizzy" word and tightens its buttons for the same reason.
-const BAR_BUTTON = 28, NARROW = 340;
+// Refresh and shows New card as its plus alone for the same reason. Below WIDE px the header tightens its buttons and
+// gaps, drops its "Fizzy" word and shortens New card to "New", so the default width still fits a labelled New card.
+const BAR_BUTTON = 28, NARROW = 340, WIDE = 440;
 // Transparent, not the background color: a background-colored border would show as a frame inside a highlighted block.
 const CLEAR = "#00000000";
 // The Done lane is read at most this many pages deep in one go (the CLI's pages are short).
@@ -203,7 +204,7 @@ function perform(act, cx) {
   else if (act.start) request({ kind: "start", name: act.start.name, argv: act.start.argv, text: act.start.text, agent: act.start.agent });
   else if ("copy" in act) copyText(act.copy, cx);
   else if (act.open) cx.open_url(act.open);
-  else if (act.choose) setShared("fizzy.board", { follow: act.choose.follow, board: act.choose.board, id: unique() });
+  else if (act.choose) setShared("fizzy.board", { ...act.choose, id: unique() });
   else if (act.menu) openMenu(act.menu);
 }
 
@@ -273,7 +274,7 @@ export default class Fizzy extends View {
     // The session Start is waiting for: { name, text, agent, before (the addresses that ran before it), at, found: { address, at } }.
     // One at a time: a newer Start replaces it. Looked at by the request timer (see takeStart), never by a draw.
     this.starting = null;
-    this.narrow = false; // the panel is narrower than NARROW px: the bar's buttons drop their icons, the header its word
+    this.narrow = false; this.wide = false; // the panel is narrower than NARROW px, or at least WIDE px (the default width is neither)
     // Profile photos: { [user id]: { file, at } } is kept between runs, `paths` is what is drawn from it ({ [user id]: image path }),
     // `wanted` the users still to fetch (id -> photo address), `fetching` the ones being fetched, `failedAt` when a failed one may
     // be tried again. Only this panel fetches (see takeAvatars); popups read the paths from shared state.
@@ -602,13 +603,18 @@ export default class Fizzy extends View {
     const choice = shared("fizzy.board");
     if (choice?.id && choice.id !== this.choiceSeen) {
       this.choiceSeen = choice.id;
-      this.follow = choice.follow !== false;
-      if (choice.board) this.picked = choice.board;
-      keep("follow", this.follow);
-      keep("board", this.picked);
+      if (!(choice.compose && choice.board === this.board)) {
+        this.follow = choice.follow !== false;
+        if (choice.board) this.picked = choice.board;
+        keep("follow", this.follow);
+        keep("board", this.picked);
+      }
       // A draw does not act: the view changes a moment later, on a timer. In the Board view the board's read is already on
       // its way (switchBoard), so only search results are left.
-      cx.timer.after(1, cx => { if (this.view !== "board" || this.search) this.setView("board", cx); });
+      cx.timer.after(1, cx => {
+        if (choice.compose) { this.goBack(cx); this.openComposer("maybe", cx); }
+        else if (this.view !== "board" || this.search) this.setView("board", cx);
+      });
     }
     const space = this.spaceBoard(cx);
     // Following, the space's own answer is waited for: reading the default board meanwhile would be wasted
@@ -1225,6 +1231,10 @@ export default class Fizzy extends View {
     openMenu({ kind: "boards", current: this.board, follow: this.follow, spaceBoard: this.spaceBoard(cx) });
   }
 
+  newCardMenu() {
+    openMenu({ kind: "newCard", current: this.board });
+  }
+
   // The picked cards (⌘/Ctrl-click), by number.
   picks() {
     return [...this.selected].sort((a, b) => a - b).map(n => this.find(n)).filter(Boolean).map(slim);
@@ -1645,11 +1655,7 @@ export default class Fizzy extends View {
       case "settings": this.openSettings(cx); break;
       // As the bar's buttons: the open card, else the selection, else (Board view) the board. send and start open their popups of sessions and agents.
       case "insert": case "copy": case "send": case "start": this.handOff(name, this.subject(), cx); break;
-      case "new":
-        if (!this.board) break;
-        this.goBack(cx); this.search = null;
-        this.openComposer("maybe", cx);
-        break;
+      case "new": if (this.board) this.newCardMenu(); break;
       case "filter":
         this.goBack(cx);
         if (this.view === "inbox") this.setView("board", cx); // the Inbox has no filter
@@ -1751,28 +1757,42 @@ export default class Fizzy extends View {
           .when(!this.narrow, el => el.child(this.iconButton(t, "fizzy-act-open", ICON("external-link"), (_e, cx) => cx.open_url(c.url), Boolean(c.url), "Open in Fizzy")))
           .child(this.iconButton(t, "fizzy-card-menu", ICON("more"), (_e, cx) => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx)), true, "More")));
     }
-    return h_flex().h(42).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
+    return h_flex().h(42).flex_none().px(10).gap(this.wide ? 8 : 6).items_center().border_b(1).border_color(t.border)
       .child(this.homeButton(t))
-      .child(h_flex().flex_none().gap(3).children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
+      .child(h_flex().flex_none().gap(this.wide ? 3 : 2).children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
       .child(div().flex_1())
       .child(h_flex().flex_none().gap(2)
-        .child(this.iconButton(t, "fizzy-refresh", ICON("refresh"), (_e, cx) => this.retry(cx), true, "Refresh"))
-        .child(this.iconButton(t, "fizzy-open-settings", ICON("settings"), (_e, cx) => this.openSettings(cx), true, "Settings")));
+        .when(!this.narrow, el => el.child(this.iconButton(t, "fizzy-refresh", ICON("refresh"), (_e, cx) => this.retry(cx), true, "Refresh")))
+        .child(this.iconButton(t, "fizzy-open-settings", ICON("settings"), (_e, cx) => this.openSettings(cx), true, "Settings")))
+      .child(this.newCardButton(t));
   }
 
   homeButton(t) {
     const shown = this.view === "board";
-    return h_flex().id("fizzy-home").h(26).px(this.narrow ? 6 : 8).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
+    return h_flex().id("fizzy-home").h(26).px(this.wide ? 8 : 6).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
       .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted)
       .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => this.setView("board", cx))
-      .when(this.narrow, el => el.tooltip("Board"))
+      .when(!this.wide, el => el.tooltip("Board"))
       .child(svg(ICON("kanban")).size(14).flex_none())
-      .when(!this.narrow, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
+      .when(this.wide, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
+  }
+
+  newCardButton(t) {
+    const enabled = Boolean(this.board), label = this.wide ? "New card" : this.narrow ? null : "New";
+    return h_flex().id("fizzy-new").h(26).flex_none().gap(5).items_center().justify_center().rounded(6).text_size(12).font_medium()
+      .bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim)
+      .when(Boolean(label), el => el.px(this.wide ? 10 : 8))
+      .when(!label, el => el.w(26))
+      .when(!this.wide, el => el.tooltip("New card"))
+      .on_mouse_down("left", stop)
+      .when(enabled, el => el.hover(s => s.opacity(0.88)).cursor_pointer().on_click(() => this.newCardMenu()))
+      .child(svg(ICON("plus")).size(13).flex_none())
+      .when(Boolean(label), el => el.child(label));
   }
 
   viewButton(t, id, label) {
-    return h_flex().id(`fizzy-view-${id}`).h(26).px(this.narrow ? 6 : 8).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(12)
+    return h_flex().id(`fizzy-view-${id}`).h(26).px(this.wide ? 8 : 6).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(12)
       .bg(this.view === id ? t.selected : t.background).text_color(this.view === id ? t.foreground : t.muted)
       .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => this.setView(id, cx))
@@ -1780,24 +1800,29 @@ export default class Fizzy extends View {
       .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(10).text_color(t.accent_foreground).child(String(this.unread))));
   }
 
-  boardBar(t) {
+  // Same height, padding and gap as the filter row under it, so the select sits over the field and Open board over Me.
+  boardBar(t, cx) {
     const current = this.boards?.find(b => b.id === this.board);
-    return h_flex().id("fizzy-board-bar").h(34).flex_none().px(10).gap(6).items_center()
-      .child(h_flex().id("fizzy-board").h(26).min_w(0).px(8).gap(6).items_center().rounded(6).bg(t.raised).text_size(12)
-        .text_color(this.board ? t.muted : t.dim).cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
+    const following = Boolean(this.follow && this.board && this.spaceBoard(cx) === this.board);
+    return h_flex().id("fizzy-board-bar").h(36).flex_none().px(10).gap(6).items_center()
+      .child(h_flex().id("fizzy-board").flex_1().min_w(0).h(28).px(8).gap(7).items_center().rounded(7).border_1().border_color(t.input).bg(t.background)
+        .cursor_pointer().hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => this.boardsMenu(cx))
-        .child(div().min_w(0).truncate().child(current?.name ?? (this.boards ? "No board" : "…")))
+        .tooltip(following ? "Following the current space" : "Switch board")
+        .child(svg(ICON("kanban")).size(14).flex_none().text_color(t.muted))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
+        .when(following && !this.narrow, el => el.child(div().flex_none().text_size(11).text_color(t.dim).child("Following space")))
         .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
-      .child(div().flex_1())
-      .child(h_flex().flex_none().gap(2)
-        .child(this.iconButton(t, "fizzy-new", ICON("plus"), (_e, cx) => this.openComposer("maybe", cx), Boolean(this.board), "New card"))
-        .child(this.iconButton(t, "fizzy-open-board", ICON("external-link"), (_e, cx) => cx.open_url(current.url), Boolean(current?.url), "Open board in Fizzy")));
+      .child(h_flex().id("fizzy-open-board").w(36).h(28).flex_none().items_center().justify_center().rounded(7).border_1().border_color(t.input).bg(t.background)
+        .text_color(current?.url ? t.muted : t.dim).tooltip("Open board in Fizzy").on_mouse_down("left", stop)
+        .when(Boolean(current?.url), el => el.hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().on_click((_e, cx) => cx.open_url(current.url)))
+        .child(svg(ICON("external-link")).size(14).flex_none()));
   }
 
   filterRow(t) {
     return h_flex().h(36).flex_none().px(10).gap(6).items_center()
       .child(div().id("fizzy-filter").flex_1().min_w(0).child(Input.new(this.filter).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12).text_color(t.foreground)))
-      .when(this.view === "board", el => el.child(h_flex().id("fizzy-only-mine").h(28).px(9).flex_none().items_center().rounded(7).cursor_pointer().text_size(12)
+      .when(this.view === "board", el => el.child(h_flex().id("fizzy-only-mine").w(36).h(28).flex_none().items_center().justify_center().rounded(7).cursor_pointer().text_size(12)
         .border_1().border_color(this.onlyMine ? t.accent : t.input).bg(this.onlyMine ? t.selected : t.background).text_color(this.onlyMine ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
         .on_click((_e, cx) => { this.onlyMine = !this.onlyMine; cx.notify(); })
@@ -2346,8 +2371,10 @@ export default class Fizzy extends View {
     if (became) this.poll(cx, true);
     const t = theme(), d = this.detail;
     return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
-      // The panel's width: the bar's buttons drop their icons in a narrow one.
-      .on_size_change((size, cx) => { const narrow = size.width < NARROW; if (narrow !== this.narrow) { this.narrow = narrow; cx.notify(); } })
+      .on_size_change((size, cx) => {
+        const narrow = size.width < NARROW, wide = size.width >= WIDE;
+        if (narrow !== this.narrow || wide !== this.wide) { this.narrow = narrow; this.wide = wide; cx.notify(); }
+      })
       .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.endDrag(cx); })
       // A card pressed and let go away from the panel (dragged into a terminal) is not held for ever: the next
       // press outside the panel, or on a lane header, forgets it. A row dragged in Settings goes the same way.
@@ -2356,7 +2383,7 @@ export default class Fizzy extends View {
       .when(this.settingsOpen, el => el.child(this.settingsView(t, cx)))
       .when(!this.settingsOpen && Boolean(d), el => el.child(this.detailView(t, cx)))
       .when(!this.settingsOpen && !d, el => el
-        .child(this.boardBar(t))
+        .when(this.view === "board", el => el.child(this.boardBar(t, cx)))
         .when(this.view !== "inbox", el => el.child(this.filterRow(t)))
         .child(v_flex().id("fizzy-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.listFor(t, cx))))
       .when(!this.settingsOpen, el => el.child(this.handBar(t)));
@@ -2367,6 +2394,7 @@ export default class Fizzy extends View {
     this.most = menuSize(menu) - FRAME; // the popup's inside, as asked for when it opened
     this.handle = cx.focus_handle();
     this.handle.focus();
+    if (menu.kind === "newCard") this.atId = `board-${menu.current}`;
     this.known = []; this.failed = false; this.checking = false;
     if (menu.kind === "start") {
       // An agent starts in the shown space, so it is asked of that space's machine.

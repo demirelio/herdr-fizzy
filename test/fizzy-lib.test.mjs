@@ -1543,6 +1543,44 @@ test("boards menu with groups: several groups in their order, the ones with no v
   assert.deepEqual(ids(menuRows({ kind: "boards" }, { boards: tagged, groups: "junk" })), ["follow", "sep-follow", "board-1", "board-2"]);
 });
 
+test("new card menu: a label, then the boards as the boards menu groups them; no Follow row; each board row chooses it with the composer", () => {
+  const rows = menuRows({ kind: "newCard", current: "b2" }, { boards: BOARDS });
+  assert.deepEqual(ids(rows), ["new-label", "board-b1", "board-b2", "board-b3"]);
+  assert.deepEqual(rows.map(r => r.type), ["label", "row", "row", "row"]);
+  assert.equal(rows[0].label, "New card on");
+  assert.deepEqual(rows.slice(1).map(r => r.label), ["Roadmap", "Personal", "Acme"]);
+  assert.deepEqual(rows.slice(1).map(r => r.checked), [false, true, false], "the board shown is ticked");
+  assert.deepEqual(byId(rows, "board-b1").act, { choose: { follow: false, board: "b1", compose: true } });
+  assert.deepEqual(byId(rows, "board-b3").act, { choose: { follow: false, board: "b3", compose: true } });
+  assert.equal(byId(rows, "follow"), undefined);
+  unique(rows);
+  assert.deepEqual(selectable(menuRows({ kind: "newCard", current: null }, { boards: BOARDS })).map(r => r.checked), [false, false, false], "no board shown: none ticked");
+
+  assert.deepEqual(ids(menuRows({ kind: "newCard", current: null }, { boards: [] })), ["new-label", "boards-note"]);
+  assert.equal(menuRows({ kind: "newCard", current: null }, {})[1].label, "No boards");
+  assert.doesNotThrow(() => menuRows({ kind: "newCard" }));
+});
+
+test("new card menu with groups: the same grouping as the boards menu, hidden boards and groups left out, the board shown always listed", () => {
+  const boards = [{ id: "1", name: "Alpha" }, { id: "2", name: "[x] Beta" }, { id: "3", name: "[y] Gamma" }, { id: "4", name: "[x] Delta" }];
+  const groups = { groups: [{ id: "gy", name: "Y", match: "[y]", hidden: false }, { id: "gx", name: "X", match: "[x]", hidden: false }], boards: {} };
+  const shape = list => list.map(r => (r.type === "label" ? `# ${r.label}` : r.type === "row" ? r.label : r.type));
+  const newCard = (cfg, current = null) => menuRows({ kind: "newCard", current }, { boards, groups: cfg });
+  const boardsMenu = (cfg, current = null) => menuRows({ kind: "boards", current, follow: true, spaceBoard: null }, { boards, groups: cfg });
+  assert.deepEqual(shape(newCard(groups)), ["# New card on", "Alpha", "# Y", "[y] Gamma", "# X", "[x] Beta", "[x] Delta"]);
+  const hiddenBoard = { ...groups, boards: { 1: { hidden: true }, 2: { hidden: true } } };
+  assert.deepEqual(shape(newCard(hiddenBoard)), ["# New card on", "# Y", "[y] Gamma", "# X", "[x] Delta"]);
+  assert.deepEqual(shape(newCard(hiddenBoard, "2")), ["# New card on", "# Y", "[y] Gamma", "# X", "[x] Beta", "[x] Delta"], "the board shown stays, with its group");
+  assert.equal(newCard(hiddenBoard, "2").find(r => r.id === "board-2").checked, true);
+  const hiddenGroup = { ...groups, groups: [groups.groups[0], { ...groups.groups[1], hidden: true }] };
+  assert.deepEqual(shape(newCard(hiddenGroup)), ["# New card on", "Alpha", "# Y", "[y] Gamma"]);
+  const all = { groups: groups.groups.map(g => ({ ...g, hidden: true })), boards: { 1: { hidden: true } } };
+  assert.deepEqual(shape(newCard(all)), ["# New card on"], "everything hidden: the label alone, and no 'No boards' note");
+  for (const cfg of [groups, hiddenBoard, hiddenGroup]) {
+    assert.deepEqual(ids(newCard(cfg)).slice(1), ids(boardsMenu(cfg)).slice(2), "the boards menu's rows, without Follow and its separator");
+  }
+});
+
 test("card menu: the hand-off rows first, then the lanes, then everything else", () => {
   const c = card(4242, { title: "Fix the login redirect", column: C1, assignees: [user("u2", "Grace")], tags: ["bug"] });
   const rows = menuRows({ kind: "card", card: c, columns: COLUMNS }, { agents: [claude, codex], focused: { terminal: "term-claude", tab: "t1" }, me: "me", boards: BOARDS });
@@ -1837,7 +1875,7 @@ test("menuRows: an unknown or empty menu has no rows, and no menu needs a ctx", 
   assert.deepEqual(menuRows(null, {}), []);
   assert.deepEqual(menuRows(undefined), []);
   for (const kind of ["card", "users", "tags", "moveBoard", "lanes"]) assert.deepEqual(menuRows({ kind }, {}), [], `${kind} without a card`);
-  for (const m of [{ kind: "boards" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) }, { kind: "lanes", card: card(1) }]) {
+  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) }, { kind: "lanes", card: card(1) }]) {
     assert.doesNotThrow(() => menuRows(m), JSON.stringify(m));
   }
 });
@@ -1850,7 +1888,7 @@ test("every row is well formed, and every icon the menus use is in mods/fizzy", 
     known: [{ key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: false, run: ["claude"], installed: true }],
   };
   const menus = [
-    { kind: "boards", current: "b1", follow: false, spaceBoard: "b1" },
+    { kind: "boards", current: "b1", follow: false, spaceBoard: "b1" }, { kind: "newCard", current: "b1" },
     { kind: "card", card: c, columns: COLUMNS, pinned: true }, { kind: "lanes", card: c, columns: COLUMNS },
     { kind: "agents", cards: [c] }, { kind: "start", cards: [c] },
     { kind: "users", card: c }, { kind: "tags", card: c }, { kind: "moveBoard", card: c },
