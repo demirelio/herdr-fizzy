@@ -5,6 +5,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { exec, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
+import { textPx } from "./text.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
   columnOf, fullCard, noteCard, inactivity,
@@ -2140,7 +2141,7 @@ export default class Fizzy extends View {
   }
 
   textButton(t, id, icon, label, action, primary = false) {
-    return h_flex().id(id).h(30).px(10).gap(6).flex_none().items_center().rounded(7).cursor_pointer().text_size(12).font_medium()
+    return h_flex().id(id).h(30).px(10).gap(6).flex_none().items_center().rounded(7).cursor_pointer().text_size(textPx(12)).font_medium()
       .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground)
       .hover(s => s.opacity(0.88)).on_mouse_down("left", stop).on_click(action)
       .when(Boolean(icon), el => el.child(svg(icon).size(13).flex_none()))
@@ -2162,14 +2163,14 @@ export default class Fizzy extends View {
   }
 
   chip(t, text, extra = {}) {
-    return div().flex_none().max_w(extra.max ?? 110).truncate().px(6).py(1).rounded(5).bg(extra.bg ?? t.raised).text_size(11).text_color(t.muted).child(text);
+    return div().flex_none().max_w(extra.max ?? 110).truncate().px(6).py(1).rounded(5).bg(extra.bg ?? t.raised).text_size(textPx(11)).text_color(t.muted).child(text);
   }
 
   // A dim line of text, with Retry under an error.
   // `again`: what Retry does (else everything is read again); `id`: its id, when there can be several.
   status(t, text, cx, error = false, again = null, id = "fizzy-retry") {
     return v_flex().flex_none()
-      .child(div().p(8).text_size(12).text_color(t.dim).whitespace_normal().child(text))
+      .child(div().p(8).text_size(textPx(12)).text_color(t.dim).whitespace_normal().child(text))
       .when(error, el => el.child(h_flex().id(id).h(28).flex_none().mx(8).px(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
         .on_click((_e, cx) => (again ? again(cx) : this.retry(cx)))
         .child(svg(ICON("refresh")).size(14).flex_none().text_color(t.muted)).child("Retry")));
@@ -2193,8 +2194,8 @@ export default class Fizzy extends View {
       const pinned = this.pinOf(n), watching = this.watchOf(n), golden = c.golden;
       return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
         .child(this.iconButton(t, "fizzy-back", ICON("arrow-left"), (_e, cx) => this.goBack(cx), true, "Back"))
-        .child(div().id("fizzy-detail-number").flex_none().text_size(12).text_color(t.dim).child(`#${n}`))
-        .child(div().id("fizzy-detail-board").flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).when(Boolean(board), el => el.tooltip(board)).child(board))
+        .child(div().id("fizzy-detail-number").flex_none().text_size(textPx(12)).text_color(t.dim).child(`#${n}`))
+        .child(div().id("fizzy-detail-board").flex_1().min_w(0).truncate().text_size(textPx(12)).text_color(t.dim).when(Boolean(board), el => el.tooltip(board)).child(board))
         .child(h_flex().flex_none().gap(2)
           .child(this.toggleButton(t, "fizzy-pin", ICON("pin"), pinned == null ? "inert" : pinned ? "on" : "off", pinned ? "Unpin" : "Pin",
             (_e, cx) => this.apply({ kind: "pin", number: n, on: !pinned }, cx)))
@@ -2212,7 +2213,7 @@ export default class Fizzy extends View {
         .on_key_down((e, cx) => { if (e.key === "escape") this.closeSearch(cx); })
         .child(this.iconButton(t, "fizzy-search-back", ICON("arrow-left"), (_e, cx) => this.closeSearch(cx), true, "Back"))
         .child(div().id("fizzy-search").relative().flex_1().min_w(0)
-          .child(Input.new(field).h(BAR_BUTTON).pl(8).pr(field.value() ? 28 : 8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(12).text_color(t.foreground))
+          .child(Input.new(field).h(BAR_BUTTON).pl(8).pr(field.value() ? 28 : 8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
           .when(field.value() !== "", el => el.child(this.clearButton(t, "fizzy-search-clear", cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); }))));
     }
     return h_flex().h(42).flex_none().px(10).gap(this.wide ? 8 : 6).items_center().border_b(1).border_color(t.border)
@@ -2238,7 +2239,7 @@ export default class Fizzy extends View {
 
   newCardButton(t) {
     const enabled = Boolean(this.board), label = !this.narrow;
-    return h_flex().id("fizzy-new").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).text_size(12).font_medium()
+    return h_flex().id("fizzy-new").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).text_size(textPx(12)).font_medium()
       .bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim)
       .when(label, el => el.px(10))
       .when(!label, el => el.w(BAR_BUTTON).tooltip("New card"))
@@ -2250,7 +2251,7 @@ export default class Fizzy extends View {
 
   mineToggle(t) {
     const on = this.onlyMine, label = !this.narrow;
-    return h_flex().id("fizzy-only-mine").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).cursor_pointer().text_size(12)
+    return h_flex().id("fizzy-only-mine").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).cursor_pointer().text_size(textPx(12))
       .border_1().border_color(on ? t.accent : t.input).bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted)
       .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => { this.onlyMine = !on; cx.notify(); })
@@ -2261,12 +2262,12 @@ export default class Fizzy extends View {
   }
 
   viewButton(t, id, label) {
-    return h_flex().id(`fizzy-view-${id}`).h(26).px(this.wide ? 8 : 6).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(12)
+    return h_flex().id(`fizzy-view-${id}`).h(26).px(this.wide ? 8 : 6).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(textPx(12))
       .bg(this.view === id ? t.selected : t.background).text_color(this.view === id ? t.foreground : t.muted)
       .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click((_e, cx) => this.setView(id, cx))
       .child(label)
-      .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(10).text_color(t.accent_foreground).child(String(this.unread))));
+      .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(textPx(10)).text_color(t.accent_foreground).child(String(this.unread))));
   }
 
   boardBar(t, cx) {
@@ -2278,8 +2279,8 @@ export default class Fizzy extends View {
         .on_click((_e, cx) => this.boardsMenu(cx))
         .tooltip(following ? "Following the current space" : "Switch board")
         .child(svg(ICON("kanban")).size(14).flex_none().text_color(t.muted))
-        .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
-        .when(following && !this.narrow, el => el.child(div().flex_none().text_size(11).text_color(t.dim).child("Following space")))
+        .child(div().flex_1().min_w(0).truncate().text_size(textPx(13)).font_medium().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
+        .when(following && !this.narrow, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child("Following space")))
         .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
       .child(h_flex().id("fizzy-open-board").w(36).h(28).flex_none().items_center().justify_center().rounded(7).border_1().border_color(t.input).bg(t.background)
         .text_color(current?.url ? t.muted : t.dim).tooltip("Open board in Fizzy").on_mouse_down("left", stop)
@@ -2304,7 +2305,7 @@ export default class Fizzy extends View {
     const field = this.filterOf(this.view), words = field.value() !== "";
     return h_flex().id("fizzy-list-bar").flex_none().p(6).gap(6).items_center().bg(t.chrome).border_t(1).border_color(t.border)
       .child(div().id("fizzy-filter").relative().flex_1().min_w(0)
-        .child(Input.new(field).h(BAR_BUTTON).pl(28).pr(words ? 28 : 8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12).text_color(t.foreground))
+        .child(Input.new(field).h(BAR_BUTTON).pl(28).pr(words ? 28 : 8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
         .child(svg(ICON("search")).absolute().left(9).top(7).size(14).text_color(t.dim))
         .when(words, el => el.child(this.clearButton(t, "fizzy-filter-clear", cx => { field.set_value(""); field.focus(); cx.notify(); }))))
       .when(this.view === "board", el => el.child(this.mineToggle(t)).child(this.newCardButton(t)));
@@ -2337,7 +2338,7 @@ export default class Fizzy extends View {
           .child(h_flex().flex_none().gap(1)
             .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
             .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
-        .child(h_flex().gap(6).items_center().min_w(0).text_size(11).text_color(t.dim)
+        .child(h_flex().gap(6).items_center().min_w(0).text_size(textPx(11)).text_color(t.dim)
           .child(div().flex_none().child(`#${n}`))
           .child(h_flex().flex_1().min_w(0).gap(4).items_center().overflow_hidden()
             .children(tags.slice(0, 3).map(tag => this.chip(t, tag, { max: 150, bg: t.background })))
@@ -2359,9 +2360,9 @@ export default class Fizzy extends View {
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
       .child(svg(ICON(closed ? "chevron-right" : "chevron-down")).size(12).flex_none().text_color(t.dim))
       .child(div().size(9).flex_none().rounded_full().bg(color))
-      .child(div().min_w(0).truncate().font_semibold().text_size(12).child(section.name))
+      .child(div().min_w(0).truncate().font_semibold().text_size(textPx(12)).child(section.name))
       .when(count != null, el => el.child(div().h(18).min_w(18).px(6).flex_none().flex().items_center().justify_center().rounded_full()
-        .bg(t.raised).text_size(11).text_color(t.muted).child(String(count))))
+        .bg(t.raised).text_size(textPx(11)).text_color(t.muted).child(String(count))))
       .child(div().flex_1())
       .when(addable, el => el.child(div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
         .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
@@ -2407,7 +2408,7 @@ export default class Fizzy extends View {
       if (onDemand && lazy.errors[section.kind]) body.push(this.status(t, explain(lazy.errors[section.kind]), cx, true, cx => this.loadLane(section.kind, cx), `fizzy-retry-${section.key}`));
       else if (onDemand && !loaded) body.push(this.status(t, "Loading…", cx));
       if (section.kind === "done" && loaded && (!lazy.end || cards.length > lazy.shown)) {
-        body.push(h_flex().id("fizzy-more-done").h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().text_size(12).text_color(t.muted)
+        body.push(h_flex().id("fizzy-more-done").h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.moreDone(cx)).child("Show more"));
       }
       if (body.length) lane.child(v_flex().px(6).pt(2).pb(6).gap(6).children(body));
@@ -2424,7 +2425,7 @@ export default class Fizzy extends View {
       const cards = filterCards(this.mine.get(board.id) ?? [], query);
       if (!cards.length) continue;
       total += cards.length;
-      out.push(h_flex().id(`fizzy-mine-${board.id}`).h(26).flex_none().px(8).items_center().font_medium().text_size(12).text_color(t.muted).child(div().min_w(0).truncate().child(board.name)));
+      out.push(h_flex().id(`fizzy-mine-${board.id}`).h(26).flex_none().px(8).items_center().font_medium().text_size(textPx(12)).text_color(t.muted).child(div().min_w(0).truncate().child(board.name)));
       for (const card of cards) out.push(this.cardRow(t, card, null, laneColor(card)));
     }
     const left = this.progress ? this.progress.total - this.progress.done : 0;
@@ -2437,7 +2438,7 @@ export default class Fizzy extends View {
   searchList(t, cx) {
     const hunt = this.search, out = [];
     if (hunt.q == null) return [this.status(t, "Press Enter to search every board, comments included.", cx)];
-    out.push(h_flex().id("fizzy-search-head").h(30).flex_none().px(8).gap(6).items_center().text_size(12).text_color(t.muted)
+    out.push(h_flex().id("fizzy-search-head").h(30).flex_none().px(8).gap(6).items_center().text_size(textPx(12)).text_color(t.muted)
       .child(svg(ICON("search")).size(13).flex_none())
       .child(div().flex_1().min_w(0).truncate().child(`Results for “${hunt.q}”`)));
     if (hunt.error) out.push(this.status(t, explainSearch(hunt.error), cx, true, cx => this.searchAll(cx), "fizzy-search-retry"));
@@ -2446,7 +2447,7 @@ export default class Fizzy extends View {
       const cards = hunt.found.get(board.id) ?? [];
       if (!cards.length) continue;
       total += cards.length;
-      out.push(h_flex().id(`fizzy-search-board-${board.id}`).h(26).flex_none().px(8).items_center().font_medium().text_size(12).text_color(t.muted).child(div().min_w(0).truncate().child(board.name)));
+      out.push(h_flex().id(`fizzy-search-board-${board.id}`).h(26).flex_none().px(8).items_center().font_medium().text_size(textPx(12)).text_color(t.muted).child(div().min_w(0).truncate().child(board.name)));
       for (const card of cards) out.push(this.cardRow(t, card, null, laneColor(card)));
     }
     if (hunt.waiting) out.push(this.status(t, "Searching…", cx));
@@ -2467,7 +2468,7 @@ export default class Fizzy extends View {
   inboxList(t, cx) {
     const out = this.errors.inbox ? [this.status(t, explain(this.errors.inbox), cx, true)] : [];
     out.push(h_flex().h(30).flex_none().px(4).gap(6).items_center()
-      .child(h_flex().id("fizzy-read-all").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer().text_size(12).text_color(t.muted).hover(s => s.bg(t.hover))
+      .child(h_flex().id("fizzy-read-all").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer().text_size(textPx(12)).text_color(t.muted).hover(s => s.bg(t.hover))
         .on_click((_e, cx) => this.readAll(cx)).child(svg(ICON("check")).size(13).flex_none()).child("Mark all read")));
     if (!this.inbox) { if (!this.errors.inbox) out.push(this.status(t, "Loading…", cx)); return out; }
     // Only what's new: the unread notifications, newest first. A note marked read leaves the list.
@@ -2480,8 +2481,8 @@ export default class Fizzy extends View {
           .child(div().size(7).flex_none().rounded_full().bg(t.accent))
           .when(Boolean(note.creator), el => el.child(this.avatar(t, note.creator, 16)))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(note.title ?? "")))
-        .child(div().whitespace_normal().text_size(12).text_color(t.dim).child(note.body ?? ""))
-        .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(meta)));
+        .child(div().whitespace_normal().text_size(textPx(12)).text_color(t.dim).child(note.body ?? ""))
+        .child(div().min_w(0).truncate().text_size(textPx(11)).text_color(t.dim).child(meta)));
     }
     return out;
   }
@@ -2491,7 +2492,7 @@ export default class Fizzy extends View {
   // gives way when the room runs out.
   barButton(t, id, icon, label, action, menu = false) {
     const on = Boolean(action);
-    return h_flex().id(id).h(BAR_BUTTON).flex_1().min_w(0).px(6).gap(4).items_center().justify_center().overflow_hidden().rounded(7).text_size(12).font_medium()
+    return h_flex().id(id).h(BAR_BUTTON).flex_1().min_w(0).px(6).gap(4).items_center().justify_center().overflow_hidden().rounded(7).text_size(textPx(12)).font_medium()
       .bg(t.raised).text_color(on ? t.foreground : t.dim)
       .when(on, el => el.cursor_pointer().hover(s => s.bg(t.hover)).on_mouse_down("left", stop).on_click(action))
       .when(!this.narrow, el => el.child(svg(icon).size(13).flex_none()))
@@ -2508,7 +2509,7 @@ export default class Fizzy extends View {
   handBar(t) {
     const has = this.subject().length > 0;
     const act = kind => (has ? (_e, cx) => this.handOff(kind, this.subject(), cx) : null);
-    return h_flex().id("fizzy-bar").flex_none().p(6).gap(4).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(12)
+    return h_flex().id("fizzy-bar").flex_none().p(6).gap(4).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(textPx(12))
       .child(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")))
       .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", act("send"), true))
       .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", act("start"), true))
@@ -2526,7 +2527,7 @@ export default class Fizzy extends View {
   }
 
   emptyRow(t, id) {
-    return div().id(id).h(28).flex_none().pl(32).flex().items_center().text_size(12).text_color(t.dim)
+    return div().id(id).h(28).flex_none().pl(32).flex().items_center().text_size(textPx(12)).text_color(t.dim)
       .on_mouse_down("left", (_e, cx) => this.endDrag(cx))
       .child("No boards");
   }
@@ -2535,7 +2536,7 @@ export default class Fizzy extends View {
     return row
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
       .on_key_down((e, cx) => { if (e.key === "escape") cancel(cx); })
-      .child(div().id(fieldId).flex_1().min_w(0).child(Input.new(input).h(28).px(8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(12).text_color(t.foreground)))
+      .child(div().id(fieldId).flex_1().min_w(0).child(Input.new(input).h(28).px(8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(12)).text_color(t.foreground)))
       .child(this.rowButton(t, cancelId, ICON("x"), (_e, cx) => cancel(cx), "Cancel"));
   }
 
@@ -2559,7 +2560,7 @@ export default class Fizzy extends View {
     const dragging = Boolean(this.drag), picked = this.drag?.kind === "group" && this.drag.id === g.id, armed = this.groupArmed === g.id;
     const rule = g.match ? (this.narrow ? `“${g.match}”` : `contains “${g.match}”`) : "No rule";
     const bin = armed
-      ? h_flex().id(`fizzy-group-del-${g.id}`).h(22).px(6).flex_none().items_center().rounded(5).text_size(11).text_color(t.blocked)
+      ? h_flex().id(`fizzy-group-del-${g.id}`).h(22).px(6).flex_none().items_center().rounded(5).text_size(textPx(11)).text_color(t.blocked)
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_click((_e, cx) => { cx.stop_propagation(); this.dropGroup(g.id, cx); })
         .when(!dragging, el => el.cursor_pointer().hover(s => s.bg(t.selected)))
@@ -2576,12 +2577,12 @@ export default class Fizzy extends View {
         .tooltip("Rename")
         .on_click((e, cx) => { if (cmdHeld(e)) return; cx.stop_propagation(); this.editGroup(g.id, "name", cx); })
         .child(div().min_w(0).truncate().child(g.name)))
-      .child(h_flex().id(`fizzy-group-match-${g.id}`).h(22).px(5).rounded(5).min_w(0).flex_shrink(4).items_center().text_size(11).text_color(t.dim)
+      .child(h_flex().id(`fizzy-group-match-${g.id}`).h(22).px(5).rounded(5).min_w(0).flex_shrink(4).items_center().text_size(textPx(11)).text_color(t.dim)
         .when(!dragging, el => el.cursor_pointer().hover(s => s.bg(t.selected)))
         .on_click((e, cx) => { if (cmdHeld(e)) return; cx.stop_propagation(); this.editGroup(g.id, "match", cx); })
         .child(div().min_w(0).truncate().child(rule)))
       .child(div().flex_1())
-      .child(div().id(`fizzy-group-count-${g.id}`).flex_none().text_size(11).text_color(t.dim).child(count == null ? "" : String(count)))
+      .child(div().id(`fizzy-group-count-${g.id}`).flex_none().text_size(textPx(11)).text_color(t.dim).child(count == null ? "" : String(count)))
       .child(h_flex().flex_none().gap(2)
         .child(bin)
         .child(this.rowButton(t, `fizzy-group-hide-${g.id}`, ICON(g.hidden ? "eye-off" : "eye"), (_e, cx) => this.toggleGroup(g.id, cx), g.hidden ? "Show" : "Hide", g.hidden)));
@@ -2629,7 +2630,7 @@ export default class Fizzy extends View {
         .child(svg(ICON(open ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
         .child(div().px(5).font_medium().text_color(t.muted).child("No group"))
         .child(div().flex_1())
-        .child(div().id("fizzy-nogroup-count").flex_none().text_size(11).text_color(t.dim).child(boards ? String(boards.length) : ""))
+        .child(div().id("fizzy-nogroup-count").flex_none().text_size(textPx(11)).text_color(t.dim).child(boards ? String(boards.length) : ""))
         .child(div().w(46).flex_none()))
       .when(open && Boolean(boards), el => el.children(boards.length
         ? boards.map(b => this.boardRow(t, b, config))
@@ -2648,7 +2649,7 @@ export default class Fizzy extends View {
       .child(div().size(30).flex_none().flex().items_center().justify_center().rounded(8).bg(t.background).text_color(t.muted).child(svg(ICON(s.icon)).size(15)))
       .child(v_flex().flex_1().min_w(0).gap(2)
         .child(div().font_medium().child(s.title))
-        .child(div().id(`fizzy-setting-${s.id}-summary`).min_w(0).truncate().text_size(12).text_color(t.dim).child(this.settingSummary(s.id))))
+        .child(div().id(`fizzy-setting-${s.id}-summary`).min_w(0).truncate().text_size(textPx(12)).text_color(t.dim).child(this.settingSummary(s.id))))
       .child(svg(ICON("chevron-right")).size(14).flex_none().text_color(t.dim))));
   }
 
@@ -2669,7 +2670,7 @@ export default class Fizzy extends View {
     const { ungrouped, groups } = boardGroups(this.boards ?? [], config, true);
     const section = v_flex().id("fizzy-settings-groups").flex_none().gap(2)
       .child(h_flex().id("fizzy-settings-groups-head").min_h(30).flex_none().pl(8).pr(8).gap(6).items_center()
-        .child(div().flex_1().min_w(0).text_size(12).text_color(t.dim).whitespace_normal().child("Groups sort the board dropdown. The eye hides a board or a group from it."))
+        .child(div().flex_1().min_w(0).text_size(textPx(12)).text_color(t.dim).whitespace_normal().child("Groups sort the board dropdown. The eye hides a board or a group from it."))
         .child(this.rowButton(t, "fizzy-groups-add", ICON("plus"), (_e, cx) => this.openGroupComposer(cx), "New group")))
       .when(this.composing, el => el.child(this.groupComposerRow(t)));
     for (const { group, boards } of groups) section.child(this.groupBlock(t, group, known ? boards : null, config));
@@ -2682,7 +2683,7 @@ export default class Fizzy extends View {
   settingBlock(t, id, title, note, ...controls) {
     return v_flex().id(id).flex_none().p(12).gap(8).rounded(9).border_1().border_color(t.border).bg(t.surface)
       .child(div().font_medium().child(title))
-      .when(Boolean(note), el => el.child(div().text_size(12).text_color(t.dim).whitespace_normal().child(note)))
+      .when(Boolean(note), el => el.child(div().text_size(textPx(12)).text_color(t.dim).whitespace_normal().child(note)))
       .children(controls.filter(Boolean));
   }
 
@@ -2697,7 +2698,7 @@ export default class Fizzy extends View {
   mentionsPage(t, cx) {
     const users = people().users, scan = this.mentionScan, missing = this.untaggable();
     const total = users ? activePeople(users, this.me).length : 0;
-    const dim = (id, text) => div().id(id).text_size(12).text_color(t.dim).whitespace_normal().child(text);
+    const dim = (id, text) => div().id(id).text_size(textPx(12)).text_color(t.dim).whitespace_normal().child(text);
     const outcome = scan?.error ? this.status(t, explain(scan.error), cx, true, scan.retry, "fizzy-mentions-retry")
       : scan?.busy === "card" ? dim("fizzy-mentions-note", `Reading #${scan.card}…`)
       : scan?.note && !scan.busy ? dim("fizzy-mentions-note", scan.note) : null;
@@ -2708,15 +2709,15 @@ export default class Fizzy extends View {
         "While someone can't be tagged, the panel reads Fizzy's recent activity in the background, at most once a week, and learns them from mentions made there.",
         h_flex().gap(10).items_center()
           .child(this.switchView(t, "fizzy-mentions-auto-switch", this.mentionAuto, cx => { this.mentionAuto = !this.mentionAuto; keep("mentionAuto", this.mentionAuto); cx.notify(); }))
-          .child(div().text_size(12).text_color(this.mentionAuto ? t.foreground : t.dim).child(this.mentionAuto ? "On" : "Off"))))
+          .child(div().text_size(textPx(12)).text_color(this.mentionAuto ? t.foreground : t.dim).child(this.mentionAuto ? "On" : "Off"))))
       .child(this.settingBlock(t, "fizzy-mentions-now", "Find mentions now", "Reads up to 600 recent events across your boards, once.",
         h_flex().child(this.textButton(t, "fizzy-mentions-find", ICON("search"), scan?.busy === "feed" ? `Searching… page ${scan.page}` : "Find mentions in Fizzy", (_e, cx) => this.findMentions(cx))),
         outcome))
       .child(this.settingBlock(t, "fizzy-mentions-card-block", "Learn from a card",
         "Fizzy lets the panel tag only people it has seen tagged before. To teach it everyone at once: in Fizzy, post one comment on any card that @-mentions each person, then enter that card's number here and press Enter.",
         h_flex().id("fizzy-mentions-card-row").gap(8).items_center()
-          .child(div().flex_none().text_size(13).text_color(t.dim).child("#"))
-          .child(div().id("fizzy-mentions-card").w(140).flex_none().child(Input.new(this.mentionCard).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12).text_color(t.foreground)))));
+          .child(div().flex_none().text_size(textPx(13)).text_color(t.dim).child("#"))
+          .child(div().id("fizzy-mentions-card").w(140).flex_none().child(Input.new(this.mentionCard).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground)))));
   }
 
   // `open` null: the card is a notification's stub, which doesn't carry this field, so the line shows no values and does nothing.
@@ -2724,16 +2725,16 @@ export default class Fizzy extends View {
     return h_flex().id(id).min_h(30).flex_none().px(8).py(3).gap(8).items_start().rounded(7)
       .when(Boolean(open), el => el.cursor_pointer().hover(s => s.bg(t.hover))
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => open(cx)))
-      .child(div().w(52).h(24).flex_none().flex().items_center().text_size(12).text_color(t.dim).child(label))
+      .child(div().w(52).h(24).flex_none().flex().items_center().text_size(textPx(12)).text_color(t.dim).child(label))
       .child(h_flex().flex_1().min_w(0).min_h(24).flex_wrap().gap(4).items_center()
-        .children(!open ? [] : items.length ? items : [div().h(24).flex().items_center().text_size(12).text_color(t.dim).child(empty)]))
+        .children(!open ? [] : items.length ? items : [div().h(24).flex().items_center().text_size(textPx(12)).text_color(t.dim).child(empty)]))
       .child(div().w(22).h(24).flex_none().flex().items_center().justify_center().text_color(t.dim).child(svg(ICON("chevron-down")).size(12)));
   }
 
   sectionHead(t, id, label, count, action = null) {
     return h_flex().id(`${id}-head`).h(30).flex_none().px(8).gap(6).items_center()
-      .child(div().flex_none().text_size(12).font_medium().text_color(t.muted).child(label))
-      .when(Boolean(count), el => el.child(div().id(`${id}-count`).flex_none().text_size(11).text_color(t.dim).child(count)))
+      .child(div().flex_none().text_size(textPx(12)).font_medium().text_color(t.muted).child(label))
+      .when(Boolean(count), el => el.child(div().id(`${id}-count`).flex_none().text_size(textPx(11)).text_color(t.dim).child(count)))
       .child(div().flex_1())
       .when(Boolean(action), el => el.child(action));
   }
@@ -2757,13 +2758,13 @@ export default class Fizzy extends View {
       ? h_flex().id("fizzy-title-edit").min_h(38).flex_1().min_w(0).gap(6).items_center()
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
-        .child(div().id("fizzy-title-input").flex_1().min_w(0).child(Input.new(this.titleInput).h(34).px(7).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(15).text_color(t.foreground)))
+        .child(div().id("fizzy-title-input").flex_1().min_w(0).child(Input.new(this.titleInput).h(34).px(7).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(15)).text_color(t.foreground)))
         .child(this.rowButton(t, "fizzy-title-cancel", ICON("x"), (_e, cx) => this.cancelEdit(cx), "Cancel"))
-      : div().id("fizzy-title").flex_1().min_w(0).px(8).py(4).rounded(7).text_size(15).font_semibold().whitespace_normal().text_color(t.foreground).cursor_pointer()
+      : div().id("fizzy-title").flex_1().min_w(0).px(8).py(4).rounded(7).text_size(textPx(15)).font_semibold().whitespace_normal().text_color(t.foreground).cursor_pointer()
         .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.editTitle(cx)).child(c.title ?? "");
     return h_flex().id("fizzy-detail-top").flex_none().gap(8).items_start()
       .child(title)
-      .child(h_flex().id("fizzy-lane").h(26).mt(editing ? 6 : 2).mr(8).px(8).gap(6).flex_none().items_center().rounded(6).bg(t.raised).cursor_pointer().text_size(12).hover(s => s.bg(t.hover))
+      .child(h_flex().id("fizzy-lane").h(26).mt(editing ? 6 : 2).mr(8).px(8).gap(6).flex_none().items_center().rounded(6).bg(t.raised).cursor_pointer().text_size(textPx(12)).hover(s => s.bg(t.hover))
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_click((_e, cx) => this.withCard(cx, (card, cx) => this.laneMenu(card, cx)))
         .child(div().size(8).flex_none().rounded_full().bg(color ?? t.dim)).child(div().min_w(0).max_w(this.narrow ? 96 : 140).truncate().child(laneName(c)))
@@ -2788,13 +2789,13 @@ export default class Fizzy extends View {
       ? v_flex().id("fizzy-desc-editor").flex_none().gap(6)
         .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
         .child(div().id("fizzy-desc-input").w_full().on_drop((e, cx) => this.attach(this.descArea, "desc", e.paths, cx))
-          .child(Textarea.new(this.descArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground).token(this.tokenView(t))))
+          .child(Textarea.new(this.descArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
         .when(this.uploading.has("desc"), el => el.child(this.uploadNote(t, "desc")))
-        .when(formatted(full.description_html), el => el.child(div().id("fizzy-desc-lossy").px(8).text_size(11).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
+        .when(formatted(full.description_html), el => el.child(div().id("fizzy-desc-lossy").px(8).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
         .child(h_flex().justify_end().gap(6)
           .child(this.textButton(t, "fizzy-desc-cancel", null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
           .child(this.textButton(t, "fizzy-desc-save", null, "Save", (_e, cx) => this.saveDescription(cx), true)))
-      : div().px(8).w_full().child(!text ? div().id("fizzy-desc-empty").text_size(12).text_color(t.dim).child("No description")
+      : div().px(8).w_full().child(!text ? div().id("fizzy-desc-empty").text_size(textPx(12)).text_color(t.dim).child("No description")
         : RICH && full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET)
         : this.plainLines("fizzy-desc-text", text));
     return v_flex().id("fizzy-desc").flex_none().gap(2)
@@ -2823,7 +2824,7 @@ export default class Fizzy extends View {
     }
     return section.child(h_flex().id("fizzy-step-new-row").min_h(32).flex_none().pl(8).pr(8).gap(4).items_center()
       .child(div().size(22).flex_none().flex().items_center().justify_center().text_color(t.dim).child(svg(ICON("plus")).size(13)))
-      .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12).text_color(t.foreground))));
+      .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))));
   }
 
   // Comments, oldest first. Most of what the CLI lists is Fizzy's own activity (creator role "system": "Ada moved this
@@ -2833,22 +2834,22 @@ export default class Fizzy extends View {
     const comments = everything.filter(cm => cm.creator?.role !== "system"), activity = everything.filter(cm => cm.creator?.role === "system");
     const section = v_flex().id("fizzy-comments").flex_none().gap(2)
       .child(this.sectionHead(t, "fizzy-comments", "Comments", comments.length ? String(comments.length) : ""));
-    if (!comments.length) section.child(div().id("fizzy-comments-empty").h(28).flex_none().px(8).flex().items_center().text_size(12).text_color(t.dim).child("No comments"));
+    if (!comments.length) section.child(div().id("fizzy-comments-empty").h(28).flex_none().px(8).flex().items_center().text_size(textPx(12)).text_color(t.dim).child("No comments"));
     for (const cm of comments) section.child(this.commentBlock(t, cm));
     if (activity.length) {
-      section.child(h_flex().id("fizzy-activity").h(28).flex_none().px(8).gap(6).items_center().rounded(7).cursor_pointer().text_size(12).text_color(t.muted)
+      section.child(h_flex().id("fizzy-activity").h(28).flex_none().px(8).gap(6).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_click((_e, cx) => { this.activityOpen = !this.activityOpen; cx.notify(); })
         .child(svg(ICON(this.activityOpen ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
         .child("Activity")
-        .child(div().id("fizzy-activity-count").text_size(11).text_color(t.dim).child(String(activity.length))));
+        .child(div().id("fizzy-activity-count").text_size(textPx(11)).text_color(t.dim).child(String(activity.length))));
       if (this.activityOpen) {
-        for (const cm of activity) section.child(div().id(`fizzy-activity-${cm.id}`).flex_none().pl(26).pr(8).py(2).text_size(11).text_color(t.dim).whitespace_normal().child(`${cm.body?.plain_text ?? ""} · ${ago(cm.created_at, now())}`));
+        for (const cm of activity) section.child(div().id(`fizzy-activity-${cm.id}`).flex_none().pl(26).pr(8).py(2).text_size(textPx(11)).text_color(t.dim).whitespace_normal().child(`${cm.body?.plain_text ?? ""} · ${ago(cm.created_at, now())}`));
       }
     }
     return section.child(v_flex().id("fizzy-comment-new").flex_none().pt(6).gap(6)
       .child(div().id("fizzy-comment-input").w_full().on_drop((e, cx) => this.attach(this.commentArea, "comment", e.paths, cx))
-        .child(Textarea.new(this.commentArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(13).text_color(t.foreground).token(this.tokenView(t))))
+        .child(Textarea.new(this.commentArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
       .when(this.uploading.has("comment"), el => el.child(this.uploadNote(t, "comment")))
       .child(h_flex().justify_end().gap(6)
         .child(this.textButton(t, "fizzy-comment-send", ICON("send"), "Comment", (_e, cx) => this.sendComment(cx), true))));
@@ -2858,7 +2859,7 @@ export default class Fizzy extends View {
     const who = cm.creator ?? { name: "?" }, binId = `fizzy-comment-del-${cm.id}`;
     const own = Boolean(this.me) && who.id === this.me, editing = this.editing === "comment" && this.editId === cm.id;
     const bin = this.armedComment === cm.id
-      ? h_flex().id(binId).h(22).px(6).flex_none().items_center().rounded(5).cursor_pointer().text_size(11).text_color(t.blocked).hover(s => s.bg(t.selected))
+      ? h_flex().id(binId).h(22).px(6).flex_none().items_center().rounded(5).cursor_pointer().text_size(textPx(11)).text_color(t.blocked).hover(s => s.bg(t.selected))
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_mouse_down_out((_e, cx) => this.disarmComment(cx))
         .on_click((_e, cx) => { cx.stop_propagation(); this.dropComment(cm, cx); })
         .child("Delete?")
@@ -2868,15 +2869,15 @@ export default class Fizzy extends View {
       .child(h_flex().h(24).gap(6).items_center()
         .child(this.avatar(t, who, 20))
         .child(div().min_w(0).truncate().font_medium().child(who.name ?? ""))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(ago(cm.created_at, now())))
+        .child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(ago(cm.created_at, now())))
         .child(div().flex_1())
         .when(own && !editing, el => el.child(this.rowButton(t, `fizzy-comment-edit-${cm.id}`, ICON("pencil"), (_e, cx) => this.editComment(cm, cx), "Edit")).child(bin)))
       .child(editing
         ? v_flex().id(`fizzy-comment-editor-${cm.id}`).pl(17).gap(6)
           .child(div().id(`fizzy-comment-area-${cm.id}`).w_full().on_drop((e, cx) => this.attach(this.commentEdit, "commentEdit", e.paths, cx))
-            .child(Textarea.new(this.commentEdit).w_full().px(8).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground).token(this.tokenView(t))))
+            .child(Textarea.new(this.commentEdit).w_full().px(8).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
           .when(this.uploading.has("commentEdit"), el => el.child(this.uploadNote(t, "commentEdit")))
-          .when(formatted(cm.body?.html), el => el.child(div().id(`fizzy-comment-lossy-${cm.id}`).px(9).text_size(11).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
+          .when(formatted(cm.body?.html), el => el.child(div().id(`fizzy-comment-lossy-${cm.id}`).px(9).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
           .child(h_flex().justify_end().gap(6)
             .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
             .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
@@ -2892,7 +2893,7 @@ export default class Fizzy extends View {
     for (const r of this.reactions.get(cm.id)) by.set(r.content, [...(by.get(r.content) ?? []), r]);
     const chip = ([content, list], i) => {
       const mine = list.some(r => this.ownReaction(r)), names = list.map(r => r.reacter?.name).filter(Boolean).join(", ");
-      return h_flex().id(`fizzy-reaction-${cm.id}-${i}`).h(22).px(7).gap(4).flex_none().items_center().rounded(11).text_size(12).cursor_pointer()
+      return h_flex().id(`fizzy-reaction-${cm.id}-${i}`).h(22).px(7).gap(4).flex_none().items_center().rounded(11).text_size(textPx(12)).cursor_pointer()
         .border_1().border_color(mine ? t.accent : CLEAR).bg(mine ? t.selected : t.raised).hover(s => s.bg(t.hover))
         .when(Boolean(names), el => el.tooltip(names))
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
@@ -2905,7 +2906,7 @@ export default class Fizzy extends View {
   }
 
   plainLines(id, text) {
-    return v_flex().id(id).w_full().text_size(13)
+    return v_flex().id(id).w_full().text_size(textPx(13))
       .children(textLines(text).map(line => (line ? div().whitespace_normal().child(line) : div().h(6).flex_none())));
   }
 
@@ -2918,7 +2919,7 @@ export default class Fizzy extends View {
 
   richText(t, id, html, inset) {
     const column = Math.max(120, (this.width ?? 360) - inset);
-    return v_flex().id(id).w_full().text_size(13)
+    return v_flex().id(id).w_full().text_size(textPx(13))
       .children(richLines(html, people().users).map((line, i) => (line.file
         ? this.richFile(t, `${id}-${i}`, line.file, column, i > 0)
         : this.richLine(t, `${id}-${i}`, line, i > 0 && line.gap))));
@@ -2930,7 +2931,7 @@ export default class Fizzy extends View {
     const file = !f.image || f.size > IMAGE_MAX || this.fileFailed.has(f.key);
     return v_flex().w_full().gap(4).items_start().when(gap, el => el.mt(8))
       .child(file ? this.fileChip(t, id, f, column) : this.imageBox(t, id, f, column))
-      .when(Boolean(f.caption), el => el.child(div().text_size(12).text_color(t.muted).whitespace_normal().child(f.caption)));
+      .when(Boolean(f.caption), el => el.child(div().text_size(textPx(12)).text_color(t.muted).whitespace_normal().child(f.caption)));
   }
 
   imageBox(t, id, f, column) {
@@ -2939,7 +2940,7 @@ export default class Fizzy extends View {
     const frame = div().id(id).w(w).h(h).flex_none().rounded(6).border_1().border_color(t.border).overflow_hidden();
     const cached = this.files[f.key];
     if (!cached) {
-      return frame.flex().flex_col().items_center().justify_center().gap(2).px(8).bg(t.raised).text_size(12).text_color(t.dim)
+      return frame.flex().flex_col().items_center().justify_center().gap(2).px(8).bg(t.raised).text_size(textPx(12)).text_color(t.dim)
         .child(div().max_w(w - 16).truncate().child(f.filename)).child("Loading image…");
     }
     const path = `${FILE_DIR}/${cached}`;
@@ -2959,11 +2960,11 @@ export default class Fizzy extends View {
       .on_click((_e, cx) => this.saveFile(f, cx))
       .child(svg(ICON("paperclip")).size(13).flex_none().text_color(t.muted))
       .child(div().min_w(0).truncate().child(f.filename))
-      .when(Boolean(size), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(size)));
+      .when(Boolean(size), el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(size)));
   }
 
   uploadNote(t, target) {
-    return div().id(`fizzy-uploading-${target}`).px(8).text_size(11).text_color(t.muted).truncate().child(`Uploading ${this.uploading.get(target)}…`);
+    return div().id(`fizzy-uploading-${target}`).px(8).text_size(textPx(11)).text_color(t.muted).truncate().child(`Uploading ${this.uploading.get(target)}…`);
   }
 
   // A line wraps between its words: each word is a piece of its own, its spaces kept at its end (non-breaking, so they keep their width).
@@ -3013,8 +3014,8 @@ export default class Fizzy extends View {
     return ({ token, selected, line_height }) => {
       const file = token.id.startsWith("file:");
       return div().px(file ? 5 : 2).flex().items_center()
-        .when(file, el => el.rounded(4).bg(t.raised).text_size(12).text_color(t.muted))
-        .when(!file, el => el.text_size(13).font_bold().text_color(token.id.startsWith("card:") ? t.ansi3 : tagged(token.id) ? t.ansi4 : t.dim))
+        .when(file, el => el.rounded(4).bg(t.raised).text_size(textPx(12)).text_color(t.muted))
+        .when(!file, el => el.text_size(textPx(13)).font_bold().text_color(token.id.startsWith("card:") ? t.ansi3 : tagged(token.id) ? t.ansi4 : t.dim))
         .when(line_height > 0, el => el.h(line_height))
         .when(selected, el => el.bg(t.selection))
         .child(token.text);
@@ -3061,7 +3062,7 @@ export default class Fizzy extends View {
     if (became) this.poll(cx, true);
     const t = theme(), d = this.detail, picking = this.selected.size > 0;
     const lists = !this.settingsOpen && !d, fresh = Boolean(d) && this.fresh === d.number;
-    return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+    return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(textPx(13))
       .on_size_change((size, cx) => {
         this.width = size.width;
         const narrow = size.width < NARROW, wide = size.width >= WIDE;
@@ -3160,7 +3161,7 @@ export default class Fizzy extends View {
 
   item(t, r, pick) {
     if (r.type === "sep") return div().h(1).mx(7).my(4).bg(t.border);
-    if (r.type === "label") return div().px(9).pt(8).pb(4).text_size(11).text_color(t.dim).child(r.label);
+    if (r.type === "label") return div().px(9).pt(8).pb(4).text_size(textPx(11)).text_color(t.dim).child(r.label);
     if (r.type === "note") return div().h(31).px(9).items_center().flex().text_color(t.dim).child(r.label);
     const i = pick.indexOf(r), a = r.agent, tone = r.danger ? t.blocked : t.foreground;
     // A person's row leads with their photo; the tick that says they are assigned follows the label.
@@ -3173,7 +3174,7 @@ export default class Fizzy extends View {
       .when(i === this.at, el => el.bg(t.selected)).hover(s => s.bg(t.selected))
       .on_click((_e, cx) => this.choose(pick, i, cx))
       .child(icon).child(div().flex_1().min_w(0).truncate().child(r.label))
-      .child(div().max_w(96).truncate().text_size(11).text_color(t.dim).child(r.hint ?? ""))
+      .child(div().max_w(96).truncate().text_size(textPx(11)).text_color(t.dim).child(r.hint ?? ""))
       .when(Boolean(r.user && r.checked), el => el.child(svg(ICON("check")).size(14).flex_none().text_color(tone)));
   }
 
@@ -3190,7 +3191,7 @@ export default class Fizzy extends View {
     // no height of its own: left to its content the column is just its padding, an empty strip. So the column is
     // as tall as its rows (at most the popup's inside) and the list fills it, scrolling if the rows outgrow it.
     const tags = FIELD_MENUS.has(this.menu.kind);
-    return v_flex().id("fizzy-menu").track_focus(this.handle).w_full().h(Math.min(menuHeight(rows) + (tags ? INPUT_ROW : 0) - FRAME, this.most)).min_h(0).p(5).bg(t.popover).text_size(12.8)
+    return v_flex().id("fizzy-menu").track_focus(this.handle).w_full().h(Math.min(menuHeight(rows) + (tags ? INPUT_ROW : 0) - FRAME, this.most)).min_h(0).p(5).bg(t.popover).text_size(textPx(12.8))
       .on_key_down((e, cx) => {
         if (e.key === "escape") return closeOverlay(props().overlay);
         if (!pick.length) return;
@@ -3202,7 +3203,7 @@ export default class Fizzy extends View {
         cx.notify();
       })
       .when(tags, el => el.child(div().id("fizzy-menu-newtag").flex_none().px(3).pb(5)
-        .child(Input.new(this.tagInput).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12).text_color(t.foreground))))
+        .child(Input.new(this.tagInput).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))))
       .child(v_flex().id("fizzy-menu-list").flex_1().min_h(0).overflow_y_scrollbar().children(rows.map(r => this.item(t, r, pick))));
   }
 
