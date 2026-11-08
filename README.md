@@ -12,7 +12,7 @@ The repo holds:
 
 | Path | What it is |
 |---|---|
-| `mods/fizzy/` | The mod: the panel and its popups. Plain JavaScript (`main.js`, `lib.js`), no build step, and its icons |
+| `mods/fizzy/` | The mod: the panel and its popups. Plain JavaScript (`main.js`, `lib.js`), no build step, and its icons. `text.js`'s `TEXT_SCALE` sizes all its text (Herdr's settings size only the terminals') |
 | `tabs/` | `fizzy-button.patch`, the Fizzy button for a copy of Herdr's tab bar, and `keys.json`, the key it suggests on macOS and on Linux ([tabs/README.md](tabs/README.md)) |
 | `layout/` | `add-fizzy.jq`, which adds the Fizzy page to a layout ([layout/README.md](layout/README.md)) |
 | `install.sh` | Puts it all in place on Herdr's own setup, and takes it out again |

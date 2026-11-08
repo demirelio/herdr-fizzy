@@ -16,6 +16,7 @@ const {
   FILE_DIR, IMAGE_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, shortHash,
 } = await import(modFile("lib.js"));
 const { default: Fizzy } = await import(modFile("main.js"));
+const { textPx } = await import(modFile("text.js"));
 
 let acct;
 function setup(opts = {}, overrides = {}) {
@@ -569,7 +570,7 @@ test("a description or comment with no HTML is plain text, one line to a div and
   click(await draw(), "fizzy-card-102", cx);
   const tree = await draw();
   const text = must(tree, "fizzy-desc-text");
-  assert.equal(text.style.text_size, 13);
+  assert.equal(text.style.text_size, textPx(13));
   assert.equal(parentOf(tree, "fizzy-desc-text").style.px, 8);
   assert.deepEqual(text.kids.map(k => [textOf(k), k.style.h ?? null]), [["Line one", null], ["", 6], ["Line three that is long", null], ["Line four", null]]);
   for (const line of text.kids.filter(k => !k.style.h)) {
@@ -693,7 +694,7 @@ test("a step is added from its field and removed by its bin; its box and its tex
 test("editing the title: the field starts with it, Enter sends the update, an unchanged or empty title sends nothing", async () => {
   const { cx, draw, tree } = await openDetail();
   const title = must(tree, "fizzy-title");
-  assert.deepEqual([title.style.text_size, title.style.font_semibold, title.style.px, title.style.rounded, title.hover, title.style.cursor_pointer], [15, true, 8, 7, true, true]);
+  assert.deepEqual([title.style.text_size, title.style.font_semibold, title.style.px, title.style.rounded, title.hover, title.style.cursor_pointer], [textPx(15), true, 8, 7, true, true]);
   assert.equal(tipOf(tree, "fizzy-title"), undefined, "the title has no tooltip");
   click(tree, "fizzy-title", cx);
   let next = await draw();
@@ -3893,7 +3894,7 @@ test("Fizzy's own activity is one folded group after the people's comments; the 
   const order = ids(tree);
   assert.ok(order.indexOf("fizzy-comment-cm2") < order.indexOf("fizzy-activity") && order.indexOf("fizzy-activity") < order.indexOf("fizzy-comment-input"), "after the comments, before the box");
   const row = must(tree, "fizzy-activity");
-  assert.deepEqual([row.style.h, row.style.px, row.style.text_color, row.style.text_size], [28, 8, "muted", 12]);
+  assert.deepEqual([row.style.h, row.style.px, row.style.text_color, row.style.text_size], [28, 8, "muted", textPx(12)]);
   assert.equal(textOf(must(tree, "fizzy-activity-count")), "3");
   assert.deepEqual(all(row, n => n.kind === "svg").map(n => n.path), ["mods/fizzy/chevron-right.svg"]);
 
@@ -3904,7 +3905,7 @@ test("Fizzy's own activity is one folded group after the people's comments; the 
   for (const [id, text] of [["sys-early", "Ada moved this to Not Now"], ["cm3", "Bob moved this to In progress"], ["sys-late", "Ada reopened this"]]) {
     const line = must(tree, `fizzy-activity-${id}`);
     assert.match(textOf(line), new RegExp(`^${text} · `), "the plain text, then how long ago");
-    assert.equal(line.style.text_size, 11);
+    assert.equal(line.style.text_size, textPx(11));
     assert.equal(line.style.text_color, "dim");
     assert.equal(line.style.pl, 26);
     assert.deepEqual(Object.keys(line.handlers), [], "a line only reads");
@@ -4794,7 +4795,7 @@ test("the bar of hand-offs sits at the panel's foot in the card view and under a
     for (const id of ACTIONS) must(tree, id);
     const bar = must(tree, "fizzy-bar"), panel = must(tree, "fizzy");
     assert.equal(panel.kids.at(-1), bar, "the last thing in the panel: under the list or the card");
-    assert.deepEqual([bar.style.bg, bar.style.border_t, bar.style.border_color, bar.style.p, bar.style.gap, bar.style.text_size], ["chrome", 1, "border", 6, 4, 12]);
+    assert.deepEqual([bar.style.bg, bar.style.border_t, bar.style.border_color, bar.style.p, bar.style.gap, bar.style.text_size], ["chrome", 1, "border", 6, 4, textPx(12)]);
     assert.deepEqual(bar.kids.map(k => k.id), ACTIONS, "four buttons, in this order, directly in the one line");
     assert.equal(textOf(bar), "Insert Send Start Copy", "the four labels and nothing else");
     assert.deepEqual(ids(bar), ["fizzy-bar", ...ACTIONS], "and no other element a person could press");
@@ -5048,7 +5049,7 @@ test("the buttons have an icon and a label, Send and Start a chevron after it; b
   assert.equal(bar.style.flex_wrap, undefined, "it never wraps");
   for (const id of ACTIONS) {
     const b = must(tree, id);
-    assert.deepEqual([b.style.flex_1, b.style.min_w, b.style.rounded, b.style.text_size, b.style.px, b.style.items_center, b.style.justify_center], [true, 0, 7, 12, 6, true, true], `${id}: shares the row, can shrink`);
+    assert.deepEqual([b.style.flex_1, b.style.min_w, b.style.rounded, b.style.text_size, b.style.px, b.style.items_center, b.style.justify_center], [true, 0, 7, textPx(12), 6, true, true], `${id}: shares the row, can shrink`);
     assert.equal(b.style.flex_none, undefined, `${id}: not a fixed size`);
     assert.equal(b.kids.find(k => k.kind !== "svg").style.truncate, true, `${id}: the label gives way last, by being cut`);
     assert.equal(b.style.overflow_hidden, true);
@@ -5950,7 +5951,7 @@ test("a group's header: the name (Rename), the rule (contains “…”, only th
   assert.equal(textOf(name).trim(), "Team");
   assert.deepEqual([name.style.tooltip, name.style.px, name.style.h, name.style.min_w, name.style.rounded], ["Rename", 5, 22, 0, 5]);
   assert.equal(textOf(rule).trim(), "contains “[team]”");
-  assert.deepEqual([rule.style.h, rule.style.px, rule.style.flex_shrink, rule.style.min_w, rule.style.text_size, rule.style.text_color], [22, 5, 4, 0, 11, "dim"]);
+  assert.deepEqual([rule.style.h, rule.style.px, rule.style.flex_shrink, rule.style.min_w, rule.style.text_size, rule.style.text_color], [22, 5, 4, 0, textPx(11), "dim"]);
   assert.equal(textOf(must(tree, "fizzy-group-match-g-2")).trim(), "No rule");
   assert.equal(must(tree, "fizzy-group-name-g-2").style.text_color, "foreground");
   assert.equal(name.style.text_color, "dim", "a hidden group");
@@ -7280,7 +7281,7 @@ test("the header's views are 26 px buttons: the lit one is the view that shows, 
   const { cx, draw } = await mount();
   let tree = await draw();
   const look = id => { const b = must(tree, id); return [b.style.h, b.style.px, b.style.rounded, b.style.text_size, b.style.flex_none, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
-  const shape = [26, 6, 6, 12, true];
+  const shape = [26, 6, 6, textPx(12), true];
   for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.deepEqual(look(id), [...shape, "background", "muted", "hover"], `board: ${id}`);
   for (const lit of ["mine", "inbox", "pins"]) {
     click(tree, `fizzy-view-${lit}`, cx);
@@ -7385,7 +7386,7 @@ test("New card is a solid primary button at the end of the Board view's list bar
   const cta = must(tree, "fizzy-new");
   assert.equal(must(tree, "fizzy-list-bar").kids.at(-1), cta, "the last thing in the list bar");
   assert.deepEqual([cta.style.h, cta.style.px, cta.style.rounded, cta.style.text_size, cta.style.font_medium, cta.style.gap, cta.style.flex_none, cta.style.items_center, cta.style.justify_center],
-    [28, 10, 7, 12, true, 5, true, true, true], "its shape");
+    [28, 10, 7, textPx(12), true, 5, true, true, true], "its shape");
   assert.deepEqual([cta.style.bg, cta.style.text_color, cta.hoverStyle, cta.style.cursor_pointer], ["solid", "solid_foreground", { opacity: 0.88 }, true], "its colors, hover and pointer");
   assert.deepEqual(cta.kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), ["mods/fizzy/plus.svg", "New card"], "a plus, then the label");
   assert.deepEqual([cta.kids[0].style.size, cta.kids[0].style.flex_none], [13, true]);
@@ -7535,7 +7536,7 @@ test("the board row (Board view): a select over a field, the kanban icon, the na
   const [icon, name, chevron] = board.kids;
   assert.deepEqual([icon.kind, icon.path, icon.style.size, icon.style.flex_none, icon.style.text_color], ["svg", LOGO, 14, true, "muted"]);
   assert.deepEqual([name.style.flex_1, name.style.min_w, name.style.truncate, name.style.text_size, name.style.font_medium, name.style.text_color, textOf(name)],
-    [true, 0, true, 13, true, "foreground", LONG_NAME], "the name is cut by the layout, not by the code");
+    [true, 0, true, textPx(13), true, "foreground", LONG_NAME], "the name is cut by the layout, not by the code");
   assert.deepEqual([chevron.kind, chevron.path, chevron.style.size, chevron.style.flex_none, chevron.style.text_color], ["svg", "mods/fizzy/chevron-down.svg", 12, true, "dim"], "the select's affordance, at the right end");
   assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
   assert.equal(typeof board.handlers.on_click, "function", "the whole select is the click");
@@ -7557,7 +7558,7 @@ test("the select says 'Following space' and its tooltip 'Following the current s
   const select = () => must(tree, "fizzy-board");
   assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Roadmap", "Following space", "mods/fizzy/chevron-down.svg"]);
   const hint = select().kids[2];
-  assert.deepEqual([hint.style.text_size, hint.style.text_color, hint.style.flex_none], [11, "dim", true]);
+  assert.deepEqual([hint.style.text_size, hint.style.text_color, hint.style.flex_none], [textPx(11), "dim", true]);
   assert.equal(tipOf(tree, "fizzy-board"), "Following the current space");
   resize(tree, cx, 339);
   tree = await draw();
