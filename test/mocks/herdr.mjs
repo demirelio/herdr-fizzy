@@ -21,7 +21,7 @@ function makeStorage() {
 export function reset(overrides = {}) {
   Object.assign(state, {
     spaces: [], focused: null, panes: [], layout: null,
-    shared: {}, props: undefined, home: HOME, appHome: `${HOME}/.config/herdr-app`,
+    shared: {}, props: undefined, home: HOME, appHome: `${HOME}/.config/herdr-app`, checking: false, // checking: under `herdr-app check`
     exec: async () => { throw new Error("exec: nothing set up for this call"); },
     readTextFile: async () => null,
     knownAgents: async () => [],
@@ -45,6 +45,7 @@ export const focused = () => state.focused;
 export const layout = () => state.layout;
 export const home = () => state.home;
 export const appHome = () => state.appHome;
+export const checking = () => state.checking;
 export const props = () => state.props;
 export const window = () => state.window;
 export const settings = () => state.settings;

@@ -22,8 +22,8 @@ export const AGENTS = 6;
 // read again (ms).
 export const AVATAR_DIR = "data/fizzy/avatars", AVATAR_TTL = 7 * 86400000, AVATAR_BACKOFF = 3600000, AVATAR_PARALLEL = 4, AVATAR_EVERY = 86400000;
 // The images in descriptions and comments: where they are cached (under the app's folder too), how many are downloaded at once,
-// and the largest one downloaded (bytes); a larger one is shown as a file.
-export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576, FILE_DAYS = 7;
+// and the largest one downloaded (bytes); a larger one is shown as a file. FILE_TIMEOUT: how long one upload or download may take (ms).
+export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576, FILE_DAYS = 7, FILE_TIMEOUT = 5 * 60000;
 
 // `code` is the CLI's own ("auth_required", "not_found", "network", "forbidden", "rate_limit", "api_error", "usage"), or
 // ours: "MISSING" (the program would not start), "TIMEOUT" (Herdr stopped it) and "PARSE" (stdout was not the JSON
@@ -140,6 +140,7 @@ export const cmd = {
   create: (board, title, html = "") => ["card", "create", "--board", board, "--title", title, ...(html ? ["--description", html] : [])],
   update: (n, { title, html } = {}) => ["card", "update", String(n), ...(title != null ? ["--title", title] : []), ...(html != null ? ["--description", html] : [])],
   column: (n, column) => ["card", "column", String(n), "--column", column],
+  shiftColumn: (id, right) => ["column", right ? "move-right" : "move-left", id],
   postpone: n => ["card", "postpone", String(n)],
   untriage: n => ["card", "untriage", String(n)],
   close: n => ["card", "close", String(n)],
@@ -203,6 +204,22 @@ export function fullCard(card) {
   return {
     ...card, column: columnOf(card.column), assignees: card.assignees ?? [], tags: card.tags ?? [], steps: card.steps ?? [],
     description: card.description ?? "", description_html: card.description_html ?? "",
+  };
+}
+
+// Column `id` dragged onto column `target`: { columns, steps }, the board's columns in their new order (it takes the target's
+// place: before it when it moves left, after it when it moves right) and the CLI's one-place moves that get it there. Maybe?,
+// Not Now and Done keep their places; null when nothing moves.
+export function reorderColumns(columns, id, target) {
+  const real = columns.filter(c => !c.pseudo);
+  const from = real.findIndex(c => c.id === id), to = real.findIndex(c => c.id === target);
+  if (from < 0 || to < 0 || from === to) return null;
+  const moved = [...real];
+  moved.splice(to, 0, ...moved.splice(from, 1));
+  let next = 0;
+  return {
+    columns: columns.map(c => (c.pseudo ? c : moved[next++])),
+    steps: Array.from({ length: Math.abs(to - from) }, () => cmd.shiftColumn(id, to > from)),
   };
 }
 
@@ -905,6 +922,32 @@ p="$d/$b$e"; i=2
 while [ -e "$p" ]; do p="$d/$b ($i)$e"; i=$((i + 1)); done
 printf %s "$p"`;
 
+// WRITE_SCRIPT writes the text "$2" to the file "$1", making its folder. Run as sh -c SCRIPT fizzy <path> <text>.
+export const WRITE_SCRIPT = 'mkdir -p "${1%/*}" && printf %s "$2" > "$1"';
+
+// Where a card's file is kept (under the app's folder): what dragging the card into a terminal drops there.
+export const cardFile = number => `${FILE_DIR}/cards/fizzy-${number}.md`;
+
+// A card as markdown, for an agent to start on without asking Fizzy: title, board, lane, tags, people, link, description and
+// steps (a card from a list has none until it is opened).
+export function cardMarkdown(card) {
+  const names = list => (list ?? []).map(x => flat(typeof x === "string" ? x : x?.title ?? x?.name)).filter(Boolean).join(", ");
+  const tags = names(card.tags), people = names(card.assignees), description = String(card.description ?? "").trim();
+  const facts = [
+    card.board?.name && `Board: ${flat(card.board.name)}`,
+    `Lane: ${laneName(card)}`,
+    tags && `Tags: ${tags}`,
+    people && `Assigned to: ${people}`,
+    card.url && `Link: ${card.url}`,
+  ].filter(Boolean);
+  const steps = (card.steps ?? []).map(s => `- [${s.completed ? "x" : " "}] ${flat(s.content)}`);
+  return [
+    `# Fizzy #${card.number}: ${flat(card.title)}`, "", ...facts,
+    ...(description ? ["", description] : []),
+    ...(steps.length ? ["", "## Steps", ...steps] : []),
+  ].join("\n") + "\n";
+}
+
 // Every user in what the CLI answered that has a photo, once each: [{ id, url }] (assignees, creators, authors, the people list).
 export function photosIn(data) {
   const found = new Map();
@@ -1023,7 +1066,8 @@ export function groupsConfig(raw) {
     if (e?.hidden === true) entry.hidden = true;
     if (Object.keys(entry).length) boards[id] = entry;
   }
-  return { groups, boards };
+  const order = Array.isArray(raw.order) ? [...new Set(raw.order.filter(id => typeof id === "string" && id))] : [];
+  return order.length ? { groups, boards, order } : { groups, boards };
 }
 
 const entryOf = (config, id) => (Object.hasOwn(config.boards ?? {}, id) ? config.boards[id] : undefined);
@@ -1052,14 +1096,20 @@ export function groupOf(board, config) {
   return ruleGroupOf(board, config);
 }
 
-// The boards as the dropdown shows them, in the list's order: { ungrouped: [board], groups: [{ group, boards: [board] }] }, the groups
+// The boards in the order Settings gave them (`order`), then the boards it has not placed, in the list's order.
+function sortBoards(boards, config) {
+  const rank = new Map((config.order ?? []).map((id, i) => [id, i])), last = rank.size;
+  return [...(boards ?? [])].sort((a, b) => (rank.get(a.id) ?? last) - (rank.get(b.id) ?? last));
+}
+
+// The boards as the dropdown shows them, in sortBoards' order: { ungrouped: [board], groups: [{ group, boards: [board] }] }, the groups
 // in their own order. A hidden board, and a hidden group with what is in it, are left out; `withHidden` leaves nothing out.
 // `keep`: a board (the one the panel shows) that is never left out, with its group (so the tick on it never vanishes).
 // The third argument is `{ withHidden, keep }`, or just `true` for `withHidden`.
 export function boardGroups(boards, config, options = {}) {
   const { withHidden = false, keep = null } = options && typeof options === "object" ? options : { withHidden: Boolean(options) };
   const ungrouped = [], by = new Map(config.groups.map(g => [g.id, []]));
-  for (const b of boards ?? []) {
+  for (const b of sortBoards(boards, config)) {
     const group = groupOf(b, config);
     if (!withHidden && b.id !== keep && (ownHidden(b.id, config) || group?.hidden)) continue;
     (group ? by.get(group.id) : ungrouped).push(b);
@@ -1114,6 +1164,19 @@ export function moveBoard(config, boardId, to) {
 export function placeBoard(config, board, to) {
   const rule = ruleGroupOf(board, config)?.id ?? null;
   return moveBoard(config, board.id, to === rule ? "auto" : to);
+}
+// The boards, hidden ones too, in the order Settings lists them: each group's in the groups' order, then those in no group.
+export function listedBoards(boards, config) {
+  const { ungrouped, groups } = boardGroups(boards, config, true);
+  return [...groups.flatMap(g => g.boards), ...ungrouped];
+}
+// A board dropped on another board's row: it joins that board's group and takes its place in the list, landing before it when it
+// moves up and after it when it moves down, as moveGroup does. From then on `order` places every board.
+export function placeBoardAt(config, boards, board, target) {
+  const ids = listedBoards(boards, config).map(b => b.id), from = ids.indexOf(board.id), to = ids.indexOf(target.id);
+  if (from < 0 || to < 0 || from === to) return config;
+  ids.splice(to, 0, ...ids.splice(from, 1));
+  return { ...placeBoard(config, board, groupOf(target, config)?.id ?? null), order: ids };
 }
 export const setBoardHidden = (config, boardId, hidden) => withBoard(config, boardId, { hidden: Boolean(hidden) });
 // A group takes the position of another: it lands before the target when it moves up, after it when it moves down. An id that is not

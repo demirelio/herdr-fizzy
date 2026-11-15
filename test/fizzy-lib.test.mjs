@@ -15,12 +15,12 @@ import {
 
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
-  FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, lanes, sections, filterCards, colorOf, meFrom,
+  FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, reorderColumns, lanes, sections, filterCards, colorOf, meFrom,
   ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, inactivity,
-  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX,
+  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
-  defaultGroups, groupsConfig, choiceOf, groupOf, ruleGroupOf, ownHidden, boardGroups, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, moveBoard, placeBoard, moveGroup, setBoardHidden,
+  defaultGroups, groupsConfig, choiceOf, groupOf, ruleGroupOf, ownHidden, boardGroups, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, moveBoard, placeBoard, placeBoardAt, listedBoards, moveGroup, setBoardHidden,
 } = await import(modFile("lib.js"));
 
 // Builders in the shapes the fizzy CLI prints.
@@ -68,6 +68,8 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.update(7, { html: "" }), ["card", "update", "7", "--description", ""]);
   assert.deepEqual(cmd.update(7), ["card", "update", "7"]);
   assert.deepEqual(cmd.column(7, "c1"), ["card", "column", "7", "--column", "c1"]);
+  assert.deepEqual(cmd.shiftColumn("c1", false), ["column", "move-left", "c1"]);
+  assert.deepEqual(cmd.shiftColumn("c1", true), ["column", "move-right", "c1"]);
   assert.deepEqual(cmd.postpone(7), ["card", "postpone", "7"]);
   assert.deepEqual(cmd.untriage(7), ["card", "untriage", "7"]);
   assert.deepEqual(cmd.close(7), ["card", "close", "7"]);
@@ -114,8 +116,9 @@ test("every argv a builder makes is all strings, and the fake fizzy CLI the pane
     cmd.editComment(101, "cm1", "<p>c</p>"), cmd.dropComment(101, "cm1"), cmd.read("n1"), cmd.readAll(),
     cmd.stalled("b1"), cmd.activity(1), cmd.reactions(101, "cm1"), cmd.react(101, "cm1", "👍"), cmd.unreact(101, "cm1", "r1"),
     cmd.attachments(101), cmd.download(101, 1, "/home/tester/x.png"), cmd.upload("/home/tester/x.png"),
+    cmd.shiftColumn("c2", false), cmd.shiftColumn("c1", true),
   ];
-  assert.equal(argvs.length, Object.keys(cmd).length + 4, "every builder, and both sides of golden, pin, watch and step, is covered");
+  assert.equal(argvs.length, Object.keys(cmd).length + 5, "every builder, and both sides of golden, pin, watch, step and shiftColumn, is covered");
   for (const argv of argvs) {
     assert.ok(argv.every(a => typeof a === "string"), `${argv.join(" ")}: all strings`);
     const account = makeAccount();
@@ -343,6 +346,19 @@ test("fullCard puts back what a typed `card show` leaves out, and keeps everythi
   assert.equal(fullCard(null), null);
 });
 
+test("reorderColumns: the column takes the target's place among the real columns, one CLI move per place; Maybe?, Not Now and Done stay", () => {
+  const MAYBE = { id: "maybe", kind: "triage", pseudo: true, name: "Maybe?" }, DONE = { id: "done", kind: "closed", pseudo: true, name: "Done" };
+  const list = [NOT_NOW, MAYBE, col("c1", "A", "Blue"), col("c2", "B", "Red"), col("c3", "C", "Lime"), DONE];
+  const order = moved => moved.columns.map(c => c.id);
+  const right = reorderColumns(list, "c1", "c3");
+  assert.deepEqual(order(right), ["not-now", "maybe", "c2", "c3", "c1", "done"]);
+  assert.deepEqual(right.steps, [["column", "move-right", "c1"], ["column", "move-right", "c1"]]);
+  const left = reorderColumns(list, "c3", "c2");
+  assert.deepEqual(order(left), ["not-now", "maybe", "c1", "c3", "c2", "done"]);
+  assert.deepEqual(left.steps, [["column", "move-left", "c3"]]);
+  for (const [id, target] of [["c1", "c1"], ["c1", "maybe"], ["done", "c1"], ["gone", "c2"]]) assert.equal(reorderColumns(list, id, target), null, `${id} onto ${target}`);
+});
+
 test("moveTo gives the argv lists for every from -> to pair, from Done included", () => {
   const N = 7;
   const from = {
@@ -554,6 +570,21 @@ test("refs puts one ref per line", () => {
   assert.equal(out.split("\n").length, 2);
   assert.equal(refs([]), "");
   assert.equal(refs(undefined), "");
+});
+
+test("cardMarkdown: the title as a heading, then board, lane, tags, people and link, the description, and the steps as a checklist", () => {
+  const whole = card(4242, {
+    title: "Fix the\nlogin redirect", column: col("c1", "In progress", "Blue"), tags: ["bug", { title: "web" }],
+    assignees: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }], description: "  The spinner hangs.\n\nOn Safari only.  ",
+    steps: [{ content: "Reproduce it", completed: true }, { content: "Patch\nit", completed: false }],
+  });
+  assert.equal(cardMarkdown(whole), [
+    "# Fizzy #4242: Fix the login redirect", "",
+    "Board: Roadmap", "Lane: In progress", "Tags: bug, web", "Assigned to: Ana, Bo", "Link: https://app.fizzy.do/111/cards/4242", "",
+    "The spinner hangs.\n\nOn Safari only.", "",
+    "## Steps", "- [x] Reproduce it", "- [ ] Patch it", "",
+  ].join("\n"));
+  assert.equal(cardMarkdown(card(7, { board: undefined, url: undefined, closed: true })), "# Fizzy #7: Card 7\n\nLane: Done\n", "only what is known");
 });
 
 test("tabName: #number and the title, at most 32 characters, with an ellipsis when cut", () => {
@@ -1659,6 +1690,30 @@ test("placeBoard: Automatic exactly when the target is the group the board's nam
   assert.equal(placeBoard(start, plain, "nope"), start);
   assert.equal(placeBoard(start, tagged, "nope"), start);
   assert.equal(JSON.stringify(start), frozen, "the config given is never changed");
+});
+
+test("placeBoardAt: a board takes the target row's place in the list (after it moving down, before it moving up) and joins its group; `order` then places every board, which boardGroups and groupsConfig keep", () => {
+  const boards = [{ id: "a", name: "A [team]" }, { id: "b", name: "B [team]" }, { id: "c", name: "C [team]" }, { id: "p", name: "Plain" }, { id: "q", name: "Other" }];
+  const by = id => boards.find(b => b.id === id), start = CFG(), frozen = JSON.stringify(start);
+  const rows = config => listedBoards(boards, config).map(b => b.id);
+  assert.deepEqual(rows(start), ["a", "b", "c", "p", "q"], "nothing placed yet: the groups' boards, then the rest, in the list's order");
+  const down = placeBoardAt(start, boards, by("a"), by("c"));
+  assert.deepEqual(down.order, ["b", "c", "a", "p", "q"]);
+  assert.deepEqual(down.boards, {}, "it stays in its group");
+  const up = placeBoardAt(down, boards, by("q"), by("b"));
+  assert.deepEqual(rows(up), ["q", "b", "c", "a", "p"], "from No group, before the row, into Team");
+  assert.deepEqual(up.boards, { q: { group: "team" } });
+  assert.deepEqual(boardGroups(boards, up).groups[0].boards.map(b => b.id), ["q", "b", "c", "a"]);
+  const out = placeBoardAt(up, boards, by("b"), by("p"));
+  assert.deepEqual(boardGroups(boards, out).ungrouped.map(b => b.id), ["p", "b"], "into No group, after the row");
+  assert.deepEqual(out.boards.b, { group: null });
+  assert.equal(placeBoardAt(start, boards, by("a"), by("a")), start, "onto itself");
+  assert.equal(placeBoardAt(start, boards, { id: "gone" }, by("a")), start, "a board that is not listed");
+  assert.equal(JSON.stringify(start), frozen, "the config given is never changed");
+  const later = [...boards, { id: "n", name: "New [team]" }];
+  assert.deepEqual(boardGroups(later, up).groups[0].boards.map(b => b.id), ["q", "b", "c", "a", "n"], "a board made later comes after the placed ones");
+  assert.deepEqual(groupsConfig({ ...up, order: ["q", "q", "", 7, "b"] }).order, ["q", "b"], "saved: unique ids only");
+  assert.equal("order" in groupsConfig({ ...start, order: [] }), false);
 });
 
 test("moveGroup: a group takes the target's place (before it when moving up, after it when moving down); unknown or the same id change nothing; nothing is mutated", () => {

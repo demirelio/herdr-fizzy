@@ -13,8 +13,10 @@ import { join } from "node:path";
 const {
   POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, ref, refs, tabName, menuRows, menuHeight, FRAME, YAML_SCRIPT, fizzyVisible,
   boardRef, AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, colorOf, JQ,
-  FILE_DIR, IMAGE_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, shortHash,
+  FILE_DIR, FILE_TIMEOUT, IMAGE_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, shortHash, cardFile, cardMarkdown,
 } = await import(modFile("lib.js"));
+// The options of each `fizzy <first>` exec so far.
+const execOptions = first => calls.exec.filter(c => c.command === "fizzy" && c.args[0] === first).map(c => c.options);
 const { default: Fizzy } = await import(modFile("main.js"));
 const { textPx } = await import(modFile("text.js"));
 
@@ -156,6 +158,15 @@ async function searchFor(m, words) {
   field.submit(m.cx);
   return m.draw();
 }
+
+test("under herdr-app check the panel draws but asks nothing: no CLI, no file work, no timers", async () => {
+  state.checking = true;
+  const { view, cx } = await mount();
+  drawn(view, cx);
+  await cx.settle();
+  assert.deepEqual(calls.exec.map(c => [c.command, ...c.args]), []);
+  assert.deepEqual([cx.timers.length, calls.nextCommand.length], [0, 0]);
+});
 
 test("the board view lists the lanes in the board's order, Not Now and Done folded, the open cards under theirs", async () => {
   const { draw } = await mount();
@@ -1474,6 +1485,36 @@ test("Insert in chat: the clipboard gets the reference, the agent's pane is focu
   assert.equal(calls.hc.length, 0, "nothing was sent");
 });
 
+test("the ↵ dragged into a terminal drops the card's file, written at the press from what the panel holds; a picked card's drops every picked one", async () => {
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  const fileOf = n => `${state.appHome}/${cardFile(n)}`;
+  const insert = must(tree, "fizzy-insert-102");
+  assert.deepEqual(insert.dragPaths, [fileOf(102)]);
+  const presser = makeCx();
+  fire(insert, "on_mouse_down:left", {}, presser);
+  await presser.settle();
+  assert.deepEqual([presser.stopped, view.pressed], [1, null], "the press picks up no card to move to another lane");
+  assert.deepEqual(acct.written, { [fileOf(102)]: cardMarkdown(view.find(102)) });
+  click(tree, "fizzy-card-101", cx, { modifiers: { platform: true } });
+  click(tree, "fizzy-card-103", cx, { modifiers: { platform: true } });
+  tree = await draw();
+  assert.deepEqual(must(tree, "fizzy-insert-103").dragPaths, [fileOf(101), fileOf(103)]);
+  assert.deepEqual(must(tree, "fizzy-insert-102").dragPaths, [fileOf(102)], "one not picked drags itself");
+  assert.deepEqual(must(tree, "fizzy-bar-insert").dragPaths, [fileOf(101), fileOf(103)], "and so does the bar's Insert");
+});
+
+test("on an open card the bar's Insert drags its file, which holds the card's own read, steps included", async () => {
+  const { view, tree } = await openDetail(101);
+  const bar = must(tree, "fizzy-bar-insert"), path = `${state.appHome}/${cardFile(101)}`;
+  assert.deepEqual(bar.dragPaths, [path]);
+  const presser = makeCx();
+  fire(bar, "on_mouse_down:left", {}, presser);
+  await presser.settle();
+  assert.equal(acct.written[path], cardMarkdown(view.detail.card));
+  assert.match(acct.written[path], /\n## Steps\n- \[ \] Reproduce it\n- \[x\] Patch it\n$/);
+});
+
 test("Insert in chat with nothing copied before leaves the reference on the clipboard", async () => {
   withAgent();
   const { draw } = await mount();
@@ -1931,6 +1972,31 @@ test("releasing on the same lane, or anywhere else, moves nothing and forgets th
   fire(must(tree, "fizzy-section-c2"), "on_mouse_up:left", {}, cx);
   await cx.settle();
   assert.deepEqual(acct.writes(), []);
+});
+
+test("dragging a column's header onto another column reorders the lanes at once, Fizzy moves it a place at a time, and the columns are read again", async () => {
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  let release;
+  acct.hold = new Promise(resolve => { release = resolve; });
+  fire(must(tree, "fizzy-section-c2"), "on_mouse_down:left", {}, cx);
+  fire(must(tree, "fizzy-card-101"), "on_mouse_up:left", {}, cx);
+  assert.deepEqual(sectionIds(drawn(view, cx)), ["not-now", "maybe", "c2", "c1", "done"], "moved before Fizzy has answered");
+  const reads = acct.asked("column", "list").length;
+  release();
+  await cx.settle();
+  acct.hold = null;
+  assert.deepEqual(acct.asked("column", "move-left"), [["column", "move-left", "c2"]]);
+  assert.equal(acct.asked("column", "list").length, reads + 1);
+  assert.deepEqual(acct.columns.b1.map(c => c.id), ["not-now", "maybe", "c2", "c1", "done"]);
+  tree = await draw();
+  for (const [from, to] of [["c2", "c2"], ["c2", "maybe"], ["maybe", "c1"], ["done", "c1"]]) {
+    fire(must(tree, `fizzy-section-${from}`), "on_mouse_down:left", {}, cx);
+    fire(must(tree, `fizzy-section-${to}`), "on_mouse_up:left", {}, cx);
+  }
+  await cx.settle();
+  assert.equal(acct.asked("column", "move-left").length + acct.asked("column", "move-right").length, 1, "its own lane, Maybe?, Not Now and Done neither move nor take a column");
+  assert.deepEqual(acct.writes().filter(w => w[0] === "card"), [], "and no card moves");
 });
 
 test("a card moved out of Done is reopened first, then put in its lane", async () => {
@@ -6678,6 +6744,52 @@ test("⌘/Ctrl-drag a board onto a group's block saves once: it is stored as tha
   assert.deepEqual(calls.hc, []);
 });
 
+test("⌘/Ctrl-drag a board onto another board's row: a line shows where it lands, and letting go puts it there (after it moving down, before it moving up), joining that row's group; the boards list follows", async () => {
+  sampleBoards();
+  seedGroups(TWO());
+  const roadmap = boardId("Roadmap");
+  const m = await mount();
+  let tree = await settingsPage(m);
+  const team = boardRowsIn(tree, "fizzy-group-team");
+  const lines = () => all(must(tree, "fizzy-settings"), n => n.id?.startsWith("fizzy-board-line-")).map(n => [n.id.slice("fizzy-board-line-".length), "top" in n.style ? "top" : "bottom"]);
+  pressRow(tree, rowOf(team[0]), m.cx);
+  hoverOn(tree, rowOf(team[0]), true, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lines(), [], "its own row draws none");
+  hoverOn(tree, rowOf(team[2]), true, m.cx);
+  hoverOn(tree, rowOf(team[0]), false, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lines(), [[team[2], "bottom"]]);
+  const stopped = m.cx.stopped;
+  releaseOn(tree, rowOf(team[2]), m.cx);
+  assert.equal(m.cx.stopped, stopped + 1, "the block around the row does not take it too");
+  assert.equal(savedGroups().length, 1);
+  tree = await m.draw();
+  assert.deepEqual(boardRowsIn(tree, "fizzy-group-team"), [team[1], team[2], team[0], ...team.slice(3)]);
+  assert.deepEqual([m.view.drag, lines()], [null, []]);
+  // Up from No group: before the row, in its group.
+  pressRow(tree, rowOf(roadmap), m.cx);
+  hoverOn(tree, rowOf(team[2]), true, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lines(), [[team[2], "top"]]);
+  releaseOn(tree, rowOf(team[2]), m.cx);
+  assert.equal(savedGroups()[1].boards[roadmap].group, "team");
+  tree = await m.draw();
+  assert.deepEqual(boardRowsIn(tree, "fizzy-group-team"), [team[1], roadmap, team[2], team[0], ...team.slice(3)]);
+  // Let go on its own row: nothing saved. A group let go over a row is left to the block around it.
+  pressRow(tree, rowOf(roadmap), m.cx);
+  releaseOn(tree, rowOf(roadmap), m.cx);
+  assert.equal(savedGroups().length, 2);
+  pressRow(tree, "fizzy-group-head-g-2", m.cx);
+  releaseOn(tree, rowOf(roadmap), m.cx);
+  assert.equal(m.view.drag?.kind, "group");
+  m.view.endDrag(m.cx);
+  click(await leaveSettings(m), "fizzy-board", m.cx);
+  const list = listOf((await mountPopup()).tree()), at = [team[1], roadmap, team[2]].map(id => list.indexOf(`board-${id}`));
+  assert.ok(at[0] >= 0 && at[0] < at[1] && at[1] < at[2], "in the boards list's order too");
+  assert.deepEqual(acct.writes(), [], "nothing here writes to Fizzy");
+});
+
 test("⌘/Ctrl-drag a board onto No group saves once: Automatic when no rule picks it, a choice of no group when one does; a board stored in a group by hand and not picked by a rule goes back to Automatic", async () => {
   sampleBoards();
   const [tagged, roadmap, garden, travel] = ["Support rota [team]", "Roadmap", "Garden", "Travel"].map(boardId);
@@ -7146,7 +7258,7 @@ test("a drag left behind is also ended by the insertion line and the empty rows,
   assert.equal(savedGroups().length, saved);
 });
 
-test("the hover and the release are on the blocks, the press is on the headers and board rows; the No group header, the empty rows and the insertion line press without ever picking", async () => {
+test("the hover and the release are on the blocks and the board rows, the press is on the headers and board rows; the No group header, the empty rows and the insertion line press without ever picking", async () => {
   sampleBoards();
   state.shared["fizzy.boardGroups"] = { groups: [...TWO().groups, { id: "g-3", name: "Empty", match: "nobody", hidden: false }], boards: {} };
   const m = await mount();
@@ -7156,12 +7268,14 @@ test("the hover and the release are on the blocks, the press is on the headers a
   tree = await m.draw();
   const page = must(tree, "fizzy-settings");
   const blocks = ["fizzy-group-team", "fizzy-group-g-2", "fizzy-group-g-3", "fizzy-nogroup"];
-  assert.deepEqual(all(page, n => n.handlers.on_hover).map(n => n.id), blocks, "the hover is on the blocks only");
-  assert.deepEqual(all(page, n => n.handlers["on_mouse_up:left"]).map(n => n.id), blocks, "and so is the release");
+  const targets = all(page, n => blocks.includes(n.id) || /^fizzy-board-row-/.test(n.id ?? "")).map(n => n.id);
+  assert.equal(targets.length, blocks.length + SAMPLE_BOARDS.length);
+  assert.deepEqual(all(page, n => n.handlers.on_hover).map(n => n.id), targets, "the hover is on the blocks and the board rows only");
+  assert.deepEqual(all(page, n => n.handlers["on_mouse_up:left"]).map(n => n.id), targets, "and so is the release");
   const picks = all(page, n => n.id && /^fizzy-(?:group-head|board-row)-/.test(n.id));
   assert.equal(picks.length, 3 + SAMPLE_BOARDS.length);
   for (const n of picks) assert.equal(typeof n.handlers["on_mouse_down:left"], "function", n.id);
-  for (const n of picks) assert.deepEqual(["on_hover", "on_mouse_up:left"].filter(h => n.handlers[h]), [], `${n.id}: no hover and no release of its own`);
+  for (const n of picks.filter(p => p.id.startsWith("fizzy-group-head-"))) assert.deepEqual(["on_hover", "on_mouse_up:left"].filter(h => n.handlers[h]), [], `${n.id}: no hover and no release of its own`);
   const pressOnly = ["fizzy-nogroup-head", "fizzy-group-empty-g-2", "fizzy-group-empty-g-3", "fizzy-group-line-team"];
   for (const id of pressOnly) assert.equal(typeof must(tree, id).handlers["on_mouse_down:left"], "function", id);
   // None of them picks anything up, even with ⌘/Ctrl.
@@ -8572,12 +8686,14 @@ test("an image in a description is downloaded once into the panel's files, throu
     ["card", "attachments", "show", "101", "--include-comments"],
     ["card", "attachments", "download", "101", "2", "--include-comments", "-o", `${state.appHome}/${FILE_DIR}/${file}`],
   ], "its sgid is the second of the card's");
+  assert.deepEqual(execOptions("card").filter(o => o.timeout), [{ cwd: state.home, timeout: FILE_TIMEOUT }], "the download alone may outlast Herdr's 30 s");
   assert.deepEqual(calls.exec.filter(c => c.command === "mkdir").map(c => c.args), [["-p", `${state.appHome}/${FILE_DIR}`]]);
   assert.deepEqual(JSON.parse(localStorage.getItem("files")), { [key]: file }, "kept between runs");
   const tree = await draw();
   box = must(tree, "fizzy-desc-html-1");
   assert.deepEqual(box.kids.map(k => [k.kind, k.path]), [["image", `${FILE_DIR}/${file}`]]);
   assert.deepEqual([box.style.w, box.style.h, box.style.tooltip], [320, 240, "shot.png"]);
+  assert.deepEqual(box.dragPaths, [`${state.appHome}/${FILE_DIR}/${file}`], "dragged into a terminal, it drops its file");
   assert.equal(textOf(parentOf(tree, "fizzy-desc-html-1")).trim(), "The bug", "its caption under it");
   click(tree, "fizzy-desc-html-1", cx);
   await cx.settle();
@@ -8648,6 +8764,7 @@ test("files dropped on the comment box are uploaded one after another, each put 
   assert.equal(textOf(must(drawn(view, cx), "fizzy-uploading-comment")), "Uploading shot.png…");
   await cx.settle();
   assert.deepEqual(acct.asked("upload"), [["upload", "file", `${state.home}/shot.png`], ["upload", "file", `${state.home}/spec.pdf`]]);
+  assert.deepEqual(execOptions("upload"), Array(2).fill({ cwd: state.home, timeout: FILE_TIMEOUT }), "an upload may outlast Herdr's 30 s");
   assert.deepEqual(spans(box).map(([text]) => text), ["🖼 shot.png", "📎 spec.pdf"]);
   assert.ok(spans(box).every(([, id]) => /^file:sgid-upload-\d+$/.test(id)));
   assert.equal(box.value(), "Here: 🖼 shot.png 📎 spec.pdf ");

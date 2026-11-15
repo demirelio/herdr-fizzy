@@ -258,7 +258,10 @@ test("syncPanel gets the pages the bar offers: Fizzy among them only when the la
 // A clone that another patch already gave a nextCommand() loop: tabs/README.md's hand merge.
 const OTHER_LOOP = `  init(_props, cx) {
     this.pressed = null;
-    this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+    this.scroll = ScrollHandle.new();
+    try { this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}"); } catch { this.panels = {}; }
+    if (!this.panels || typeof this.panels !== "object" || Array.isArray(this.panels)) this.panels = {};
+    this.swipe = { acc: 0, steps: 0, at: 0, last: 0 };
     cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
@@ -279,7 +282,7 @@ test("a clone with a loop of its own: only the import and loop hunks are refused
   const imports = HUNKS.find(hunk => hunk.added.some(l => /^import .*\bnextCommand\b.* from "herdr";$/.test(l)));
   assert.ok(imports, "a hunk adds nextCommand to the import from herdr");
   const looped = STOCK.replace(imports.body.find(l => l[0] === "-").slice(1), imports.added[0])
-    .replace(/  init\(\) \{\n.*\n.*\n  \}\n/, OTHER_LOOP);
+    .replace(/  init\(\) \{\n(?:    .*\n)*  \}\n/, OTHER_LOOP);
   assert.match(looped, /otherCommand\(command\) \{/);
   writeFileSync(join(dir, "main.js"), looped);
   assert.notEqual(patch(dir, ["--dry-run", "-N", "-F", "0"]).status, 0, "-N takes the import that is already there for an applied patch");

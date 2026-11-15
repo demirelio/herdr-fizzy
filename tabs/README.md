@@ -1,7 +1,7 @@
 # The Fizzy button for Herdr's tab bar
 
 [`fizzy-button.patch`](fizzy-button.patch) changes a copy of Herdr's own tab bar (the `tabs` mod) so it opens the
-Fizzy panel. It is made against Herdr's stock tab bar, for **Herdr 0.1.12 or newer**; `../install.sh` checks at install
+Fizzy panel. It is made against Herdr's stock tab bar, for **Herdr 0.1.16 or newer**; `../install.sh` checks at install
 time that it fits ([When it doesn't fit](#when-it-doesnt-fit)).
 
 ## What it adds

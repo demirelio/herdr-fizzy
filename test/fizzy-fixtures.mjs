@@ -4,7 +4,7 @@
 import { layoutWith, modFile } from "./helpers.mjs";
 import { state } from "./mocks/herdr.mjs";
 
-const { YAML_SCRIPT, AVATAR_SCRIPT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
+const { YAML_SCRIPT, AVATAR_SCRIPT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, WRITE_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
 
 export const LAYOUT = layoutWith({ active: "fizzy", children: ["files", "changes", "fizzy"] });
 
@@ -91,6 +91,7 @@ export function makeAccount(opts = {}) {
     reactions: {},     // comment id -> its reactions ([{ id, content, reacter }])
     attachments: {},   // card number -> its attachments' sgids, in the order `card attachments download` numbers them
     clipboardImage: false, // the clipboard holds an image (what the paste script reads)
+    written: {}, // path -> the text WRITE_SCRIPT wrote there
     webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
     pageSize: opts.pageSize ?? 15,
     searchCap: opts.searchCap ?? SEARCH_CAP,
@@ -119,6 +120,19 @@ export function makeAccount(opts = {}) {
     }
     if (a1 === "board" && a2 === "list") return ok(a.boards);
     if (a1 === "column" && a2 === "list") return ok(a.columns[flag(args, "--board")] ?? []);
+    // A column trades places with the next real column on that side; Maybe?, Not Now and Done keep theirs.
+    if (a1 === "column" && (a2 === "move-left" || a2 === "move-right")) {
+      for (const list of Object.values(a.columns)) {
+        const real = list.filter(c => !c.pseudo), i = real.findIndex(c => c.id === n), j = i + (a2 === "move-left" ? -1 : 1);
+        if (i < 0) continue;
+        if (j < 0 || j >= real.length) return ok(null);
+        [real[i], real[j]] = [real[j], real[i]];
+        let k = 0;
+        list.splice(0, list.length, ...list.map(c => (c.pseudo ? c : real[k++])));
+        return ok(null);
+      }
+      return failure("not_found", `Resource not found: column ${n}`);
+    }
     if (a1 === "search") {
       const words = (args[args.indexOf("--") + 1] ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       const text = c => [c.title, c.description, ...c.tags, ...(a.comments[c.number] ?? []).map(x => x.body.plain_text)].join(" ").toLowerCase();
@@ -269,6 +283,11 @@ export function makeAccount(opts = {}) {
     if (script === FREE_NAME_SCRIPT) {
       const [folder, name, ext] = params;
       return done(0, `${folder}/${name}${ext}`);
+    }
+    if (script === WRITE_SCRIPT) {
+      const [path, text] = params;
+      a.written[path] = text;
+      return done(0);
     }
     return null;
   }

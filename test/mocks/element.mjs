@@ -37,6 +37,7 @@ export function makeElement(kind, extra = {}) {
     on_mouse_down: (button, fn) => { node.handlers[`on_mouse_down:${button}`] = fn; },
     on_mouse_up: (button, fn) => { node.handlers[`on_mouse_up:${button}`] = fn; },
     track_focus: handle => { node.focus = handle; },
+    drag_paths: (paths, options) => { node.dragPaths = paths; node.dragOptions = options; },
   };
   // What only a TextView has (TextViewElement in gpui-kit.d.ts): other elements still refuse these.
   if (kind === "textview") {

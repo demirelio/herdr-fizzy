@@ -202,7 +202,10 @@ dot after the label while `fizzy.unread` is above zero.
   and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show more** (50
   more). A header's click folds its lane (kept per board). In each lane golden cards come first, the rest in Fizzy's
   order. Pressing a card and letting go anywhere over another lane's block (its header, its cards or between them)
-  moves it there; the change shows at once and the list reads again after the CLI answers.
+  moves it there; the change shows at once and the list reads again after the CLI answers. Pressing a column's header
+  and letting go over another column's block moves the column to that place (before it moving left, after it moving
+  right): the lanes reorder at once, `column move-left` or `move-right` runs once per place, and the columns are read
+  again. Maybe?, Not Now and Done neither move nor take a column.
 - **Inactivity.** A card that is neither closed nor postponed shows Fizzy's own warning, as Fizzy's card decides it.
   With the board's `auto_postpone_period_in_days` (from `board list`) as P, and N the calendar days from today to the
   day `last_active_at` plus P days falls on: when N is under P × 0.25, rounded, `Closes in Nd`, or `Closes today` when
@@ -266,7 +269,8 @@ dot after the label while `fizzy.unread` is above zero.
   every image from the web, are downloaded when the card is read, at most 3 at a time, into
   `<appHome>/data/fizzy/files/<16 hex digits>.<ext>` (a hash of the sgid or address), and the names are kept
   (`files`). An attachment comes through the CLI, a web image through `curl`. One over 15 MiB, or that failed, is a
-  file chip; Refresh tries the failed ones again. A click on an image opens it in the system's viewer; on a file chip,
+  file chip; Refresh tries the failed ones again. A click on an image opens it in the system's viewer, and dragged into
+  a terminal it drops its file there (`drag_paths`); a click on a file chip
   saves it as `~/Downloads/<name>` (`<base> (2)<ext>` and so on when taken), reveals it (Finder on macOS, its folder
   on Linux) and toasts `Saved to Downloads`; a web image with no sgid opens in the browser. Files dropped on an editor
   are uploaded one after another with `upload file <path>` (`Uploading <name>…` meanwhile), each put in at the cursor
@@ -291,7 +295,10 @@ dot after the label while `fizzy.unread` is above zero.
   the board, running that agent with no first message, and pastes once that session's status is `idle` or 3 seconds
   after it appeared; after 30 seconds with no session, the reference goes to the clipboard with a toast. Copy copies
   and toasts `Copied`. Nothing ever presses Enter. A paste borrows the clipboard and puts the old text back 500 ms
-  later.
+  later. A card's ↵ and the bar's Insert are also `drag_paths` sources: the press writes each card's markdown (title,
+  board, lane, tags, people, link, description, and steps when the open card's own read has them) to
+  `<appHome>/data/fizzy/files/cards/fizzy-<N>.md`, and a drop on a terminal types the quoted paths there. A picked
+  card's ↵ drags every picked card; the bar drags what it acts on, never a board.
 - **Notifications.** Every 30 s, shown or hidden, the unread notifications are read: the count goes to `fizzy.unread`
   and the Inbox badge, and each one not seen before becomes an `info` toast for 8 s (title up to 80 characters; body:
   the first line up to 140, `#N`, the board), at most three per poll plus `N more in Fizzy`. A panel with nothing
@@ -315,7 +322,10 @@ dot after the label while `fizzy.unread` is above zero.
 - **Board groups.** + adds a group at the top. Clicking the name or the rule edits it in place; the bin asks once
   (`Delete?`); the eye hides; clicking the rest of the line folds. A press with ⌘ or Ctrl held on a board or group picks
   it up: the block under the pointer is `selected` (for a board) or shows a 2 px `accent` line where a group lands, and
-  letting go places it. The dropdown leaves out hidden boards and groups, except the board shown.
+  letting go places it. A board let go over another board's row joins that row's group and takes its place (a 2 px
+  `accent` line at the row's top when it moves up, its bottom when it moves down); the config's `order` then lists
+  every board, and the dropdown and the page follow it, boards placed later coming after, in Fizzy's order. The
+  dropdown leaves out hidden boards and groups, except the board shown.
 - **Errors** are shown as text: ``Not signed in to Fizzy: run `fizzy setup` in a terminal``,
   `The fizzy CLI isn't installed (or not on PATH)`, `Fizzy took too long to answer`, `Can't reach Fizzy`, `Not found
   in Fizzy: it was deleted, or you can't see it`, `Fizzy doesn't let you do that`, `Fizzy is busy: try again in a
@@ -332,8 +342,8 @@ dot after the label while `fizzy.unread` is above zero.
 
 ## Built from
 
-- **Herdr** 0.1.12 or newer; `install.sh` checks at install time that the tab-bar patch fits. On a Herdr whose tab bar
-  changed so that it doesn't, the patch is applied by hand (`tabs/README.md`).
+- **Herdr** 0.1.16 or newer (`drag_paths`, `checking()`); `install.sh` checks at install time that the tab-bar patch
+  fits. On a Herdr whose tab bar changed so that it doesn't, the patch is applied by hand (`tabs/README.md`).
 - **Layout.** Herdr's `main`, with one block added last to the `panel-body` stack (inside the `panel` column, which
   starts hidden): `{ "id": "fizzy", "type": "block", "content": { "mod": "fizzy" } }`, and the tab-bar block's
   `content.mod` pointed at the patched tab bar (`fizzy-tabs`). `layout/add-fizzy.jq` makes both changes.
@@ -452,7 +462,7 @@ dot after the label while `fizzy.unread` is above zero.
   or `xdg-open` and `wl-paste` or `xclip`). None of the CLI's own files is read: `config show` names its account and
   default board.
 - **Not built:** reactions on the card itself, formatting (bold, headings, numbered lists) in the editors, making or
-  changing boards and columns.
+  changing boards and columns (beyond a column's place).
 
 ## Done when
 
@@ -460,7 +470,10 @@ dot after the label while `fizzy.unread` is above zero.
 - With the layout's Fizzy page and the CLI signed in, Board shows the board's lanes in `column list` order, Not Now
   and Done folded; unfolding Done shows up to 50 cards and Show more.
 - Dragging a card from one lane onto another lane's header moves it in Fizzy (`fizzy card show` agrees), and the list
-  shows it there after the next read.
+  shows it there after the next read. Dragging a column's header onto another column moves the column in Fizzy
+  (`fizzy column list` agrees).
+- A card's ↵ dropped on a terminal types the quoted path of `fizzy-<N>.md`, which holds the card; an image dropped on
+  Claude Code attaches.
 - New card opens the board picker; choosing a board shows the Board view on it and opens a card made in Maybe? there,
   its empty title field focused; typing a title and Enter saves it (`fizzy card show` agrees), and Discard deletes the
   card.

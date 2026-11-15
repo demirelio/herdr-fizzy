@@ -47,13 +47,16 @@ new card there (see **New card** below).
 
 Each card is a tile tinted in its lane's color, with a bar in that color at its left. Golden cards come first in their
 lane and have a gold border; a pinned card has a pin before its title. The tile shows the whole title, on as many lines
-as it needs, with ↵ (Insert in chat) and `⋯` (the card's menu) at its right; under it, the card's number, up to three
+as it needs, with ↵ (Insert in chat, or drag it into a terminal: [Hand a card to an agent](#hand-a-card-to-an-agent))
+and `⋯` (the card's menu) at its right; under it, the card's number, up to three
 tags, up to three of the people it is assigned to, Fizzy's inactivity warning when there is one, and how long ago the
 card last changed. The warning is the one Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a
 quarter of the board's auto-postpone period is left since the card last changed, counted in calendar days, else
 "Stalled" when Fizzy lists the card as stalled. A card in Not Now or Done has none.
 
-Drag a card onto another lane, anywhere in its block, to move it there. ⌘-click or Ctrl-click picks several cards;
+Drag a card onto another lane, anywhere in its block, to move it there. Drag a column's header onto another column to
+move the column to that place, in Fizzy too: the lanes reorder at once, Fizzy moves the column one place at a time, and
+the columns are read again. Maybe?, Not Now and Done keep their places. ⌘-click or Ctrl-click picks several cards;
 ⌘-click or Ctrl-click one again to unpick it. While cards are picked, the hand-off buttons take the filter's place at
 the foot.
 
@@ -133,7 +136,8 @@ the account's people can be tagged, and who can't yet, and has three ways to lea
   number here and press Enter. The panel reads its description and comments.
 
 **Images and files.** An image in a description or comment shows in place, at its own shape and no wider than the
-text; until it is downloaded, a box of its size says "Loading image…". Click it to open it in your system's viewer.
+text; until it is downloaded, a box of its size says "Loading image…". Click it to open it in your system's viewer, or
+drag it into a terminal to drop its file there (Claude Code, for one, attaches a dropped image).
 Images are downloaded once, three at a time, and kept in Herdr's app folder, in `data/fizzy/files`: one attached in
 Fizzy through the `fizzy` CLI, one linked from the web through `curl`. Any other file, an image over 15 MiB, and an
 image that won't download show as a chip with a paperclip, the file's name and its size. Click the chip to save the
@@ -162,7 +166,9 @@ with its boards, then **No group**.
 - **+** adds a group. Click a group's name to rename it, or its rule to change it: a board whose name contains the
   rule's text (in any case) goes to the first group whose rule it matches, unless you placed it by hand.
 - ⌘-drag or Ctrl-drag a board onto a group, or onto No group, to place it there, and a group onto another group to
-  move it.
+  move it. Let a board go on another board's row to put it right there, in that board's group: a line shows where it
+  lands (before the row when you drag up, after it when you drag down). The dropdown lists the boards in that order;
+  boards you never placed follow, in Fizzy's order.
 - The bin deletes a group (two clicks); the eye hides a group or one board; a click elsewhere on a group's line folds
   it.
 - Hiding only takes a board out of the dropdown and the New card picker: Mine, the search, Follow current space and the
@@ -180,8 +186,8 @@ comments, the Assign list, the `@` picker and the Inbox. Without a photo, or unt
 initials on a color of their own. How the photos are fetched and kept is under
 [What it runs, reads and stores](#what-it-runs-reads-and-stores).
 
-**Not in the panel:** reactions on the card itself, and making or changing boards and columns. Open in Fizzy is there
-for those.
+**Not in the panel:** reactions on the card itself, and making or changing boards and columns (beyond a column's
+place). Open in Fizzy is there for those.
 
 ### Hand a card to an agent
 
@@ -207,10 +213,17 @@ card) or `Fizzy board "Roadmap" (<the board's link>)` for a board, into an agent
 A card's ↵ button is Insert for that card, and its menu has the same hand-offs plus Copy link. To paste, the panel puts
 the reference on the clipboard for a moment, then puts back the text you had there.
 
+**Drag into a terminal.** Drag a card's ↵, or the bar's **Insert**, onto any terminal, an agent's or a shell, to drop
+the card as a markdown file there: Herdr types the file's path into it, quoted and without Enter. The file holds the
+title, board, lane, tags, people, link and description, and the steps when the card is open. It is written when you
+press, in `data/fizzy/files/cards/fizzy-<number>.md` under Herdr's app folder. The ↵ of a picked card drags every
+picked card, and so does the bar's Insert. Dropped on a terminal on another machine, the file is copied there.
+
 ## Requirements
 
-- **Herdr 0.1.12 or newer**; `install.sh` checks at install time that the tab-bar patch fits. On a Herdr whose tab bar
-  changed so that it doesn't, apply the patch by hand ([tabs/README.md](tabs/README.md#when-it-doesnt-fit)).
+- **Herdr 0.1.16 or newer**: the panel uses its file drags into terminals, and the tab-bar patch is made against its
+  tab bar. `install.sh` checks at install time that the patch fits. On a Herdr whose tab bar changed so that it
+  doesn't, apply the patch by hand ([tabs/README.md](tabs/README.md#when-it-doesnt-fit)).
 - **macOS or Linux.** It is built for both; it is tested on macOS, and Linux is untested.
 - **The `fizzy` CLI, version 4 or newer** (https://github.com/basecamp/fizzy-cli), on your PATH and signed in. With
   Homebrew: `brew tap basecamp/tap && brew install --cask basecamp/tap/fizzy`. Sign in with `fizzy setup`, which asks
@@ -396,11 +409,12 @@ comment, open in your browser.
   it repeats (`card list`, `search`, `pin list`, `notification tray`, `reaction list`, `activity list`,
   `card attachments show`) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
   download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
-  change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `upload file` for a file you
-  drop or paste, and `notification read` and `read-all`. Each action is one command, or two (a closed card is reopened
-  before it moves), and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is
-  `card create`, then a `card list` when the CLI's answer does not give the new card's number, and a `card column` when
-  the card goes in a column.
+  change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `column move-left` and
+  `move-right` for a column you drag (one per place), `upload file` for a file you drop or paste, and
+  `notification read` and `read-all`. Each action is one command, or two (a closed card is reopened before it moves),
+  and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is `card create`, then a
+  `card list` when the CLI's answer does not give the new card's number, and a `card column` when the card goes in a
+  column. An upload or a download may take up to 5 minutes; Herdr stops any other command after 30 seconds.
 - `sh` on this computer, for the photos: a short script that runs `curl` for one photo address (http or https only,
   following redirects, at most 4 MiB and 20 seconds), keeps the file only when it is a png, jpeg, webp, svg or gif
   image, and deletes that person's older photos (besides shell built-ins such as `[`, `printf` and `echo`, it runs only
@@ -410,8 +424,9 @@ comment, open in your browser.
   webp, svg or bmp image (besides shell built-ins, it runs only `mkdir`, `mv`, `rm` and `tr`).
 - `sh` on this computer, for files: a script that finds a free name in Downloads (`mkdir`), one that opens a file or
   shows it in its folder (`uname`, then `open` on macOS, `dirname` and `xdg-open` on Linux), and one that writes the
-  clipboard's image to a PNG (`uname`, then `osascript` on macOS, `wl-paste` or `xclip` on Linux, and `rm`). The panel
-  also runs `mkdir`, `mv` and `rm` itself, in the images folder.
+  clipboard's image to a PNG (`uname`, then `osascript` on macOS, `wl-paste` or `xclip` on Linux, and `rm`), and one
+  that writes a card's file for a drag (`mkdir` and `printf`). The panel also runs `mkdir`, `mv` and `rm` itself, in the
+  images folder.
 - `sh` on the active space's machine (this computer, or the other machine a remote space is on): a script that walks
   up from the space's folder and prints the `board:` line of the first `.fizzy.yaml` it finds (never the rest of the
   file, which may hold a token), using only `[` and `grep`.
@@ -429,9 +444,11 @@ their user id and the day it was fetched. A photo is kept a week; the list of pe
 is missing or older is fetched again, at most four at a time. A photo that fails is tried again after an hour.
 
 Images from descriptions and comments, under Herdr's app folder in `data/fizzy/files`: one file per image, named after a
-short hash of its attachment id or its address, kept until you delete it. A pasted image is written there first, and
-becomes the copy of that image once it is uploaded; when the upload fails, it is deleted. A file whose chip you click
-is saved in `~/Downloads`. The mod writes no other file; the rest goes to Herdr's storage.
+short hash of its attachment id or its address. A pasted image is written there first, and becomes the copy of that
+image once it is uploaded; when the upload fails, it is deleted. A card's file for a drag is written to
+`data/fizzy/files/cards`, again at each press. At start, whatever is in `data/fizzy/files` from over 7 days ago is
+deleted (a card shown again downloads its images again). A file whose chip you click is saved in `~/Downloads`. The mod
+writes no other file; the rest goes to Herdr's storage.
 
 **Herdr's storage.** The mod keeps in its local storage (Herdr's `localStorage`): the view, the board you picked and
 whether you follow the space, the list of boards (with each board's auto-postpone period), the CLI's account and
@@ -452,12 +469,13 @@ It writes these shared keys, which every mod can read (Herdr keeps them in `shar
 | `fizzy.boards` | Your boards' ids and names |
 | `fizzy.people` | The account's people (id, name, role, active), its tags, the signed-in user's id, and the ids of the people the panel can tag (not their mention ids) |
 | `fizzy.avatars` | Each person's photo file, by user id |
-| `fizzy.boardGroups` | Your board groups |
+| `fizzy.boardGroups` | Your board groups, and the order you gave the boards |
 | `fizzy.board` | The last choice made in the board dropdown or the New card picker |
 | `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod): a change, a reaction, the person or card picked for a box, or a hand-off with its text; the panel sets it to null once it has handled it |
 | `new-menu.agents` | Herdr's own `new-menu` cache of the agents each machine reported; the Start list shows it at once, and writes back what the machine answered |
 
-**When it asks Fizzy.** Every 30 seconds while the panel shows, and at once when it comes back, it reads what is on
+**When it asks Fizzy.** Never while `herdr-app check` loads it (as `install.sh` does): there it runs nothing and
+writes nothing. Every 30 seconds while the panel shows, and at once when it comes back, it reads what is on
 screen: the open card with its comments, else the view, and nothing while you edit a title, a description, a step or a
 comment. On Board that is the open cards; the columns are read when they are not known yet (none kept from an earlier
 run) and on Refresh, each time with the board's stalled cards, and when an open card names a column it does not know;

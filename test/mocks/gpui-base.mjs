@@ -3,6 +3,7 @@ import { makeElement } from "./element.mjs";
 
 export const h_flex = () => makeElement("h_flex");
 export const v_flex = () => makeElement("v_flex");
+export const ScrollHandle = { new: () => ({ items: [], scroll_to_item(index) { this.items.push(index); } }) };
 
 // Text inputs (Input + InputState, Textarea + TextareaState). The state holds the text, its inline tokens ({ range, token }),
 // the selection (a cursor at the end of the text until something moves it) and the handlers a mod registered with on();

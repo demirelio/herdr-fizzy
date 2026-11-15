@@ -72,7 +72,7 @@ SOFTWARE.
 
 `tabs/fizzy-button.patch` quotes lines of [Herdr](https://herdr.dev)'s desktop app,
 https://github.com/herdrdev/herdr-app: the patch's lines that start with a space or a single `-` (its context, and the
-lines it replaces) are lines of Herdr's stock tab bar, `defaults/mods/tabs/main.js`, at tag `v0.1.12`. That is all of
+lines it replaces) are lines of Herdr's stock tab bar, `defaults/mods/tabs/main.js`, at tag `v0.1.16`. That is all of
 Herdr this repo carries.
 
 The patch's lines that start with a single `+` are this repo's changes, under its MIT license; some of them are Herdr's
@@ -83,7 +83,7 @@ Herdr is licensed under the Apache License, Version 2.0. Its license file is the
 of its own, and Herdr's repository has no `NOTICE` file. The notice, then Herdr's `LICENSE` from the same tag, verbatim:
 
 ```
-Herdr desktop app (https://herdr.dev, https://github.com/herdrdev/herdr-app), v0.1.12
+Herdr desktop app (https://herdr.dev, https://github.com/herdrdev/herdr-app), v0.1.16
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

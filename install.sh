@@ -14,7 +14,7 @@
 #                              key from the "global" section of keys.json while it is the Fizzy button's
 #   ./install.sh --help
 #
-# For Herdr 0.1.12 or newer: fizzy-tabs is built only when a dry run of the patch shows that all of it fits this
+# For Herdr 0.1.16 or newer: fizzy-tabs is built only when a dry run of the patch shows that all of it fits this
 # Herdr's tab bar with no fuzz.
 #
 # The key goes into keys.json only with --add-key: while nobody has edited keys.json, Herdr adds its new default

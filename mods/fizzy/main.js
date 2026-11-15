@@ -4,17 +4,18 @@
 // itself: it leaves a request in shared state and the panel, which stays alive, does it.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
-import { exec, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
+import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import { textPx } from "./text.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
-  columnOf, fullCard, noteCard, inactivity,
+  columnOf, fullCard, noteCard, inactivity, reorderColumns,
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
-  FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
+  FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, FILE_TIMEOUT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
+  WRITE_SCRIPT, cardFile, cardMarkdown,
   targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, activePeople,
-  groupsConfig, groupOf, boardGroups, ownHidden, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, placeBoard, moveGroup, setBoardHidden,
+  groupsConfig, groupOf, boardGroups, ownHidden, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, placeBoard, placeBoardAt, listedBoards, moveGroup, setBoardHidden,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
 } from "./lib.js";
 
@@ -86,9 +87,10 @@ const watchEntries = raw => (Array.isArray(raw) ? raw.filter(e => Array.isArray(
 
 // Asks the CLI. Always from the home folder, so that no .fizzy.yaml beside the shell changes what it reads
 // (a default board would narrow the boardless Mine read).
-async function fizzy(args) {
+// `timeout` (ms) replaces Herdr's 30 s limit, which a file upload or download on a slow link can outlast.
+async function fizzy(args, { timeout } = {}) {
   let result;
-  try { result = await exec("fizzy", withJson(args), { cwd: home() }); }
+  try { result = await exec("fizzy", withJson(args), timeout ? { cwd: home(), timeout } : { cwd: home() }); }
   catch (e) { throw execFailure(e); }
   return parseResult(result);
 }
@@ -378,6 +380,8 @@ export default class Fizzy extends View {
     this.foldNone = folded?.none === true;
     this.groupNew = InputState.new({ placeholder: "New group" });
     this.groupNew.on("submit", (_e, cx) => this.newGroup(cx));
+    // `herdr-app check` runs init for real: no Fizzy reads, downloads or timers there.
+    if (checking()) return;
 
     if (this.boards) this.shareBoards();
     this.loadConfig(cx); // and with the account, the person
@@ -994,7 +998,7 @@ export default class Fizzy extends View {
           const index = await this.attachmentIndex(number, file.sgid);
           await exec("mkdir", ["-p", dir]);
           if (index) {
-            await fizzy(cmd.download(number, index, `${dir}/${file.key}.${file.ext}`));
+            await fizzy(cmd.download(number, index, `${dir}/${file.key}.${file.ext}`), { timeout: FILE_TIMEOUT });
             name = `${file.key}.${file.ext}`;
           }
         }
@@ -1045,7 +1049,7 @@ export default class Fizzy extends View {
       const r = await exec("sh", ["-c", FREE_NAME_SCRIPT, "fizzy", `${home()}/Downloads`, base, ext]);
       const path = r?.code === 0 ? String(r.stdout ?? "") : "";
       if (!path) throw "Couldn't save the file to Downloads";
-      await fizzy(cmd.download(number, index, path));
+      await fizzy(cmd.download(number, index, path), { timeout: FILE_TIMEOUT });
       if (markdown) {
         this.savedMarkdown.set(file.key, path);
         showMarkdown(path);
@@ -1072,7 +1076,7 @@ export default class Fizzy extends View {
     this.uploading.set(target, name);
     cx.notify();
     try {
-      const sgid = (await fizzy(cmd.upload(path)))?.attachable_sgid;
+      const sgid = (await fizzy(cmd.upload(path), { timeout: FILE_TIMEOUT }))?.attachable_sgid;
       if (!sgid) throw `Fizzy took ${name} but gave nothing to embed it with`;
       if (this.editorOpen(field)) { field.replace_with_token(fileToken(sgid, name)); field.replace(" "); }
       return sgid;
@@ -1405,11 +1409,26 @@ export default class Fizzy extends View {
     else this.openCard(card.number, card, cx);
   }
 
-  // Mouse released over a lane (its header, or one of its cards): the card that was pressed goes there.
+  // Mouse released over a lane (its header, or one of its cards): the card that was pressed goes there, or the column whose
+  // header was pressed takes that column's place.
   drop(lane, cx) {
     const from = this.pressed;
     this.pressed = null;
-    if (from && lane && from.lane !== lane) this.apply({ kind: "move", number: from.number, target: lane }, cx);
+    if (!from || !lane) return;
+    if (from.column) this.moveColumn(from.column, lane, cx);
+    else if (from.lane !== lane) this.apply({ kind: "move", number: from.number, target: lane }, cx);
+  }
+
+  // The lanes take their new order at once; Fizzy moves the column one place at a time, and the columns are read again after.
+  moveColumn(id, target, cx) {
+    const board = this.board, moved = reorderColumns(this.columns.get(board) ?? [], id, target);
+    if (!moved) return null;
+    this.columns.set(board, moved.columns);
+    cx.notify();
+    return this.job(cx, async cx => {
+      await this.write(moved.steps, cx, false);
+      this.loadBoard(cx, { columns: true });
+    });
   }
 
   collapsedNow(section) {
@@ -1581,7 +1600,30 @@ export default class Fizzy extends View {
 
   // The picked cards (⌘/Ctrl-click), by number.
   picks() {
-    return [...this.selected].sort((a, b) => a - b).map(n => this.find(n)).filter(Boolean).map(slim);
+    return this.pickedNumbers().map(n => this.find(n)).filter(Boolean).map(slim);
+  }
+
+  pickedNumbers() {
+    return [...this.selected].sort((a, b) => a - b);
+  }
+
+  // A drag source for terminals: these cards' files, dropped as their paths. They are written at the press, before any drag
+  // can drop them, from the fullest copy held (the open card's own read has its steps); the press goes no further.
+  dragCards(el, numbers) {
+    if (!numbers.length) return el;
+    return el.drag_paths(numbers.map(n => `${appHome()}/${cardFile(n)}`))
+      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.writeCardFiles(numbers, cx); });
+  }
+
+  writeCardFiles(numbers, cx) {
+    for (const n of numbers) {
+      const card = (this.detail?.number === n && this.detail.card) || this.find(n);
+      if (!card) continue;
+      cx.spawn(async () => {
+        const r = await exec("sh", ["-c", WRITE_SCRIPT, "fizzy", `${appHome()}/${cardFile(n)}`, cardMarkdown(card)]).catch(() => null);
+        if (r?.code !== 0) notify({ title: "Fizzy", body: `Couldn't write #${n}'s file to drag`, level: "error" });
+      });
+    }
   }
 
   openCard(number, summary, cx) {
@@ -1784,6 +1826,35 @@ export default class Fizzy extends View {
     const groups = this.groups().groups, from = groups.findIndex(g => g.id === d.id), at = groups.findIndex(g => g.id === id);
     if (from < 0 || at < 0 || from === at) return null;
     return from > at ? "top" : "bottom";
+  }
+
+  // The board row a dragged board is over (not its own): letting go there puts the board beside it (see rowLine).
+  hoverRow(id, hovered, cx) {
+    const d = this.drag;
+    if (d?.kind !== "board") return;
+    const was = d.row ?? null, next = hovered ? (id === d.id ? null : id) : was === id ? null : was;
+    if (next === was) return;
+    d.row = next;
+    cx.notify();
+  }
+
+  // Which edge of the row the line is drawn at while a board is dragged over it, as placeBoardAt lands it.
+  rowLine(id) {
+    const d = this.drag;
+    if (d?.kind !== "board" || d.row !== id) return null;
+    const ids = listedBoards(this.boards ?? [], this.groups()).map(b => b.id), from = ids.indexOf(d.id), at = ids.indexOf(id);
+    if (from < 0 || at < 0 || from === at) return null;
+    return from > at ? "top" : "bottom";
+  }
+
+  // A board let go over another board's row lands beside it; a group goes on to the block around the row.
+  dropRow(target, cx) {
+    const d = this.drag;
+    if (d?.kind !== "board") return;
+    cx.stop_propagation();
+    this.drag = null;
+    const board = (this.boards ?? []).find(b => b.id === d.id), config = this.groups();
+    this.saveGroups(board ? placeBoardAt(config, this.boards, board, target) : config, cx);
   }
 
   dropOn(to, cx) {
@@ -2317,7 +2388,7 @@ export default class Fizzy extends View {
     const n = card.number, picked = this.selected.has(n);
     const quick = (id, icon, tip, action) => div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip(tip)
-      .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
+      .on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
       .child(svg(icon).size(13));
     const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board;
     const warn = inactivity(card, { period: this.boards?.find(b => b.id === board)?.period, stalled: Boolean(this.stalled.get(board)?.has(n)), now: now() });
@@ -2336,8 +2407,9 @@ export default class Fizzy extends View {
           .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(13).mt(2).flex_none().text_color(t.accent)))
           .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).mt(1).whitespace_normal().font_medium().child(card.title ?? ""))
           .child(h_flex().flex_none().gap(1)
-            .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
-            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
+            .child(this.dragCards(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat, or drag into a terminal", cx => this.handOff("insert", [slim(card)], cx)),
+              picked ? this.pickedNumbers() : [n]))
+            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)).on_mouse_down("left", stop))))
         .child(h_flex().gap(6).items_center().min_w(0).text_size(textPx(11)).text_color(t.dim)
           .child(div().flex_none().child(`#${n}`))
           .child(h_flex().flex_1().min_w(0).gap(4).items_center().overflow_hidden()
@@ -2354,8 +2426,9 @@ export default class Fizzy extends View {
     const addable = section.kind === "column" || section.kind === "maybe", color = sectionColor(section);
     return h_flex().id(`fizzy-section-${section.key}`).h(34).flex_none().pl(10).pr(6).gap(8).items_center().cursor_pointer()
       .bg(tint(color, "26")).hover(s => s.bg(tint(color, "40")))
-      // A press here starts no drag, and ends a stale one (a card pressed earlier and released away from the panel).
-      .on_mouse_down("left", () => { this.pressed = null; })
+      // A press on a column's header picks the column up (let go over another column, it moves there); any press here ends a
+      // stale drag (a card pressed earlier and released away from the panel).
+      .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
       .on_click((_e, cx) => this.toggleSection(section, cx))
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
       .child(svg(ICON(closed ? "chevron-right" : "chevron-down")).size(12).flex_none().text_color(t.dim))
@@ -2502,15 +2575,16 @@ export default class Fizzy extends View {
 
   // The bar at the foot of the card view, and of a list with cards picked (⌘/Ctrl-click): one line, four buttons, nothing
   // else. They act on the open card, else on the picked cards. Nothing here ever submits:
-  //   Insert   pastes into the current chat
+  //   Insert   pastes into the current chat; dragged into a terminal, it drops the cards' files there (dragCards)
   //   Send ▾   opens the running sessions; the one picked is brought to the front and gets the paste
   //   Start ▾  opens the agents to start; the one picked starts in a new tab and gets the paste once it is up
   //   Copy     copies the reference
   handBar(t) {
-    const has = this.subject().length > 0;
+    const subject = this.subject(), has = subject.length > 0;
     const act = kind => (has ? (_e, cx) => this.handOff(kind, this.subject(), cx) : null);
+    const cards = subject.filter(c => c.kind !== "board").map(c => c.number);
     return h_flex().id("fizzy-bar").flex_none().p(6).gap(4).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(textPx(12))
-      .child(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")))
+      .child(this.dragCards(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")), cards))
       .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", act("send"), true))
       .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", act("start"), true))
       .child(this.barButton(t, "fizzy-bar-copy", ICON("copy"), "Copy", act("copy")));
@@ -2590,11 +2664,16 @@ export default class Fizzy extends View {
 
   boardRow(t, b, config) {
     const hidden = ownHidden(b.id, config), dim = hidden || Boolean(groupOf(b, config)?.hidden);
-    const picked = this.drag?.kind === "board" && this.drag.id === b.id;
-    return h_flex().id(`fizzy-board-row-${b.id}`).h(28).flex_none().pl(31).pr(8).gap(6).items_center().rounded(7).border_1().border_color(picked ? t.accent : CLEAR)
+    const picked = this.drag?.kind === "board" && this.drag.id === b.id, line = this.rowLine(b.id);
+    return h_flex().id(`fizzy-board-row-${b.id}`).relative().h(28).flex_none().pl(31).pr(8).gap(6).items_center().rounded(7).border_1().border_color(picked ? t.accent : CLEAR)
       .when(picked, el => el.bg(t.raised))
       .when(!this.drag, el => el.hover(s => s.bg(t.hover)))
       .on_mouse_down("left", (e, cx) => this.pickRow("board", b.id, e, cx))
+      .on_hover((hovered, cx) => this.hoverRow(b.id, hovered, cx))
+      .on_mouse_up("left", (_e, cx) => this.dropRow(b, cx))
+      .when(Boolean(line), el => el.child(div().id(`fizzy-board-line-${b.id}`).absolute().left(8).right(8).h(2).rounded(1).bg(t.accent)
+        .when(line === "top", l => l.top(-2))
+        .when(line === "bottom", l => l.bottom(-2))))
       .child(div().id(`fizzy-board-name-${b.id}`).flex_1().min_w(0).truncate().tooltip(b.name).text_color(dim ? t.dim : t.foreground).child(b.name))
       .child(this.rowButton(t, `fizzy-board-hide-${b.id}`, ICON(hidden ? "eye-off" : "eye"), (_e, cx) => this.toggleBoard(b.id, cx), hidden ? "Show" : "Hide", hidden));
   }
@@ -2944,7 +3023,7 @@ export default class Fizzy extends View {
         .child(div().max_w(w - 16).truncate().child(f.filename)).child("Loading image…");
     }
     const path = `${FILE_DIR}/${cached}`;
-    return frame.cursor_pointer().tooltip(f.filename)
+    return frame.cursor_pointer().tooltip(f.filename).drag_paths([`${appHome()}/${path}`])
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
       .on_click((_e, cx) => this.openFile(`${appHome()}/${path}`, cx))
       .child(image(path).size_full().rounded(6));
@@ -3057,9 +3136,11 @@ export default class Fizzy extends View {
   renderPanel(cx) {
     const shown = fizzyVisible(layout()), became = shown && !this.shown;
     this.shown = shown;
-    this.syncBoard(cx);
-    this.takeRequest(cx, true);
-    if (became) this.poll(cx, true);
+    if (!checking()) {
+      this.syncBoard(cx);
+      this.takeRequest(cx, true);
+      if (became) this.poll(cx, true);
+    }
     const t = theme(), d = this.detail, picking = this.selected.size > 0;
     const lists = !this.settingsOpen && !d, fresh = Boolean(d) && this.fresh === d.number;
     return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(textPx(13))
