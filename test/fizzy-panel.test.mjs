@@ -648,6 +648,16 @@ test("a card Fizzy answers without its empty lists and texts is read whole: Peop
   assert.deepEqual(acct.writes(), [["card", "update", "103", "--description", "<p>Due before the beta</p>"]]);
 });
 
+test("a description emptied and saved is cleared in Fizzy (sent as an empty paragraph, which the CLI does not drop) and reads back as No description", async () => {
+  const { cx, draw, tree } = await openDetail(101);
+  click(tree, "fizzy-desc-edit", cx);
+  inputOf(await draw(), "fizzy-desc-input").edit("", cx);
+  click(await draw(), "fizzy-desc-save", cx);
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "update", "101", "--description", "<p></p>"]]);
+  assert.match(textOf(must(await draw(), "fizzy-detail")), /No description/);
+});
+
 test("ticking a step shows at once and sends the exact argv; a failed write reads the truth back", async () => {
   const { view, cx, draw, tree } = await openDetail();
   const checked = t => all(must(t, "fizzy-step-s1"), n => n.style.line_through).length;
@@ -1485,28 +1495,31 @@ test("Insert in chat: the clipboard gets the reference, the agent's pane is focu
   assert.equal(calls.hc.length, 0, "nothing was sent");
 });
 
-test("the ↵ dragged into a terminal drops the card's file, written at the press from what the panel holds; a picked card's drops every picked one", async () => {
+test("a card's whole tile is the drag: the press writes the card's file (named after it) and picks the card up, so let go on a lane it moves and dropped on a terminal it is that file; a picked card drags every picked one", async () => {
   const { view, cx, draw } = await mount();
   let tree = await draw();
-  const fileOf = n => `${state.appHome}/${cardFile(n)}`;
-  const insert = must(tree, "fizzy-insert-102");
-  assert.deepEqual(insert.dragPaths, [fileOf(102)]);
-  const presser = makeCx();
-  fire(insert, "on_mouse_down:left", {}, presser);
-  await presser.settle();
-  assert.deepEqual([presser.stopped, view.pressed], [1, null], "the press picks up no card to move to another lane");
+  const fileOf = n => `${state.appHome}/${cardFile(view.find(n))}`;
+  const tile = must(tree, "fizzy-card-102");
+  assert.deepEqual(tile.dragPaths, [`${state.appHome}/${FILE_DIR}/cards/#102 Write the changelog.md`]);
+  assert.equal(must(tree, "fizzy-insert-102").dragPaths, undefined, "the ↵ is a button only");
+  fire(tile, "on_mouse_down:left", {}, cx);
+  await cx.settle();
   assert.deepEqual(acct.written, { [fileOf(102)]: cardMarkdown(view.find(102)) });
+  fire(must(tree, "fizzy-section-c1"), "on_mouse_up:left", {}, cx);
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "column", "102", "--column", "c1"]], "the same press moves it to the lane it is let go on");
+  tree = await draw();
   click(tree, "fizzy-card-101", cx, { modifiers: { platform: true } });
   click(tree, "fizzy-card-103", cx, { modifiers: { platform: true } });
   tree = await draw();
-  assert.deepEqual(must(tree, "fizzy-insert-103").dragPaths, [fileOf(101), fileOf(103)]);
-  assert.deepEqual(must(tree, "fizzy-insert-102").dragPaths, [fileOf(102)], "one not picked drags itself");
+  assert.deepEqual(must(tree, "fizzy-card-103").dragPaths, [fileOf(101), fileOf(103)]);
+  assert.deepEqual(must(tree, "fizzy-card-102").dragPaths, [fileOf(102)], "one not picked drags itself");
   assert.deepEqual(must(tree, "fizzy-bar-insert").dragPaths, [fileOf(101), fileOf(103)], "and so does the bar's Insert");
 });
 
 test("on an open card the bar's Insert drags its file, which holds the card's own read, steps included", async () => {
   const { view, tree } = await openDetail(101);
-  const bar = must(tree, "fizzy-bar-insert"), path = `${state.appHome}/${cardFile(101)}`;
+  const bar = must(tree, "fizzy-bar-insert"), path = `${state.appHome}/${cardFile(view.detail.card)}`;
   assert.deepEqual(bar.dragPaths, [path]);
   const presser = makeCx();
   fire(bar, "on_mouse_down:left", {}, presser);

@@ -138,7 +138,8 @@ export const cmd = {
   activity: page => ["activity", "list", "--page", String(page), "--jq", JQ.mentions],
   config: () => ["config", "show", "--jq", JQ.config],
   create: (board, title, html = "") => ["card", "create", "--board", board, "--title", title, ...(html ? ["--description", html] : [])],
-  update: (n, { title, html } = {}) => ["card", "update", String(n), ...(title != null ? ["--title", title] : []), ...(html != null ? ["--description", html] : [])],
+  // The CLI leaves the description as it is when --description is empty, so an emptied one is sent as an empty paragraph.
+  update: (n, { title, html } = {}) => ["card", "update", String(n), ...(title != null ? ["--title", title] : []), ...(html != null ? ["--description", html || "<p></p>"] : [])],
   column: (n, column) => ["card", "column", String(n), "--column", column],
   shiftColumn: (id, right) => ["column", right ? "move-right" : "move-left", id],
   postpone: n => ["card", "postpone", String(n)],
@@ -341,6 +342,10 @@ const MENTION_TYPE = "application/vnd.actiontext.mention";
 // An attachment in Fizzy's rich text: [1] its attributes, [2] what Fizzy put inside. A mention's inside is the person's photo,
 // <img title="<name>" src="/<account>/users/<user id>/avatar">, and their first name.
 const ATTACHMENT = /<action-text-attachment\b([^>]*)>([\s\S]*?)<\/action-text-attachment\s*>/gi;
+// Fizzy draws an attachment as a <figure> inside it. In a paragraph the figure can't stay there, so Fizzy's HTML closes the
+// paragraph before it: the attachment comes out empty, its figure (image, name, size, Download) after it, then an empty <p></p>.
+const PUSHED_FIGURE = /(<action-text-attachment\b[^>]*>\s*<\/action-text-attachment\s*>\s*<\/p\s*>)\s*<figure\b[^>]*>[\s\S]*?<\/figure\s*>(?:\s*<p>\s*<\/p\s*>)?/gi;
+const withoutPushedFigures = html => String(html ?? "").replace(PUSHED_FIGURE, "$1");
 const attrOf = (attrs, name) => new RegExp(`(?:^|\\s)${name}\\s*=\\s*"([^"]*)"`, "i").exec(attrs)?.[1];
 
 // A mention's { sgid, user }, or null for any other attachment. The user id is in the photo's address, else in the sgid, whose
@@ -536,7 +541,7 @@ const decode = s => s.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos|nbs
 // the token fileToken makes, which ends its paragraph.
 export function htmlToContent(html, users = []) {
   const found = [], slot = token => `${found.push(token) - 1}`;
-  const text = decode(slotFree(String(html ?? ""))
+  const text = decode(slotFree(withoutPushedFigures(html))
     .replace(/\s+/g, " ")
     .replace(ATTACHMENT, (whole, attrs, inner) => {
       const mention = mentionOf(attrs, inner);
@@ -582,7 +587,7 @@ const BLOCK_TAG = /^(?:p|div|table|tr|figure|figcaption|hr|section|article|heade
 // its own, { file, gap } (see fileOf); another attachment with an address is a link to it.
 export function richLines(html, users = []) {
   const atoms = [], slot = run => `${atoms.push(run) - 1}`;
-  const source = slotFree(String(html ?? ""))
+  const source = slotFree(withoutPushedFigures(html))
     .replace(ATTACHMENT, (whole, attrs, inner) => {
       const mention = mentionOf(attrs, inner);
       if (mention) {
@@ -811,7 +816,7 @@ export function htmlForView(html) {
 // textToHtml writes, the mentions, attachments and card links it writes back, the div Fizzy wraps it in and a plain ol; a
 // list inside a list item loses its nesting.
 export const formatted = html => {
-  const s = String(html ?? "").replace(ATTACHMENT, (whole, attrs, inner) => (mentionOf(attrs, inner) || attrOf(attrs, "sgid") ? "" : whole))
+  const s = withoutPushedFigures(html).replace(ATTACHMENT, (whole, attrs, inner) => (mentionOf(attrs, inner) || attrOf(attrs, "sgid") ? "" : whole))
     .replace(LINK, (whole, attrs) => (linkedCard(attrs) ? "" : whole));
   return /<\/?(?!(?:p|br|div|ul|ol|li)\b)[a-z]/i.test(s) || /<li\b(?:(?!<\/li\b)[\s\S])*<(?:ul|ol)\b/i.test(s);
 };
@@ -925,8 +930,12 @@ printf %s "$p"`;
 // WRITE_SCRIPT writes the text "$2" to the file "$1", making its folder. Run as sh -c SCRIPT fizzy <path> <text>.
 export const WRITE_SCRIPT = 'mkdir -p "${1%/*}" && printf %s "$2" > "$1"';
 
-// Where a card's file is kept (under the app's folder): what dragging the card into a terminal drops there.
-export const cardFile = number => `${FILE_DIR}/cards/fizzy-${number}.md`;
+// Where a card's file is kept (under the app's folder): what dragging the card into a terminal drops there. It is named
+// "#<n> <title>.md", the title cut at 60 characters, as Herdr shows that name under the pointer while it is dragged.
+export function cardFile(card) {
+  const title = [...flat(card.title).replace(/[\u0000-\u001f\u007f]/g, "").replace(/[/\\]/g, "-")].slice(0, 60).join("").trim();
+  return `${FILE_DIR}/cards/#${card.number}${title ? ` ${title}` : ""}.md`;
+}
 
 // A card as markdown, for an agent to start on without asking Fizzy: title, board, lane, tags, people, link, description and
 // steps (a card from a list has none until it is opened).

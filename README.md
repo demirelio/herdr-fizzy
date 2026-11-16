@@ -47,18 +47,18 @@ new card there (see **New card** below).
 
 Each card is a tile tinted in its lane's color, with a bar in that color at its left. Golden cards come first in their
 lane and have a gold border; a pinned card has a pin before its title. The tile shows the whole title, on as many lines
-as it needs, with ↵ (Insert in chat, or drag it into a terminal: [Hand a card to an agent](#hand-a-card-to-an-agent))
-and `⋯` (the card's menu) at its right; under it, the card's number, up to three
+as it needs, with ↵ (Insert in chat) and `⋯` (the card's menu) at its right; under it, the card's number, up to three
 tags, up to three of the people it is assigned to, Fizzy's inactivity warning when there is one, and how long ago the
 card last changed. The warning is the one Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a
 quarter of the board's auto-postpone period is left since the card last changed, counted in calendar days, else
 "Stalled" when Fizzy lists the card as stalled. A card in Not Now or Done has none.
 
-Drag a card onto another lane, anywhere in its block, to move it there. Drag a column's header onto another column to
-move the column to that place, in Fizzy too: the lanes reorder at once, Fizzy moves the column one place at a time, and
-the columns are read again. Maybe?, Not Now and Done keep their places. ⌘-click or Ctrl-click picks several cards;
-⌘-click or Ctrl-click one again to unpick it. While cards are picked, the hand-off buttons take the filter's place at
-the foot.
+Drag a card, from anywhere on its tile, onto another lane, anywhere in its block, to move it there, or onto a terminal
+to hand it over as a file ([Hand a card to an agent](#hand-a-card-to-an-agent)). Drag a column's header onto another
+column to move the column to that place, in Fizzy too: the lanes reorder at once, Fizzy moves the column one place at a
+time, and the columns are read again. Maybe?, Not Now and Done keep their places. ⌘-click or Ctrl-click picks several
+cards; ⌘-click or Ctrl-click one again to unpick it. While cards are picked, the hand-off buttons take the filter's
+place at the foot.
 
 **Filter and My cards.** The filter at the foot narrows the list as you type: it keeps the cards whose title,
 `#number`, tags, assignees' names, column or the first 300 characters of the description hold every word you type, in
@@ -213,11 +213,13 @@ card) or `Fizzy board "Roadmap" (<the board's link>)` for a board, into an agent
 A card's ↵ button is Insert for that card, and its menu has the same hand-offs plus Copy link. To paste, the panel puts
 the reference on the clipboard for a moment, then puts back the text you had there.
 
-**Drag into a terminal.** Drag a card's ↵, or the bar's **Insert**, onto any terminal, an agent's or a shell, to drop
-the card as a markdown file there: Herdr types the file's path into it, quoted and without Enter. The file holds the
-title, board, lane, tags, people, link and description, and the steps when the card is open. It is written when you
-press, in `data/fizzy/files/cards/fizzy-<number>.md` under Herdr's app folder. The ↵ of a picked card drags every
-picked card, and so does the bar's Insert. Dropped on a terminal on another machine, the file is copied there.
+**Drag into a terminal.** Drag a card, or the bar's **Insert**, onto any terminal, an agent's or a shell, to drop the
+card as a markdown file there: Herdr types the file's path into it, quoted and without Enter. Herdr's drags carry files
+only, so the card goes as one; while you drag, the file's name, `#<number> <title>.md`, follows the pointer. The file
+holds the title, board, lane, tags, people, link and description, and the steps when the card is open. It is written
+when you press a card or Insert (from what the panel already holds; nothing more is asked of Fizzy), in
+`data/fizzy/files/cards` under Herdr's app folder. A picked card drags every picked card, and so does the bar's Insert.
+Dropped on a terminal on another machine, the file is copied there.
 
 ## Requirements
 

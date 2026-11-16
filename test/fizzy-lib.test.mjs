@@ -17,7 +17,7 @@ const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
   FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, reorderColumns, lanes, sections, filterCards, colorOf, meFrom,
   ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, inactivity,
-  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown,
+  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown, cardFile,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
   defaultGroups, groupsConfig, choiceOf, groupOf, ruleGroupOf, ownHidden, boardGroups, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, moveBoard, placeBoard, placeBoardAt, listedBoards, moveGroup, setBoardHidden,
@@ -65,7 +65,7 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.update(7, { html: "<p>x</p>" }), ["card", "update", "7", "--description", "<p>x</p>"]);
   assert.deepEqual(cmd.update(7, { title: "New", html: "<p>x</p>" }), ["card", "update", "7", "--title", "New", "--description", "<p>x</p>"]);
   // An emptied description is a real change (html ""), only an absent one is skipped.
-  assert.deepEqual(cmd.update(7, { html: "" }), ["card", "update", "7", "--description", ""]);
+  assert.deepEqual(cmd.update(7, { html: "" }), ["card", "update", "7", "--description", "<p></p>"], "the CLI ignores an empty --description");
   assert.deepEqual(cmd.update(7), ["card", "update", "7"]);
   assert.deepEqual(cmd.column(7, "c1"), ["card", "column", "7", "--column", "c1"]);
   assert.deepEqual(cmd.shiftColumn("c1", false), ["column", "move-left", "c1"]);
@@ -572,6 +572,13 @@ test("refs puts one ref per line", () => {
   assert.equal(refs(undefined), "");
 });
 
+test("cardFile: named \"#<n> <title>.md\", the title on one line, with no slash or control character, cut at 60 characters", () => {
+  assert.equal(cardFile(card(45, { title: "Müşteri Takip Sistemi" })), "data/fizzy/files/cards/#45 Müşteri Takip Sistemi.md");
+  assert.equal(cardFile(card(7, { title: " a/b\\c\n\u0007d " })), "data/fizzy/files/cards/#7 a-b-c d.md");
+  assert.equal(cardFile(card(8, { title: "" })), "data/fizzy/files/cards/#8.md");
+  assert.equal(cardFile(card(9, { title: `${"x".repeat(59)}👍👍` })), `data/fizzy/files/cards/#9 ${"x".repeat(59)}👍.md`, "never half an emoji");
+});
+
 test("cardMarkdown: the title as a heading, then board, lane, tags, people and link, the description, and the steps as a checklist", () => {
   const whole = card(4242, {
     title: "Fix the\nlogin redirect", column: col("c1", "In progress", "Blue"), tags: ["bug", { title: "web" }],
@@ -922,6 +929,18 @@ test("htmlToContent: a mention is the token \"@<full name>\", a link to a card \
   assert.equal(textToHtml(text, [{ id: "u-ada", name: "Ada Lovelace", sgid: "sgid-ada" }], tokens, CARD_URL),
     `<p>Ask ${mentionOut("sgid-ada")} about <a href="${CARD_URL(12)}">#12 Fix it</a> and <a href="${CARD_URL(7)}">#7 the old one</a>, not this.</p>`
     + "<p><action-text-attachment sgid=\"sgid-pic\"></action-text-attachment></p><p>End</p>");
+});
+
+test("an attachment in a paragraph, whose figure Fizzy's HTML pushes out after it, is the file alone: in the editor, on screen, and not formatting", () => {
+  const html = '<div class="action-text-content"><p><action-text-attachment sgid="sg-1" content-type="image/png" filename="shot.png" filesize="11485" width="511" height="390">  </action-text-attachment></p>'
+    + '<figure class="attachment attachment--preview attachment--png"><a href="/x"><img width="511" height="390" src="/x/shot.png"></a>'
+    + '<figcaption class="attachment__caption"><span class="attachment__name">shot.png</span><span> · </span><span class="attachment__size">11.2 KB</span>'
+    + '<a class="attachment__link" href="/x?disposition=attachment"><span>Download</span></a></figcaption></figure><p></p><p>After</p></div>';
+  const content = htmlToContent(html);
+  assert.equal(content.text, "🖼 shot.png\n\nAfter");
+  assert.deepEqual(content.tokens.map(s => s.token.id), ["file:sg-1"]);
+  assert.deepEqual(richLines(html).map(l => (l.file ? `file ${l.file.filename}` : l.runs.map(r => r.text).join(""))), ["file shot.png", "After"]);
+  assert.equal(formatted(html), false);
 });
 
 test("htmlToContent names a mentioned person by their photo's title, else from the people list, else by what Fizzy wrote; a mention of nobody known is plain text", () => {

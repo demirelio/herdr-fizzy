@@ -295,10 +295,11 @@ dot after the label while `fizzy.unread` is above zero.
   the board, running that agent with no first message, and pastes once that session's status is `idle` or 3 seconds
   after it appeared; after 30 seconds with no session, the reference goes to the clipboard with a toast. Copy copies
   and toasts `Copied`. Nothing ever presses Enter. A paste borrows the clipboard and puts the old text back 500 ms
-  later. A card's ↵ and the bar's Insert are also `drag_paths` sources: the press writes each card's markdown (title,
+  later. A card's tile and the bar's Insert are also `drag_paths` sources: the press writes each card's markdown (title,
   board, lane, tags, people, link, description, and steps when the open card's own read has them) to
-  `<appHome>/data/fizzy/files/cards/fizzy-<N>.md`, and a drop on a terminal types the quoted paths there. A picked
-  card's ↵ drags every picked card; the bar drags what it acts on, never a board.
+  `<appHome>/data/fizzy/files/cards/#<N> <title>.md` (the title on one line, no slashes, at most 60 characters), and a
+  drop on a terminal types the quoted paths there. The tile's press also picks the card up for a lane move. A picked
+  card's tile drags every picked card; the bar drags what it acts on, never a board.
 - **Notifications.** Every 30 s, shown or hidden, the unread notifications are read: the count goes to `fizzy.unread`
   and the Inbox badge, and each one not seen before becomes an `info` toast for 8 s (title up to 80 characters; body:
   the first line up to 140, `#N`, the board), at most three per poll plus `N more in Fizzy`. A panel with nothing
@@ -472,8 +473,9 @@ dot after the label while `fizzy.unread` is above zero.
 - Dragging a card from one lane onto another lane's header moves it in Fizzy (`fizzy card show` agrees), and the list
   shows it there after the next read. Dragging a column's header onto another column moves the column in Fizzy
   (`fizzy column list` agrees).
-- A card's ↵ dropped on a terminal types the quoted path of `fizzy-<N>.md`, which holds the card; an image dropped on
+- A card dropped on a terminal types the quoted path of `#<N> <title>.md`, which holds the card; an image dropped on
   Claude Code attaches.
+- A description emptied and saved is empty in Fizzy (`fizzy card show` agrees).
 - New card opens the board picker; choosing a board shows the Board view on it and opens a card made in Maybe? there,
   its empty title field focused; typing a title and Enter saves it (`fizzy card show` agrees), and Discard deletes the
   card.

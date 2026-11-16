@@ -1607,21 +1607,22 @@ export default class Fizzy extends View {
     return [...this.selected].sort((a, b) => a - b);
   }
 
-  // A drag source for terminals: these cards' files, dropped as their paths. They are written at the press, before any drag
-  // can drop them, from the fullest copy held (the open card's own read has its steps); the press goes no further.
-  dragCards(el, numbers) {
-    if (!numbers.length) return el;
-    return el.drag_paths(numbers.map(n => `${appHome()}/${cardFile(n)}`))
-      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.writeCardFiles(numbers, cx); });
+  // What a drag of these cards into a terminal takes: the fullest copy held of each (the open card's own read has its steps).
+  dragged(numbers) {
+    return numbers.map(n => (this.detail?.number === n && this.detail.card) || this.find(n)).filter(Boolean);
   }
 
-  writeCardFiles(numbers, cx) {
-    for (const n of numbers) {
-      const card = (this.detail?.number === n && this.detail.card) || this.find(n);
-      if (!card) continue;
+  // A drag source for terminals: the cards' files, dropped as their paths. They are written at the press (see writeCardFiles).
+  dragCards(el, cards) {
+    return cards.length ? el.drag_paths(cards.map(c => `${appHome()}/${cardFile(c)}`)) : el;
+  }
+
+  // Each card's file, written at the press that may start a drag, so it is there before any drop.
+  writeCardFiles(cards, cx) {
+    for (const card of cards) {
       cx.spawn(async () => {
-        const r = await exec("sh", ["-c", WRITE_SCRIPT, "fizzy", `${appHome()}/${cardFile(n)}`, cardMarkdown(card)]).catch(() => null);
-        if (r?.code !== 0) notify({ title: "Fizzy", body: `Couldn't write #${n}'s file to drag`, level: "error" });
+        const r = await exec("sh", ["-c", WRITE_SCRIPT, "fizzy", `${appHome()}/${cardFile(card)}`, cardMarkdown(card)]).catch(() => null);
+        if (r?.code !== 0) notify({ title: "Fizzy", body: `Couldn't write #${card.number}'s file to drag`, level: "error" });
       });
     }
   }
@@ -2383,21 +2384,22 @@ export default class Fizzy extends View {
   }
 
   // A card as a tile in its lane's `color` (a tint behind it, a bar at its left), a gold border when golden: a pin when
-  // pinned, its whole title, then its number, tags, people, Fizzy's inactivity warning and its age.
+  // pinned, its whole title, then its number, tags, people, Fizzy's inactivity warning and its age. Dragged, it is the card
+  // (every picked card, when it is one of them): onto another lane it moves there, into a terminal it drops its file.
   cardRow(t, card, lane, color) {
-    const n = card.number, picked = this.selected.has(n);
+    const n = card.number, picked = this.selected.has(n), dragged = picked ? this.dragged(this.pickedNumbers()) : [card];
     const quick = (id, icon, tip, action) => div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip(tip)
-      .on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
+      .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
       .child(svg(icon).size(13));
     const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board;
     const warn = inactivity(card, { period: this.boards?.find(b => b.id === board)?.period, stalled: Boolean(this.stalled.get(board)?.has(n)), now: now() });
     const warnColor = warn?.kind === "closing" ? t.ansi3 : t.blocked;
-    return h_flex().id(`fizzy-card-${n}`).flex_none().items_stretch().gap(9).pl(7).pr(6).py(8).rounded(8).cursor_pointer()
+    return this.dragCards(h_flex().id(`fizzy-card-${n}`), dragged).flex_none().items_stretch().gap(9).pl(7).pr(6).py(8).rounded(8).cursor_pointer()
       .bg(picked ? t.selected : tint(color, "1f"))
       .when(card.golden && !picked, el => el.border_2().border_color(t.ansi3))
       .when(!card.golden || picked, el => el.border_1().border_color(picked ? t.accent : tint(color, "4d")).hover(s => s.border_color(tint(color, "99"))))
-      .on_mouse_down("left", () => { this.pressed = { number: n, lane }; })
+      .on_mouse_down("left", (_e, cx) => { this.pressed = { number: n, lane }; this.writeCardFiles(dragged, cx); })
       .on_mouse_up("left", (_e, cx) => this.drop(lane, cx))
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.cardMenu(card, cx); })
       .on_click((e, cx) => this.clickCard(card, e, cx))
@@ -2407,9 +2409,8 @@ export default class Fizzy extends View {
           .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(13).mt(2).flex_none().text_color(t.accent)))
           .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).mt(1).whitespace_normal().font_medium().child(card.title ?? ""))
           .child(h_flex().flex_none().gap(1)
-            .child(this.dragCards(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat, or drag into a terminal", cx => this.handOff("insert", [slim(card)], cx)),
-              picked ? this.pickedNumbers() : [n]))
-            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)).on_mouse_down("left", stop))))
+            .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
+            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
         .child(h_flex().gap(6).items_center().min_w(0).text_size(textPx(11)).text_color(t.dim)
           .child(div().flex_none().child(`#${n}`))
           .child(h_flex().flex_1().min_w(0).gap(4).items_center().overflow_hidden()
@@ -2582,9 +2583,10 @@ export default class Fizzy extends View {
   handBar(t) {
     const subject = this.subject(), has = subject.length > 0;
     const act = kind => (has ? (_e, cx) => this.handOff(kind, this.subject(), cx) : null);
-    const cards = subject.filter(c => c.kind !== "board").map(c => c.number);
+    const cards = this.dragged(subject.filter(c => c.kind !== "board").map(c => c.number));
     return h_flex().id("fizzy-bar").flex_none().p(6).gap(4).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(textPx(12))
-      .child(this.dragCards(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")), cards))
+      .child(this.dragCards(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")), cards)
+        .when(cards.length > 0, el => el.on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.writeCardFiles(cards, cx); })))
       .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", act("send"), true))
       .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", act("start"), true))
       .child(this.barButton(t, "fizzy-bar-copy", ICON("copy"), "Copy", act("copy")));
