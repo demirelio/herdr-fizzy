@@ -81,9 +81,11 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.watch(7, true), ["card", "watch", "7"]);
   assert.deepEqual(cmd.watch(7, false), ["card", "unwatch", "7"]);
   assert.deepEqual(cmd.commentCount(7), ["comment", "list", "--card", "7", "--all", "--jq", JQ.count]);
-  assert.deepEqual(cmd.watchers("b1"), ["board", "accesses", "--board", "b1", "--jq", JQ.watchers]);
+  assert.deepEqual(cmd.accesses("b1"), ["board", "accesses", "--board", "b1", "--jq", JQ.accesses]);
   assert.deepEqual(cmd.watchBoard("b1", true), ["board", "involvement", "b1", "--involvement", "watching"]);
   assert.deepEqual(cmd.watchBoard("b1", false), ["board", "involvement", "b1", "--involvement", "access_only"]);
+  assert.deepEqual(cmd.boardForAll("b1", true), ["board", "update", "b1", "--all_access", "true"]);
+  assert.deepEqual(cmd.boardForAll("b1", false), ["board", "update", "b1", "--all_access", "false"]);
   assert.deepEqual(cmd.selfAssign(7), ["card", "self-assign", "7"]);
   assert.deepEqual(cmd.assign(7, "u1"), ["card", "assign", "7", "--user", "u1"]);
   assert.deepEqual(cmd.tag(7, "bug"), ["card", "tag", "7", "--tag", "bug"]);
@@ -120,9 +122,10 @@ test("every argv a builder makes is all strings, and the fake fizzy CLI the pane
     cmd.editComment(101, "cm1", "<p>c</p>"), cmd.dropComment(101, "cm1"), cmd.read("n1"), cmd.readAll(),
     cmd.stalled("b1"), cmd.activity(1), cmd.reactions(101, "cm1"), cmd.react(101, "cm1", "👍"), cmd.unreact(101, "cm1", "r1"),
     cmd.attachments(101), cmd.download(101, 1, "/home/tester/x.png"), cmd.upload("/home/tester/x.png"),
-    cmd.shiftColumn("c2", false), cmd.shiftColumn("c1", true), cmd.commentCount(101), cmd.watchers("b1"), cmd.watchBoard("b1", true), cmd.watchBoard("b1", false),
+    cmd.shiftColumn("c2", false), cmd.shiftColumn("c1", true), cmd.commentCount(101), cmd.accesses("b1"), cmd.watchBoard("b1", true), cmd.watchBoard("b1", false),
+    cmd.boardForAll("b1", true), cmd.boardForAll("b1", false),
   ];
-  assert.equal(argvs.length, Object.keys(cmd).length + 6, "every builder, and both sides of golden, pin, watch, step, shiftColumn and watchBoard, is covered");
+  assert.equal(argvs.length, Object.keys(cmd).length + 7, "every builder, and both sides of golden, pin, watch, step, shiftColumn, watchBoard and boardForAll, is covered");
   for (const argv of argvs) {
     assert.ok(argv.every(a => typeof a === "string"), `${argv.join(" ")}: all strings`);
     const account = makeAccount();
@@ -208,12 +211,16 @@ function throughJq(filter, answer) {
   return { ...answer, stdout: run.stdout };
 }
 
-test("JQ.count is how many a list holds, JQ.watchers the ids of who watches a board for new cards", () => {
+test("JQ.count is how many a list holds; JQ.accesses says whether everyone can see a board, who can, and who of them watches it", () => {
   const answer = data => ({ code: 0, stdout: JSON.stringify({ ok: true, data }), stderr: "" });
   assert.equal(parseResult(throughJq(JQ.count, answer([{ id: "cm1" }, { id: "cm2" }, { id: "cm3" }]))), 3);
   assert.equal(parseResult(throughJq(JQ.count, answer(null))), 0);
-  const accesses = { board_id: "b1", users: [{ id: "u1", involvement: "watching" }, { id: "u2", involvement: "access_only" }, { id: "u3", has_access: false }, { id: "u4", involvement: "watching" }] };
-  assert.deepEqual(parseResult(throughJq(JQ.watchers, answer(accesses))), ["u1", "u4"]);
+  const users = [
+    { id: "u1", has_access: true, involvement: "watching" }, { id: "u2", has_access: true, involvement: "access_only" },
+    { id: "u3", has_access: false }, { id: "u4", has_access: true, involvement: "watching" },
+  ];
+  assert.deepEqual(parseResult(throughJq(JQ.accesses, answer({ board_id: "b1", all_access: false, users }))), { all: false, ids: ["u1", "u2", "u4"], watching: ["u1", "u4"] });
+  assert.deepEqual(parseResult(throughJq(JQ.accesses, answer({ board_id: "b1", all_access: true, users: [] }))), { all: true, ids: [], watching: [] });
 });
 
 test("daysAgo counts calendar days, as Fizzy's cards say it", () => {

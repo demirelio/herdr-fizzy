@@ -382,7 +382,7 @@ export default class Fizzy extends View {
     // (null where the read failed). Kept between runs; read again only for a card that changed (see wantCounts).
     this.counts = new Map(countEntries(read("counts", [])));
     this.countWanted = new Map(); this.countBusy = new Set();
-    this.watchers = new Map(); // board id -> the ids of the people watching it for new cards
+    this.access = new Map(); // board id -> who can see it: { all, ids, watching } (see JQ.accesses)
     // The folded columns' names as SVG files (see labelSvg): the ones written this run, wanted by a draw, being written.
     this.labels = new Set(); this.labelWanted = new Set(); this.labelBusy = new Set();
 
@@ -787,17 +787,17 @@ export default class Fizzy extends View {
       try {
         const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !known, stale = lazy.stale;
         lazy.stale = false;
-        // The stalled cards and the board's watchers change slowly: they are read with the columns, and a failure only costs
-        // their labels.
-        const [listed, open, notNow, done, stalled, watchers] = await Promise.all([
+        // The stalled cards and who can see and watch the board change slowly: they are read with the columns, and a failure
+        // only costs what shows them.
+        const [listed, open, notNow, done, stalled, access] = await Promise.all([
           wantColumns ? fizzy(cmd.columns(board)) : null, fizzy(cmd.open(board)),
           this.unfolded("not-now") && (stale || !lazy.notNow) ? fizzy(cmd.notNow(board)) : null,
           this.unfolded("done") && (stale || !lazy.done) ? this.doneCards(board, null, lazy.shown, lazy.page) : null,
           wantColumns ? fizzy(cmd.stalled(board)).catch(() => null) : null,
-          wantColumns ? fizzy(cmd.watchers(board)).catch(() => null) : null,
+          wantColumns ? fizzy(cmd.accesses(board)).catch(() => null) : null,
         ]);
         if (stalled) this.stalled.set(board, new Set(stalled));
-        if (watchers) this.watchers.set(board, watchers);
+        if (access) this.access.set(board, access);
         let read = wantColumns ? listed ?? [] : null;
         if (!read && (open ?? []).some(c => c.column?.id && !known.some(k => k.id === c.column.id))) read = (await fizzy(cmd.columns(board))) ?? [];
         this.meet([open, notNow]);
@@ -1072,20 +1072,37 @@ export default class Fizzy extends View {
     if (open.includes("done") && !lazy.done) this.loadLane("done", cx);
   }
 
-  // Watching a board for new cards, or not: shown at once, then the board's watchers are read again.
+  // Watching a board for new cards, or not: shown at once, then who can see and watch it is read again.
   toggleWatching(cx) {
-    const board = this.board, me = this.me, ids = this.watchers.get(board) ?? [];
-    if (!board || !me) return null;
+    const board = this.board, me = this.me, access = this.access.get(board), ids = access?.watching ?? [];
+    if (!board || !me || !access) return null;
     const on = !ids.includes(me);
-    this.watchers.set(board, on ? [...ids, me] : ids.filter(id => id !== me));
+    return this.changeAccess(board, { ...access, watching: on ? [...ids, me] : ids.filter(id => id !== me) }, cmd.watchBoard(board, on), cx);
+  }
+
+  // Access's Everyone on the team: every member of the team can see the board, or only the people given it.
+  setBoardForAll(board, on, cx) {
+    const access = this.access.get(board);
+    return access ? this.changeAccess(board, { ...access, all: on }, cmd.boardForAll(board, on), cx) : null;
+  }
+
+  // Who can see and watch a board, changed: shown at once, then written, then read again (which undoes what did not happen).
+  changeAccess(board, shown, argv, cx) {
+    this.access.set(board, shown);
     cx.notify();
     return this.job(cx, async cx => {
-      try { await fizzy(cmd.watchBoard(board, on)); }
+      try { await fizzy(argv); }
       catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
-      const read = await fizzy(cmd.watchers(board)).catch(() => null);
-      if (read) this.watchers.set(board, read);
+      const read = await fizzy(cmd.accesses(board)).catch(() => null);
+      if (read) this.access.set(board, read);
       cx.notify();
     });
+  }
+
+  // Who can see the board shown, in a popup (accessRows).
+  accessMenu() {
+    const board = this.boards?.find(b => b.id === this.board), access = this.access.get(this.board);
+    if (board && access) openMenu({ kind: "access", board: board.id, url: board.url, all: access.all, ids: access.ids });
   }
 
   // A folded column's name as an SVG file, once it is written (a draw asks for it, the request timer writes it); else null.
@@ -1445,6 +1462,7 @@ export default class Fizzy extends View {
       case "insert": return insertText(op.text, cx);
       // A tab bar's `search:fizzy` (⌘K): it shows the page, and the search opens here, whether the panel was shown or not.
       case "search": this.openSearch(cx); cx.notify(); return null;
+      case "boardForAll": return this.setBoardForAll(op.board, Boolean(op.on), cx);
       // The Send popup's choice: that session comes to the front, and the text is pasted into it.
       case "paste": {
         const to = agents().find(a => a.address === op.address);
@@ -2493,22 +2511,28 @@ export default class Fizzy extends View {
       .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(textPx(10)).text_color(t.accent_foreground).child(String(this.unread))));
   }
 
+  // The board row, as Fizzy's head: the board's name in the middle between two rules (a click picks another board; "following
+  // space" under it while the space's own board is followed), who can see the board at the left, Open in Fizzy at the right.
   boardBar(t, cx) {
     const current = this.boards?.find(b => b.id === this.board);
     const following = Boolean(this.follow && this.board && this.spaceBoard(cx) === this.board);
-    return h_flex().id("fizzy-board-bar").h(36).flex_none().px(10).gap(6).items_center()
-      .child(h_flex().id("fizzy-board").flex_1().min_w(0).h(28).px(8).gap(7).items_center().rounded(7).border_1().border_color(t.input).bg(t.background)
-        .cursor_pointer().hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click((_e, cx) => this.boardsMenu(cx))
+    const round = (id, icon, tip, action) => div().id(id).size(30).flex_none().flex().items_center().justify_center().rounded_full()
+      .border_1().border_color(t.input).text_color(action ? t.muted : t.dim).tooltip(tip).on_mouse_down("left", stop)
+      .when(Boolean(action), el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => action(cx)))
+      .child(svg(ICON(icon)).size(14).flex_none());
+    const rule = () => div().flex_1().min_w(8).h(1).bg(t.border);
+    return h_flex().id("fizzy-board-bar").flex_none().px(12).py(6).gap(10).items_center()
+      .child(round("fizzy-board-access", "users", "Who can see this board", current && this.access.has(current.id) ? () => this.accessMenu() : null))
+      .child(rule())
+      .child(v_flex().id("fizzy-board").min_w(0).px(8).py(2).items_center().rounded(8).cursor_pointer().hover(s => s.bg(t.hover))
+        .on_mouse_down("left", stop).on_click((_e, cx) => this.boardsMenu(cx))
         .tooltip(following ? "Following the current space" : "Switch board")
-        .child(svg(ICON("kanban")).size(14).flex_none().text_color(t.muted))
-        .child(div().flex_1().min_w(0).truncate().text_size(textPx(13)).font_medium().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
-        .when(following && !this.narrow, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child("Following space")))
-        .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
-      .child(h_flex().id("fizzy-open-board").w(36).h(28).flex_none().items_center().justify_center().rounded(7).border_1().border_color(t.input).bg(t.background)
-        .text_color(current?.url ? t.muted : t.dim).tooltip("Open board in Fizzy").on_mouse_down("left", stop)
-        .when(Boolean(current?.url), el => el.hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().on_click((_e, cx) => cx.open_url(current.url)))
-        .child(svg(ICON("external-link")).size(14).flex_none()));
+        .child(h_flex().min_w(0).max_w_full().gap(6).items_center()
+          .child(div().id("fizzy-board-name").min_w(0).truncate().text_size(textPx(17)).font_bold().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
+          .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
+        .when(following, el => el.child(div().text_size(textPx(10)).font_medium().text_color(t.dim).child("FOLLOWING SPACE"))))
+      .child(rule())
+      .child(round("fizzy-open-board", "external-link", "Open board in Fizzy", current?.url ? cx => cx.open_url(current.url) : null));
   }
 
   filterOf(view) {
@@ -2766,7 +2790,7 @@ export default class Fizzy extends View {
 
   // The head of Maybe?, as Fizzy's: Add a card, then who watches the board for new cards, and a button to watch it or stop.
   watchBox(t) {
-    const ids = this.watchers.get(this.board), me = this.me, watching = Boolean(me && ids?.includes(me));
+    const ids = this.access.get(this.board)?.watching, me = this.me, watching = Boolean(me && ids?.includes(me));
     const users = people().users ?? [], watchers = (ids ?? []).map(id => users.find(u => u.id === id)).filter(Boolean);
     return v_flex().id("fizzy-watch").flex_none().items_center().gap(10).px(12).py(14).rounded(8).border_1().border_color(t.border)
       .child(h_flex().id("fizzy-watch-add").h(30).px(14).gap(6).items_center().rounded_full().cursor_pointer().bg(t.solid).text_color(t.solid_foreground)

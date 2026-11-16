@@ -33,14 +33,18 @@ theme names.
   rounded 7, 1 px `accent` border, `background`, 12 px, padding 8, placeholder "Search all boards, or #number…". While
   a field has words, a 20 px **x** sits at its right end inside it (4 px in, rounded 5, a 12 px x in `dim`; `hover`
   behind it and `foreground` on hover; tooltip "Clear"), and the field's right padding is 28.
-- **Board row**, 36 px, padding 10, gap 6, **in the Board view only** (Mine, Inbox and Pins go straight from the header
-  to their list; it is left out while the search is open): a select and a button. The select takes the room: 28 px,
-  rounded 7, 1 px `input` border, `background`, padding 8, gap 7, `hover` behind it on hover; a 14 px kanban icon in
-  `muted`, the board's name (13 px medium, `foreground`, `dim` with no board, cut with an ellipsis), "Following space"
-  (11 px `dim`, left out when narrow) while following and showing the space's own board, and a 12 px chevron in `dim`
-  at the right end. Its tooltip is "Following the current space" in that case, else "Switch board". At its right,
-  **Open board in Fizzy**: 36×28, rounded 7, 1 px `input` border, `background`, a 14 px external-link icon in `muted`
-  (`foreground` and `hover` behind it on hover; `dim` and inert without a url), tooltip "Open board in Fizzy".
+- **Board row**, as Fizzy's head, padding 12 by 6, gap 10, **in the Board view only** (Mine, Inbox and Pins go straight
+  from the header to their list; it is left out while the search is open): **Who can see this board**, a 1 px `border`
+  rule, the board's name, another rule, **Open board in Fizzy**. The rules share the room around the name. The name
+  (17 px bold, `foreground`, `dim` with no board, cut with an ellipsis) and a 12 px `dim` chevron, with "FOLLOWING SPACE"
+  (10 px medium `dim`) under them while following and showing the space's own board; rounded 8, `hover` behind it on
+  hover, a click opens the boards list. Its tooltip is "Following the current space" in that case, else "Switch board".
+  The two buttons are 30 px circles with a 1 px `input` border and a 14 px icon in `muted` (`users`; `external-link`),
+  `foreground` and `hover` behind on hover; `dim` and inert with no board (Open in Fizzy: without a url; Who can see:
+  until `board accesses` has answered). Who can see opens a popup: **Everyone on the team** (`users`, ticked when
+  `all_access`; choosing it writes `board update <id> --all_access true|false`, shown at once, then read again), then
+  `N people can see it` (or `Everyone can see it`) over the active people who can, and **Change who can see it in
+  Fizzy**; a person's row and that one open the board's page.
 - **The list**, scrolling, padding 8, gap 8:
   - Board: one block per lane, rounded 10, a 1 px border in the lane's color at alpha `33`. Its header, 34 px, padding
     10 at the left and 6 at the right, gap 8, has the lane's color at alpha `26` behind it (`40` on hover): a 12 px

@@ -24,9 +24,13 @@ The repo holds:
 **The header.** From the left: **Fizzy** (its icon and name; below 440 px of panel width, the icon alone) shows the
 Board view. Then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, and at the right
 **Search**, **Refresh** and **Settings**. Below 340 px Refresh is left out; the `refresh` key and the 30-second poll
-still read again. On the Board view only, the **board row** sits under the header: a select with the board's name
-(click it to pick another board; it says "Following space" while it follows the space's own board) and **Open board in
-Fizzy** at its right. Mine, Inbox and Pins go straight to their list.
+still read again. On the Board view only, the **board row** sits under the header, as Fizzy's head: the board's name
+in the middle, big and bold, between two thin rules (click it to pick another board; "Following space" sits under it
+while it follows the space's own board), **Who can see this board** at the left and **Open board in Fizzy** at the
+right, both round. Who can see this board lists the people who can, with **Everyone on the team** at the top: a switch
+that lets every member of the team see the board, or only the people given it. Adding or taking away one person is
+done in Fizzy (the CLI can't): a person's row, and the last row, open the board there. Mine, Inbox and Pins go
+straight to their list.
 
 **The bar at the foot** follows the view:
 
@@ -436,17 +440,17 @@ comment, open in your browser.
 **Programs.**
 
 - `fizzy`, on this computer, run from your home folder, every command with `--json`. To read: `board list`,
-  `board accesses` (who watches the board), `column list`, `card list`, `card show`, `comment list`, `reaction list`,
-  `user list`, `tag list`, `pin list`, `notification tray`, `activity list`, `search`, `card attachments show`,
-  `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`, `notification tray`,
+  `board accesses` (who can see and watch the board), `column list`, `card list`, `card show`, `comment list`,
+  `reaction list`, `user list`, `tag list`, `pin list`, `notification tray`, `activity list`, `search`,
+  `card attachments show`, `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`, `notification tray`,
   `reaction list`, `activity list`, `card attachments show`, `board accesses`, and the `comment list` that counts a
   card's comments) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
   download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
   change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `column move-left` and
   `move-right` for a column you drag (one per place), `board involvement` for Watch for new cards and Stop watching,
-  `upload file` for a file you drop or paste, and `notification read` and `read-all`. Each action is one command, or
-  two (a closed card is reopened before it moves), and the panel reads again afterwards (not after Watch or Unwatch, or
-  a reaction). New card is `card create`, then a `card list` when the CLI's answer does not give the new card's
+  `board update --all_access` for Everyone on the team, `upload file` for a file you drop or paste, and
+  `notification read` and `read-all`. Each action is one command, or two (a closed card is reopened before it moves),
+  and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is `card create`, then a `card list` when the CLI's answer does not give the new card's
   number, and a `card column` when the card goes in a column. An upload or a download may take up to 5 minutes; Herdr
   stops any other command after 30 seconds.
 - `sh` on this computer, for the photos: a short script that runs `curl` for one photo address (http or https only,

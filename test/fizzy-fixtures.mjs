@@ -93,6 +93,7 @@ export function makeAccount(opts = {}) {
     clipboardImage: false, // the clipboard holds an image (what the paste script reads)
     written: {}, // path -> the text WRITE_SCRIPT wrote there
     watching: { b1: [TEAMMATE.id] }, // board id -> the ids of who watches it for new cards
+    access: { b1: { all: false, ids: [ME.id, TEAMMATE.id] } }, // board id -> every member can see it (all), else who can (ids)
     webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
     pageSize: opts.pageSize ?? 15,
     searchCap: opts.searchCap ?? SEARCH_CAP,
@@ -185,7 +186,15 @@ export function makeAccount(opts = {}) {
       return ok(jq === JQ.count ? list.length : list);
     }
     // Who watches a board for new cards (`watching`: board id -> user ids), and the signed-in user watching it or not.
-    if (a1 === "board" && a2 === "accesses") return ok((a.watching[flag(args, "--board")] ?? []).slice());
+    if (a1 === "board" && a2 === "accesses") {
+      const board = flag(args, "--board"), access = a.access[board] ?? { all: false, ids: [] };
+      return ok({ all: access.all, ids: access.all ? a.users.map(u => u.id) : access.ids.slice(), watching: (a.watching[board] ?? []).slice() });
+    }
+    if (a1 === "board" && a2 === "update") {
+      const access = a.access[n] ??= { all: false, ids: [] };
+      if (flag(args, "--all_access") != null) access.all = flag(args, "--all_access") === "true";
+      return ok(null);
+    }
     if (a1 === "board" && a2 === "involvement") {
       const list = (a.watching[n] ??= []).filter(id => id !== ME.id);
       a.watching[n] = flag(args, "--involvement") === "watching" ? [...list, ME.id] : list;

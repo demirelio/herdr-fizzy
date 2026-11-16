@@ -135,7 +135,7 @@ async function mountPopup(spec = lastPopup(), extra = {}) {
 const menuClick = (popup, id) => fire(must(popup.tree(), `fizzy-menu-${id}`), "on_click", {}, popup.cx);
 const requestOps = () => calls.setShared.filter(([k, v]) => k === "fizzy.request" && v).map(([, v]) => v.op);
 // The board's name as the select shows it (its hint, when there is one, is not part of it).
-const boardName = tree => textOf(must(tree, "fizzy-board").kids[1]);
+const boardName = tree => textOf(must(tree, "fizzy-board-name"));
 // New card as a person does it: the picker is open (the list bar's button, or the key), a row picks the board, and the draws that
 // follow run the timer that makes the card there and open it.
 async function chooseNewCard(m, boardId) {
@@ -7856,67 +7856,68 @@ test("New card on another board while following the space turns following off an
   click(tree, "fizzy-fresh-done", cx);
   const board = await draw();
   assert.equal(boardName(board), "Personal");
-  assert.equal(must(board, "fizzy-board").kids.length, 3, "and the select no longer says it follows the space");
+  assert.equal(must(board, "fizzy-board").kids.length, 1, "and the name no longer says it follows the space");
 });
 
-test("the board row (Board view): a select over a field, the kanban icon, the name, the chevron, then Open board; 36 px high, right under the header", async () => {
+test("the board row (Board view), as Fizzy's head: who can see the board at the left, the name big and bold in the middle between two rules (a click picks another board), Open board at the right; right under the header", async () => {
   acct.boards[0] = { ...acct.boards[0], name: LONG_NAME };
   const { draw } = await mount();
   const tree = await draw();
   const bar = must(tree, "fizzy-board-bar");
-  assert.deepEqual([bar.style.h, bar.style.px, bar.style.gap, bar.style.flex_none, bar.style.items_center], [36, 10, 6, true, true]);
-  assert.deepEqual(bar.kids.map(k => k.id), ["fizzy-board", "fizzy-open-board"]);
-  const [board, open] = bar.kids;
-  assert.deepEqual([board.style.flex_1, board.style.min_w, board.style.h, board.style.px, board.style.gap, board.style.rounded, board.style.max_w, board.style.flex_none],
-    [true, 0, 28, 8, 7, 7, undefined, undefined], "it takes the room and shrinks");
-  assert.deepEqual([board.style.border_1, board.style.border_color, board.style.bg, board.style.cursor_pointer], [true, "input", "background", true], "like the filter field under it");
-  assert.deepEqual(board.hoverStyle, { bg: "hover" });
-  assert.equal(board.kids.length, 3, "the icon, the name, the chevron: no hint while it does not follow the space");
-  const [icon, name, chevron] = board.kids;
-  assert.deepEqual([icon.kind, icon.path, icon.style.size, icon.style.flex_none, icon.style.text_color], ["svg", LOGO, 14, true, "muted"]);
-  assert.deepEqual([name.style.flex_1, name.style.min_w, name.style.truncate, name.style.text_size, name.style.font_medium, name.style.text_color, textOf(name)],
-    [true, 0, true, textPx(13), true, "foreground", LONG_NAME], "the name is cut by the layout, not by the code");
-  assert.deepEqual([chevron.kind, chevron.path, chevron.style.size, chevron.style.flex_none, chevron.style.text_color], ["svg", "mods/fizzy/chevron-down.svg", 12, true, "dim"], "the select's affordance, at the right end");
+  assert.deepEqual(bar.kids.map(k => k.id ?? "rule"), ["fizzy-board-access", "rule", "fizzy-board", "rule", "fizzy-open-board"]);
+  for (const rule of [bar.kids[1], bar.kids[3]]) assert.deepEqual([rule.style.flex_1, rule.style.h, rule.style.bg], [true, 1, "border"], "a rule each side");
+  const board = must(tree, "fizzy-board"), name = must(tree, "fizzy-board-name");
+  assert.deepEqual([name.style.text_size, name.style.font_bold, name.style.truncate, name.style.min_w, textOf(name)], [textPx(17), true, true, 0, LONG_NAME], "cut by the layout, not by the code");
+  assert.deepEqual(all(board, n => n.kind === "svg").map(n => n.path), ["mods/fizzy/chevron-down.svg"]);
   assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
-  assert.equal(typeof board.handlers.on_click, "function", "the whole select is the click");
-  assert.equal(typeof board.handlers["on_mouse_down:left"], "function", "the press goes no further");
-
-  assert.deepEqual([open.style.w, open.style.h, open.style.rounded, open.style.flex_none, open.style.items_center, open.style.justify_center], [36, 28, 7, true, true, true]);
-  assert.deepEqual([open.style.border_1, open.style.border_color, open.style.bg, open.style.text_color, open.style.cursor_pointer], [true, "input", "background", "muted", true]);
-  assert.deepEqual(open.hoverStyle, { bg: "hover", text_color: "foreground" });
-  assert.deepEqual(open.kids.map(k => [k.path, k.style.size]), [["mods/fizzy/external-link.svg", 14]]);
-  assert.equal(tipOf(tree, "fizzy-open-board"), "Open board in Fizzy");
-  assert.equal(typeof open.handlers["on_mouse_down:left"], "function");
+  assert.deepEqual([typeof board.handlers.on_click, typeof board.handlers["on_mouse_down:left"], board.hoverStyle], ["function", "function", { bg: "hover" }]);
+  for (const [id, icon, tip] of [["fizzy-board-access", "users", "Who can see this board"], ["fizzy-open-board", "external-link", "Open board in Fizzy"]]) {
+    const round = must(tree, id);
+    assert.deepEqual([round.style.size, round.style.rounded_full, round.style.border_1, round.kids[0].path, tipOf(tree, id), typeof round.handlers.on_click],
+      [30, true, true, `mods/fizzy/${icon}.svg`, tip, "function"], id);
+  }
   assert.equal(must(tree, "fizzy").kids[1], bar, "right under the header");
 });
 
-test("the select says 'Following space' and its tooltip 'Following the current space' only while it shows the space's own board, and not when narrow", async () => {
+test("the name says FOLLOWING SPACE under it, and its tooltip 'Following the current space', only while it shows the space's own board", async () => {
   acct.yaml["/work/roadmap"] = "board: b1\n";
   const { cx, draw } = await mount();
   let tree = await draw();
-  const select = () => must(tree, "fizzy-board");
-  assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Roadmap", "Following space", "mods/fizzy/chevron-down.svg"]);
-  const hint = select().kids[2];
-  assert.deepEqual([hint.style.text_size, hint.style.text_color, hint.style.flex_none], [textPx(11), "dim", true]);
+  const under = () => textOf(must(tree, "fizzy-board")).replace(boardName(tree), "").trim();
+  assert.equal(under(), "FOLLOWING SPACE");
   assert.equal(tipOf(tree, "fizzy-board"), "Following the current space");
-  resize(tree, cx, 339);
-  tree = await draw();
-  assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Roadmap", "mods/fizzy/chevron-down.svg"], "narrow: no hint");
-  assert.equal(tipOf(tree, "fizzy-board"), "Following the current space", "but the tooltip says it");
-  resize(tree, cx, 368);
   await press(cx, "board:b2");
   tree = await draw();
-  assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Personal", "mods/fizzy/chevron-down.svg"], "a board picked: not following");
-  assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
+  assert.deepEqual([boardName(tree), under(), tipOf(tree, "fizzy-board")], ["Personal", "", "Switch board"], "a board picked: not following");
   await press(cx, "follow");
   tree = await draw();
-  assert.equal(boardName(tree), "Roadmap");
-  assert.equal(select().kids.length, 4, "following again");
+  assert.deepEqual([boardName(tree), under()], ["Roadmap", "FOLLOWING SPACE"], "following again");
   state.spaces = [space("s1", "work", { active: true, folder: "/work/other" })];
   tree = await draw();
   tree = await draw();
-  assert.equal(select().kids.length, 3, "following a space that names no board: not its board, no hint");
-  assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
+  assert.deepEqual([under(), tipOf(tree, "fizzy-board")], ["", "Switch board"], "following a space that names no board: not its board");
+});
+
+test("who can see the board: a popup with Everyone on the team (a switch the panel writes, then reads again) and the people who can see it, which, like its last row, open the board in Fizzy", async () => {
+  const { view, cx, draw } = await mount();
+  click(await draw(), "fizzy-board-access", cx);
+  assert.deepEqual(lastPopup().props.menu, { kind: "access", board: "b1", url: B1.url, all: false, ids: ["u-me", "u-bob"] });
+  const popup = await mountPopup();
+  assert.deepEqual(listOf(popup.tree()), ["access-all", "-", "# 2 people can see it", "user-u-me", "user-u-bob", "-", "access-fizzy"]);
+  assert.equal(textOf(must(popup.tree(), "fizzy-menu-access-all")).includes("Everyone on the team"), true);
+  menuClick(popup, "user-u-bob");
+  assert.deepEqual(popup.cx.opened, [B1.url], "a person: the board in Fizzy, where access is changed");
+  const switcher = await mountPopup();
+  menuClick(switcher, "access-all");
+  assert.deepEqual(requestOps().at(-1), { kind: "boardForAll", board: "b1", on: true });
+  await draw();
+  await cx.settle();
+  assert.deepEqual(acct.writes().at(-1), ["board", "update", "b1", "--all_access", "true"]);
+  assert.equal(view.access.get("b1").all, true, "read again: everyone");
+  click(await draw(), "fizzy-board-access", cx);
+  const all = await mountPopup();
+  assert.deepEqual(listOf(all.tree()).slice(0, 3), ["access-all", "-", "# Everyone can see it"]);
+  assert.deepEqual(listOf(all.tree()).filter(id => id.startsWith("user-")), ["user-u-me", "user-u-bob"], "every active person (not the bot, not the one who left)");
 });
 
 test("a click anywhere on the select opens the boards list and changes nothing else", async () => {
@@ -7941,11 +7942,13 @@ test("with no board the select reads No board in dim and still lists the boards;
   tree = await draw();
   const board = must(tree, "fizzy-board");
   assert.equal(boardName(tree), "No board");
-  assert.deepEqual([board.kids[1].style.text_color, board.style.bg], ["dim", "background"]);
+  assert.equal(must(tree, "fizzy-board-name").style.text_color, "dim");
   assert.deepEqual([board.hover, board.style.cursor_pointer, typeof board.handlers.on_click], [true, true, "function"], "live: hover, pointer, click");
-  assert.deepEqual(all(board, n => n.kind === "svg").map(n => n.path), [LOGO, "mods/fizzy/chevron-down.svg"], "the icon and the chevron stay");
-  const open = must(tree, "fizzy-open-board");
-  assert.deepEqual([open.style.text_color, open.handlers.on_click, open.hover, open.style.cursor_pointer], ["dim", undefined, false, undefined], "no url: inert");
+  assert.deepEqual(all(board, n => n.kind === "svg").map(n => n.path), ["mods/fizzy/chevron-down.svg"], "the chevron stays");
+  for (const id of ["fizzy-open-board", "fizzy-board-access"]) {
+    const round = must(tree, id);
+    assert.deepEqual([round.style.text_color, round.handlers.on_click, round.hover, round.style.cursor_pointer], ["dim", undefined, false, undefined], `${id}: no board, inert`);
+  }
   click(tree, "fizzy-board", cx);
   assert.equal(lastPopup().props.menu.kind, "boards", "the only way to pick one");
 });

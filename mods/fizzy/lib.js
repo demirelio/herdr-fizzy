@@ -115,8 +115,9 @@ export const JQ = {
   // A card's attachments as their sgids, in the order `card attachments download` numbers them (from 1).
   attachments: "{ok, data: [(.data // [])[] | .sgid]}",
   count: "{ok, data: ((.data // []) | length)}",
-  // The ids of the people who watch a board for new cards.
-  watchers: '{ok, data: [(.data.users // [])[] | select(.involvement == "watching") | .id]}',
+  // Who can see a board: { all: every member of the team can, ids: the people who can, watching: those of them who watch
+  // it for new cards }.
+  accesses: '{ok, data: {all: (.data.all_access // false), ids: [(.data.users // [])[] | select(.has_access) | .id], watching: [(.data.users // [])[] | select(.involvement == "watching") | .id]}}',
 };
 
 // The argv after "fizzy" for each command; withJson adds the --json. Every flag here but --jq, which
@@ -134,8 +135,9 @@ export const cmd = {
   card: n => ["card", "show", String(n)],
   comments: n => ["comment", "list", "--card", String(n), "--all"],
   commentCount: n => ["comment", "list", "--card", String(n), "--all", "--jq", JQ.count],
-  watchers: board => ["board", "accesses", "--board", board, "--jq", JQ.watchers],
+  accesses: board => ["board", "accesses", "--board", board, "--jq", JQ.accesses],
   watchBoard: (board, on) => ["board", "involvement", board, "--involvement", on ? "watching" : "access_only"],
+  boardForAll: (board, on) => ["board", "update", board, "--all_access", on ? "true" : "false"],
   users: () => ["user", "list", "--all"],
   tags: () => ["tag", "list", "--all"],
   pins: () => ["pin", "list", "--jq", JQ.cards],
@@ -1320,6 +1322,7 @@ export function noteReady(root, before) {
 //   { menu: next }            closes this popup, opens another | { arm: rowId }  re-render with that row armed
 // ops: { kind: "move", number, target } | { kind: "golden"|"pin"|"watch", number, on } | { kind: "selfAssign", number }
 //   | { kind: "assign", number, user } | { kind: "tag", number, name } | { kind: "moveBoard", number, board }
+//   | { kind: "boardForAll", board, on } (every member of the team can see the board, or only the people given it)
 //   | { kind: "remove", number } | { kind: "reopen", number } | { kind: "react", number, comment, content } (toggles yours)
 //   | { kind: "mention", target, user, name } | { kind: "cardref", target, number, title } (a person's or a card's token into an
 //     editor: "comment", "commentEdit" or "desc"; nothing is written)
@@ -1345,6 +1348,7 @@ export function menuRows(menu, ctx = {}) {
     case "agents": return agentRows(menu, ctx);
     case "start": return startRows(menu, ctx);
     case "users": return menu.card ? userRows(menu, ctx) : [];
+    case "access": return accessRows(menu, ctx);
     case "tags": return menu.card ? tagRows(menu, ctx) : [];
     case "moveBoard": return menu.card ? moveBoardRows(menu, ctx) : [];
     case "lanes": return menu.card ? laneRows(menu.card, menu.columns) : [];
@@ -1462,6 +1466,25 @@ function userRows(menu, ctx) {
   return [
     ...people.map(u => row(`user-${u.id}`, u.name, null, { request: { kind: "assign", number: menu.card.number, user: u.id } }, { user: { id: u.id, name: u.name }, checked: assigned.has(u.id), hint: meId && u.id === meId ? "you" : undefined })),
     ...(people.length ? [] : [note("users-note", "No people")]),
+  ];
+}
+
+// Who can see the board (`menu`: { board, url, all, ids }): Everyone on the team, a switch; then the people who can see it
+// (everyone, while that is on). The CLI can't add or take away one person: their rows, and the last one, open the board in
+// Fizzy, where that is done.
+function accessRows(menu, ctx) {
+  if (ctx.users == null) return [note("users-note", "Loading people…")];
+  const meId = idOf(ctx.me), can = new Set(menu.ids ?? []);
+  const people = activePeople(ctx.users, meId).filter(u => menu.all || can.has(u.id));
+  const fizzy = menu.url ? { open: menu.url } : null, you = u => (meId && u.id === meId ? "you" : undefined);
+  return [
+    row("access-all", "Everyone on the team", ICON("users"), { request: { kind: "boardForAll", board: menu.board, on: !menu.all } }, { checked: Boolean(menu.all) }),
+    sep("sep-access"),
+    label("access-who", menu.all ? "Everyone can see it" : `${people.length} ${people.length === 1 ? "person" : "people"} can see it`),
+    ...people.map(u => (fizzy
+      ? row(`user-${u.id}`, u.name, null, fizzy, { user: { id: u.id, name: u.name }, hint: you(u) })
+      : note(`user-${u.id}`, u.name))),
+    ...(fizzy ? [sep("sep-fizzy"), row("access-fizzy", "Change who can see it in Fizzy", ICON("external-link"), fizzy)] : []),
   ];
 }
 

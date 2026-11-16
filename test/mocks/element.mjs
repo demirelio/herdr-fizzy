@@ -10,7 +10,7 @@ const STYLES = new Set(`size size_full w h min_w min_h max_w max_h w_full h_full
 // More the Fizzy panel draws with (every one is a builder in Herdr's gpui-kit.d.ts).
 export const PANEL_STYLES = `whitespace_normal line_through flex_wrap italic text_ellipsis overflow_x_hidden overflow_y_hidden cursor_default
   self_center self_start items_baseline flex_shrink_0 justify_start text_left content_center gap_x gap_y flex_row items_stretch cursor_grabbing
-  token rounded_br`.split(/\s+/);
+  token rounded_br max_w_full`.split(/\s+/);
 for (const name of PANEL_STYLES) STYLES.add(name);
 // The builders that take a value in gpui-kit.d.ts: Herdr fails the draw ("expected a number, got nil") when one has none.
 const VALUED = new Set(`size w h min_w min_h max_w max_h p px py pl pr pt pb mx my mt mb mr ml gap gap_x gap_y rounded rounded_br border_color bg
