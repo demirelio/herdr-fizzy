@@ -53,16 +53,19 @@ theme names.
     `#f08a24`, green `#3fa65b` (Fizzy also sends `var(--color-card-N)`: default blue, 1 gray, 2 tan, 3 yellow, 4 lime,
     5 aqua, 6 violet, 7 purple, 8 pink). Fizzy gives Maybe?, Not Now and Done none: Maybe? is `#4f8ef7` (Fizzy's own
     blue), Not Now `#8a8f98`, Done `#3fa65b`. A column whose color is not known is `#8a8f98`.
-  - A card is a tile: padding 7 at the left, 6 at the right, 8 above and below, gap 9, rounded 8, its lane's color at
-    alpha `1f` behind it and a 1 px border at `4d` (`99` on hover); golden, a 2 px `ansi3` border instead; picked,
-    `selected` behind it and a 1 px `accent` border (golden too). At its left, a 3 px bar in the lane's color, as tall
-    as the tile, rounded 2. Then two lines, gap 7. Line one: a 13 px pin in `accent` when the pin list has the card,
-    the whole title (medium, wrapping), and two 22 px buttons, Insert (↵) and More (⋯), gap 1. Line two, 11 px `dim`,
-    gap 6: `#number`; up to three tag chips (`background`, rounded 5, at most 150 px) and `+N`; up to three 18 px round
-    avatars, gap 2; the inactivity label; the time since it changed (`now`, `5m`, `3h`, `2d`, then `Mar 4`, with the
-    year when it is not this one). The label is 16 px high, padding 5, rounded 4, with a 1 px border and medium text in
-    one color: `ansi3` for `Closes in Nd` and `Closes today`, `blocked` for `Stalled`. In Mine, Pins and the search a
-    tile takes its own lane's color.
+  - A card is drawn as Fizzy's: padding 11 by 10, gap 8, rounded 8, `background` behind it and a 1 px `border` border
+    (`input` on hover); golden, a 2 px `ansi3` border instead; picked, `selected` behind it and a 1 px `accent` border.
+    A head line (11 px, medium, `muted`): the number, a 1 px rule, the board's name in capitals; on a closed card on a
+    `muted` tab in `background` text, padding 7 by 2, rounded 4. In Mine, Pins and the search the lane's name in capitals
+    follows, in the lane's color after a 7 px dot. At its right: `✓ done/total` (`circle-check` in `accent`, `done` when
+    all are done) once the counts are read, the inactivity label, and two 22 px buttons, Insert (↵) and More (⋯). Then
+    a 14 px `accent` pin when the pin list has the card and the whole title (15 px, bold, wrapping); up to three tag chips
+    (`#tag`) and `+N`. Then the meta line (11 px, medium, `accent`): the creator's 24 px avatar; `ADDED <days>` over
+    the creator's name, a rule between; a 1 px divider; `refresh` and the day it last changed over `arrow-right` and the
+    assignees' names; up to two 24 px assignee avatars; at the right `message-square-text` and the comment count when
+    there are comments. Days are calendar days: `TODAY`, `YESTERDAY`, `N DAYS AGO`. The label is 16 px high, padding 5,
+    rounded 4, with a 1 px border and medium text in one color: `ansi3` for `Closes in Nd` and `Closes today`, `blocked`
+    for `Stalled`.
   - Mine and search results: a 26 px board name (12 px, medium, `muted`) over that board's cards.
   - Inbox: a **Mark all read** button, then one block per note: a 7 px `accent` dot, the sender's 16 px avatar, the
     title in semibold; the text (12 px, `dim`, wrapping); `#number · board · sender · time` (11 px, `dim`).
@@ -198,10 +201,30 @@ dot after the label while `fizzy.unread` is above zero.
   saves the title, and Escape, or no title, leaves `New card`. Its foot is **Discard** (`card delete`, then back to
   the list) and **Done** (back to the list). While one is being made, New card does nothing; a failure is an `error`
   toast. The `new` key opens the same popup, and does nothing without a board.
-- **Board.** Lanes in the order of `fizzy column list`; Maybe? first and Not Now and Done last when missing. Not Now
-  and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show more** (50
-  more). A header's click folds its lane (kept per board). In each lane golden cards come first, the rest in Fizzy's
-  order. Pressing a card and letting go anywhere over another lane's block (its header, its cards or between them)
+- **Board, side by side** (from 480 px of panel width): `fizzy-columns`, the lanes in a row, gap 8, padding 8. Open
+  lanes (`openColumns`, per board, Maybe? when none; one below 760 px, two from 760 px, the one opened longest ago
+  folding first) share the width: a 30 px head (a 10 px dot in the lane's color but on Done, the name in capitals,
+  13 px semibold, + on Maybe? and the columns) over their cards, which scroll on their own. A folded lane is 36 px wide:
+  a pill (rounded 18, padding 10 above and 14 below) with its count and its name in capitals read top to bottom, `raised`
+  and as tall as the board for Not Now and Done, the lane's color at `59` with a 1 px line at `66` under it for the
+  others. The name is an SVG file (`data/fizzy/labels/<shortHash>.svg`, its text turned 90°), written by the request
+  timer once per run; until it is there the pill shows its count alone. A pill's click opens its lane; an open lane's
+  head folds it unless it is the only one open. Not Now and Done are read when they open.
+- **Board, stacked** (narrower): lanes in the order of `fizzy column list`; Maybe? first and Not Now and Done last when
+  missing. Not Now and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show
+  more** (50 more). A header's click folds its lane (kept per board).
+- **Maybe?'s head** (both): `fizzy-watch`, a bordered box, padding 12 by 14: **Add a card** (`solid`, rounded full;
+  New card in Maybe?), then once `board accesses --jq` has named the watchers (read with the columns), `WATCHING FOR NEW
+  CARDS` between two rules, their 28 px avatars (eight, then `+N`), and **Watch for new cards** (`bell`) or **Stop
+  watching** (`bell-off`) in `accent` for the signed-in user: `board involvement <id> --involvement watching` or
+  `access_only`, shown at once, then the watchers are read again.
+- **Card counts.** After each read of the board (and of Not Now or Done), every card whose kept counts are not for its
+  `last_active_at` is wanted; the request timer reads them three cards at a time with `card show` (its steps) and
+  `comment list --card <n> --all --jq '{ok, data: ((.data // []) | length)}'`. Kept for the last 400 cards (`counts`); a
+  failed read is kept too, so it is not asked again until the card changes. Opening a card sets its counts from the card
+  page's own reads.
+- **Board, both.** In each lane golden cards come first, the rest in Fizzy's order. Pressing a card and letting go
+  anywhere over another lane's block (its header, its cards or between them, or its folded pill)
   moves it there; the change shows at once and the list reads again after the CLI answers. Pressing a column's header
   and letting go over another column's block moves the column to that place (before it moving left, after it moving
   right): the lanes reorder at once, `column move-left` or `move-right` runs once per place, and the columns are read

@@ -100,7 +100,7 @@ export function explainSearch(error) {
 // --jq projections: an answer cut down to the envelope's `ok` and the fields the panel reads. A failure's envelope passes
 // --jq untouched, so parseResult reads both alike.
 const COLUMN_JQ = '(.column | if type == "object" then {id, name, color} else null end)';
-const CARD_JQ = `{number, title, url, closed, postponed, golden, column: ${COLUMN_JQ}, board: (.board | if type == "object" then {id, name} else null end), tags: (.tags // []), assignees: [(.assignees // [])[] | {id, name, avatar_url}], last_active_at, description: ((.description // "") | .[0:300])}`;
+const CARD_JQ = `{number, title, url, closed, postponed, golden, column: ${COLUMN_JQ}, board: (.board | if type == "object" then {id, name} else null end), tags: (.tags // []), assignees: [(.assignees // [])[] | {id, name, avatar_url}], creator: (.creator | if type == "object" then {id, name, avatar_url} else null end), created_at, last_active_at, description: ((.description // "") | .[0:300])}`;
 const NOTE_JQ = `{id, title, body, read, created_at, creator: (.creator | if type == "object" then {id, name, avatar_url} else null end), card: (.card | if type == "object" then {number, title, url, closed, postponed, board_name, column: ${COLUMN_JQ}} else null end)}`;
 export const JQ = {
   cards: `{ok, data: [(.data // [])[] | ${CARD_JQ}]}`,
@@ -114,6 +114,9 @@ export const JQ = {
   mentions: '{ok, data: {html: [(.data // [])[] | .eventable | ((.body.html? // ""), (.description_html? // ""))] | map(select(contains("vnd.actiontext.mention"))) | unique, more: (.context.pagination.has_next // false)}}',
   // A card's attachments as their sgids, in the order `card attachments download` numbers them (from 1).
   attachments: "{ok, data: [(.data // [])[] | .sgid]}",
+  count: "{ok, data: ((.data // []) | length)}",
+  // The ids of the people who watch a board for new cards.
+  watchers: '{ok, data: [(.data.users // [])[] | select(.involvement == "watching") | .id]}',
 };
 
 // The argv after "fizzy" for each command; withJson adds the --json. Every flag here but --jq, which
@@ -130,6 +133,9 @@ export const cmd = {
   search: q => ["search", "--jq", JQ.cards, "--", String(q ?? "").replace(/^\s*#?/, "").trim()],
   card: n => ["card", "show", String(n)],
   comments: n => ["comment", "list", "--card", String(n), "--all"],
+  commentCount: n => ["comment", "list", "--card", String(n), "--all", "--jq", JQ.count],
+  watchers: board => ["board", "accesses", "--board", board, "--jq", JQ.watchers],
+  watchBoard: (board, on) => ["board", "involvement", board, "--involvement", on ? "watching" : "access_only"],
   users: () => ["user", "list", "--all"],
   tags: () => ["tag", "list", "--all"],
   pins: () => ["pin", "list", "--jq", JQ.cards],
@@ -930,6 +936,19 @@ printf %s "$p"`;
 // WRITE_SCRIPT writes the text "$2" to the file "$1", making its folder. Run as sh -c SCRIPT fizzy <path> <text>.
 export const WRITE_SCRIPT = 'mkdir -p "${1%/*}" && printf %s "$2" > "$1"';
 
+// A folded column's name, read top to bottom as Fizzy draws it. Mods can't turn text, so it is an SVG file (under the app's
+// folder, named after its text) whose text is turned. LABEL_FONT px type; labelBox is its size [width, height] in px, the
+// height counted generously so the text is never cut.
+export const LABEL_DIR = "data/fizzy/labels", LABEL_FONT = 12;
+export const labelFile = text => `${LABEL_DIR}/${shortHash(text)}.svg`;
+export const labelBox = text => [LABEL_FONT + 4, Math.ceil([...String(text)].length * LABEL_FONT * 0.82) + 4];
+export function labelSvg(text) {
+  const [w, h] = labelBox(text);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<text transform="translate(${Math.round(w * 0.24)} 2) rotate(90)" font-family="sans-serif" font-size="${LABEL_FONT}" font-weight="600"`
+    + ` letter-spacing="1.2" fill="#000">${escapeHtml(String(text))}</text></svg>`;
+}
+
 // Where a card's file is kept (under the app's folder): what dragging the card into a terminal drops there. It is named
 // "#<n> <title>.md", the title cut at 60 characters, as Herdr shows that name under the pointer while it is dragged.
 export function cardFile(card) {
@@ -976,6 +995,15 @@ export function photosIn(data) {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const stamp = x => (x instanceof Date ? x.getTime() : typeof x === "number" ? x : new Date(x).getTime());
 // How long ago: "now", "5m", "3h", "2d", then the date ("Mar 4", with the year when it isn't this one).
+// How many calendar days ago, as Fizzy's cards say it: "today", "yesterday", "8 days ago"; "" when unknown.
+export function daysAgo(iso, now) {
+  const t = stamp(iso), n = stamp(now ?? Date.now());
+  if (!iso || Number.isNaN(t) || Number.isNaN(n)) return "";
+  const day = ms => { const d = new Date(ms); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); };
+  const days = Math.max(0, Math.round((day(n) - day(t)) / 86400000));
+  return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 export function ago(iso, now) {
   const t = stamp(iso), n = stamp(now ?? Date.now());
   if (!iso || Number.isNaN(t) || Number.isNaN(n)) return "";

@@ -92,6 +92,7 @@ export function makeAccount(opts = {}) {
     attachments: {},   // card number -> its attachments' sgids, in the order `card attachments download` numbers them
     clipboardImage: false, // the clipboard holds an image (what the paste script reads)
     written: {}, // path -> the text WRITE_SCRIPT wrote there
+    watching: { b1: [TEAMMATE.id] }, // board id -> the ids of who watches it for new cards
     webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
     pageSize: opts.pageSize ?? 15,
     searchCap: opts.searchCap ?? SEARCH_CAP,
@@ -179,7 +180,17 @@ export function makeAccount(opts = {}) {
     }
     if (a1 === "upload" && a2 === "file") return ok({ attachable_sgid: `sgid-upload-${++sequence}`, filename: n.split("/").pop() });
     if (a1 === "card" && a2 === "show") return find(n) ? ok(typed(find(n))) : failure("not_found", `Resource not found: https://app.fizzy.do/111/cards/${n}`);
-    if (a1 === "comment" && a2 === "list") return ok(a.comments[Number(flag(args, "--card"))] ?? []);
+    if (a1 === "comment" && a2 === "list") {
+      const list = a.comments[Number(flag(args, "--card"))] ?? [];
+      return ok(jq === JQ.count ? list.length : list);
+    }
+    // Who watches a board for new cards (`watching`: board id -> user ids), and the signed-in user watching it or not.
+    if (a1 === "board" && a2 === "accesses") return ok((a.watching[flag(args, "--board")] ?? []).slice());
+    if (a1 === "board" && a2 === "involvement") {
+      const list = (a.watching[n] ??= []).filter(id => id !== ME.id);
+      a.watching[n] = flag(args, "--involvement") === "watching" ? [...list, ME.id] : list;
+      return ok(null);
+    }
     if (a1 === "user" && a2 === "list") return ok(a.users);
     if (a1 === "tag" && a2 === "list") return ok(a.tags);
     if (a1 === "pin" && a2 === "list") return ok(a.pins.map(typed));
@@ -333,7 +344,7 @@ export function makeAccount(opts = {}) {
   const unheld = new Promise(resolve => { unhold = resolve; });
   a.unhold = () => unhold();
 
-  const reads = new Set(["board list", "column list", "card list", "card show", "card attachments", "comment list", "user list", "tag list", "pin list", "identity show",
+  const reads = new Set(["board list", "board accesses", "column list", "card list", "card show", "card attachments", "comment list", "user list", "tag list", "pin list", "identity show",
     "notification tray", "config show", "search --", "activity list", "reaction list"]);
   a.writes = () => a.log.filter(args => !reads.has(`${args[0]} ${args[1]}`));
   a.asked = (...prefix) => a.log.filter(args => prefix.every((p, i) => args[i] === p));

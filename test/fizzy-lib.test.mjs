@@ -16,7 +16,7 @@ import {
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
   FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, reorderColumns, lanes, sections, filterCards, colorOf, meFrom,
-  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, inactivity,
+  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, daysAgo, inactivity,
   mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown, cardFile,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
@@ -80,6 +80,10 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.pin(7, false), ["card", "unpin", "7"]);
   assert.deepEqual(cmd.watch(7, true), ["card", "watch", "7"]);
   assert.deepEqual(cmd.watch(7, false), ["card", "unwatch", "7"]);
+  assert.deepEqual(cmd.commentCount(7), ["comment", "list", "--card", "7", "--all", "--jq", JQ.count]);
+  assert.deepEqual(cmd.watchers("b1"), ["board", "accesses", "--board", "b1", "--jq", JQ.watchers]);
+  assert.deepEqual(cmd.watchBoard("b1", true), ["board", "involvement", "b1", "--involvement", "watching"]);
+  assert.deepEqual(cmd.watchBoard("b1", false), ["board", "involvement", "b1", "--involvement", "access_only"]);
   assert.deepEqual(cmd.selfAssign(7), ["card", "self-assign", "7"]);
   assert.deepEqual(cmd.assign(7, "u1"), ["card", "assign", "7", "--user", "u1"]);
   assert.deepEqual(cmd.tag(7, "bug"), ["card", "tag", "7", "--tag", "bug"]);
@@ -116,9 +120,9 @@ test("every argv a builder makes is all strings, and the fake fizzy CLI the pane
     cmd.editComment(101, "cm1", "<p>c</p>"), cmd.dropComment(101, "cm1"), cmd.read("n1"), cmd.readAll(),
     cmd.stalled("b1"), cmd.activity(1), cmd.reactions(101, "cm1"), cmd.react(101, "cm1", "👍"), cmd.unreact(101, "cm1", "r1"),
     cmd.attachments(101), cmd.download(101, 1, "/home/tester/x.png"), cmd.upload("/home/tester/x.png"),
-    cmd.shiftColumn("c2", false), cmd.shiftColumn("c1", true),
+    cmd.shiftColumn("c2", false), cmd.shiftColumn("c1", true), cmd.commentCount(101), cmd.watchers("b1"), cmd.watchBoard("b1", true), cmd.watchBoard("b1", false),
   ];
-  assert.equal(argvs.length, Object.keys(cmd).length + 5, "every builder, and both sides of golden, pin, watch, step and shiftColumn, is covered");
+  assert.equal(argvs.length, Object.keys(cmd).length + 6, "every builder, and both sides of golden, pin, watch, step, shiftColumn and watchBoard, is covered");
   for (const argv of argvs) {
     assert.ok(argv.every(a => typeof a === "string"), `${argv.join(" ")}: all strings`);
     const account = makeAccount();
@@ -204,12 +208,29 @@ function throughJq(filter, answer) {
   return { ...answer, stdout: run.stdout };
 }
 
+test("JQ.count is how many a list holds, JQ.watchers the ids of who watches a board for new cards", () => {
+  const answer = data => ({ code: 0, stdout: JSON.stringify({ ok: true, data }), stderr: "" });
+  assert.equal(parseResult(throughJq(JQ.count, answer([{ id: "cm1" }, { id: "cm2" }, { id: "cm3" }]))), 3);
+  assert.equal(parseResult(throughJq(JQ.count, answer(null))), 0);
+  const accesses = { board_id: "b1", users: [{ id: "u1", involvement: "watching" }, { id: "u2", involvement: "access_only" }, { id: "u3", has_access: false }, { id: "u4", involvement: "watching" }] };
+  assert.deepEqual(parseResult(throughJq(JQ.watchers, answer(accesses))), ["u1", "u4"]);
+});
+
+test("daysAgo counts calendar days, as Fizzy's cards say it", () => {
+  const now = new Date(2026, 10, 16, 1, 0).toISOString();
+  assert.equal(daysAgo(new Date(2026, 10, 16, 0, 5).toISOString(), now), "today");
+  assert.equal(daysAgo(new Date(2026, 10, 15, 23, 55).toISOString(), now), "yesterday", "ten minutes ago, but the day before");
+  assert.equal(daysAgo(new Date(2026, 10, 8, 12).toISOString(), now), "8 days ago");
+  assert.equal(daysAgo(undefined, now), "");
+});
+
 test("the --jq projections keep what the panel reads, with the envelope's ok, and leave the rest out", () => {
   const [listed, triaged] = parseResult(throughJq(JQ.cards, OPEN));
   assert.deepEqual(listed, {
     number: 4242, title: "Write the changelog", url: "https://app.fizzy.do/111/cards/4242", closed: false, postponed: false, golden: true,
     column: { id: "c2", name: "Review", color: { name: "Purple", value: "var(--color-card-7)" } }, board: { id: "b1", name: "Roadmap" },
     tags: ["release"], assignees: [{ id: "u-me", name: "Ada", avatar_url: "https://app.fizzy.do/111/users/u-me/avatar" }],
+    creator: { id: "u-me", name: "Ada", avatar_url: "https://app.fizzy.do/111/users/u-me/avatar" }, created_at: "2025-01-10T09:00:00.000Z",
     last_active_at: "2025-01-14T12:00:00.000Z", description: "Newest on top",
   });
   assert.deepEqual([triaged.column, triaged.assignees, triaged.tags, triaged.description.length], [null, [], [], 300], "Maybe?: no column; the description cut to 300");

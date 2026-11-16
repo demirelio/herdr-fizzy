@@ -8,6 +8,7 @@ import { makeCx, drawn as drawnBy, space, agent, ROOT, MOD_DIR, modFile } from "
 import { makeAccount, LAYOUT } from "./fizzy-fixtures.mjs";
 
 const { default: Fizzy } = await import(modFile("main.js"));
+const { REQUEST_EVERY } = await import(modFile("lib.js"));
 
 const ours = path => /^mods\/fizzy\//.test(path);
 const drawn = tree => all(tree, n => n.kind === "svg" || n.kind === "image").map(n => n.path);
@@ -71,8 +72,15 @@ async function panelPaths() {
     return fire(el, "on_click", { click_count: 1, modifiers: {}, ...event }, cx);
   };
 
-  // The board: the lanes opened, a selection (the bar of hand-offs: its four icons and the chevrons), then a golden card's detail.
+  // The board: the cards' step progress and comment counts read (the request timer), the board watched (Stop watching's
+  // icon), the lanes opened, a selection (the bar of hand-offs: its four icons and the chevrons), then a golden card's detail.
   let tree = await draw();
+  const requests = cx.timers.find(t => !t.after && t.ms === REQUEST_EVERY);
+  for (let i = 0; i < 3; i++) { await requests.fn(cx); await cx.settle(); }
+  press(tree, "fizzy-watch-toggle");
+  await cx.settle();
+  tree = await draw();
+  for (const name of ["circle-check", "message-square-text", "bell-off"]) assert.ok(drawn(tree).includes(`mods/fizzy/${name}.svg`), `the board draws ${name}.svg`);
   for (const id of ["not-now", "done"]) press(tree, `fizzy-section-${id}`);
   press(tree, "fizzy-card-101", { modifiers: { platform: true } });
   tree = await draw();

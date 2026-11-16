@@ -37,35 +37,55 @@ Fizzy** at its right. Mine, Inbox and Pins go straight to their list.
 - On a card New card has just made: **Discard** and **Done** (see **New card** below).
 - The Inbox, and the search with no card picked, have no bar.
 
-**Board.** Each lane is a block of its own, in the board's own order from Fizzy; Maybe? comes first, and Not Now and
-Done last, when the board's column list leaves them out. A lane's header is tinted in the lane's color and shows a dot
-in it, the lane's name and the number of its cards. A column has the color it has in Fizzy; Maybe? is blue, Not Now
-gray and Done green. Not Now and Done start folded and are read each time you unfold them (and again on Refresh and
-after a change you make, while they are unfolded; a folded lane is never read); Done shows 50 cards, then **Show
-more**. A click on a lane's header folds or unfolds it (kept per board). The **+** on Maybe? and on each column makes a
-new card there (see **New card** below).
+**Board, side by side.** From 480 px of panel width the board looks like Fizzy's: its lanes stand side by side in the
+board's own order, Not Now first and Done last. One lane is open (Maybe?, until you open another), with its name and a
+dot in its color at the top and its cards under it, scrolling on their own. The others are folded: a narrow pill with
+the number of its cards and its name read top to bottom; Not Now and Done are gray pills as tall as the board, a column
+is a pill in its color with a line under it. Click a pill to open that lane; below 760 px that folds the one that was
+open, from 760 px two stay open (the one opened longest ago folds when you open a third). Click an open lane's name to
+fold it, unless it is the only one open. What is open is kept per board. Not Now and Done are read when they open (so
+a folded one shows no count until then), and again on Refresh and after a change you make while they are open; Done
+shows 50 cards, then **Show more**. The **+** beside an open lane's name makes a new card there.
 
-Each card is a tile tinted in its lane's color, with a bar in that color at its left. Golden cards come first in their
-lane and have a gold border; a pinned card has a pin before its title. The tile shows the whole title, on as many lines
-as it needs, with ↵ (Insert in chat) and `⋯` (the card's menu) at its right; under it, the card's number, up to three
-tags, up to three of the people it is assigned to, Fizzy's inactivity warning when there is one, and how long ago the
-card last changed. The warning is the one Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a
-quarter of the board's auto-postpone period is left since the card last changed, counted in calendar days, else
-"Stalled" when Fizzy lists the card as stalled. A card in Not Now or Done has none.
+**Board, stacked.** Narrower than 480 px the lanes stack, each a block of its own: a header tinted in the lane's
+color, with a dot, the lane's name and the number of its cards, and its cards under it. Not Now and Done start folded
+and are read each time you unfold them; a click on a lane's header folds or unfolds it (kept per board). The **+** on
+Maybe? and on each column makes a new card there (see **New card** below).
 
-Drag a card, from anywhere on its tile, onto another lane, anywhere in its block, to move it there, or onto a terminal
-to hand it over as a file ([Hand a card to an agent](#hand-a-card-to-an-agent)). Drag a column's header onto another
-column to move the column to that place, in Fizzy too: the lanes reorder at once, Fizzy moves the column one place at a
-time, and the columns are read again. Maybe?, Not Now and Done keep their places. ⌘-click or Ctrl-click picks several
+A column has the color it has in Fizzy; Maybe? is blue, Not Now gray and Done green. Maybe? starts with **Add a
+card** and, under **Watching for new cards**, the photos of the people who watch the board, with **Watch for new
+cards** or **Stop watching** for you (it switches at once; the watchers are read with the board's columns, and again
+after you switch).
+
+**Cards** look like Fizzy's. A head line: the card's number and its board (on a closed card, on a light tab); in Mine,
+Pins and the search, where lanes mix, also its lane in the lane's color. At its right the step progress (✓ 1/2),
+Fizzy's inactivity warning, ↵ (Insert in chat) and `⋯` (the card's menu). Then the title in bold (a pin before it when
+the card is pinned) and up to three tags. Then who made it, with their photo, and how long ago ("Added 127 days ago");
+when it last changed ("Today", "Yesterday", "8 days ago") and who it is assigned to, with their photos; and at the
+right the number of its comments. Golden cards come first in their lane and have a gold border. The warning is the one
+Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a quarter of the board's auto-postpone
+period is left since the card last changed, counted in calendar days, else "Stalled" when Fizzy lists the card as
+stalled. A card in Not Now or Done has none.
+
+Fizzy's card lists carry no step progress or comment count, so the panel reads them for each card of the board shown
+(a `card show` and a `comment list` per card, three cards at a time) and keeps them, for the next run too. A card is
+read again only once it has changed in Fizzy; opening a card refreshes its counts with what the card page reads
+anyway. The first time a big board shows, that is two commands per card.
+
+Drag a card, from anywhere on its tile, onto another lane (anywhere in its block, its open column or its folded pill)
+to move it there, or onto a terminal to hand it over as a file ([Hand a card to an agent](#hand-a-card-to-an-agent)).
+Drag a column's header (or its pill) onto another column to move the column to that place, in Fizzy too: the lanes
+reorder at once, Fizzy moves the column one place at a time, and the columns are read again. Maybe?, Not Now and Done
+keep their places. ⌘-click or Ctrl-click picks several
 cards; ⌘-click or Ctrl-click one again to unpick it. While cards are picked, the hand-off buttons take the filter's
 place at the foot.
 
 **Filter and My cards.** The filter at the foot narrows the list as you type: it keeps the cards whose title,
 `#number`, tags, assignees' names, column or the first 300 characters of the description hold every word you type, in
 any case. The x empties it. Board has a filter of its own; Mine and Pins share one. On Board, **My cards** keeps only
-the cards assigned to you, and while a filter or My cards is on, every lane that holds a match is open, folded or not;
-the fold kept for the lane does not change. The filter only sees cards the panel has already read; search finds the
-rest.
+the cards assigned to you, and while a filter or My cards is on, every stacked lane that holds a match is open, folded
+or not; the fold kept for the lane does not change. Side by side, the open lanes show the matches and each folded pill
+counts its own. The filter only sees cards the panel has already read; search finds the rest.
 
 **Search.** The search icon in the header turns the header into a search field, and the results take the place of the
 list, in any view. Press Enter: the panel asks Fizzy once, across every board, in open, Not Now and closed cards and in
@@ -406,17 +426,19 @@ comment, open in your browser.
 **Programs.**
 
 - `fizzy`, on this computer, run from your home folder, every command with `--json`. To read: `board list`,
-  `column list`, `card list`, `card show`, `comment list`, `reaction list`, `user list`, `tag list`, `pin list`,
-  `notification tray`, `activity list`, `search`, `card attachments show`, `identity show` and `config show`. The reads
-  it repeats (`card list`, `search`, `pin list`, `notification tray`, `reaction list`, `activity list`,
-  `card attachments show`) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
+  `board accesses` (who watches the board), `column list`, `card list`, `card show`, `comment list`, `reaction list`,
+  `user list`, `tag list`, `pin list`, `notification tray`, `activity list`, `search`, `card attachments show`,
+  `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`, `notification tray`,
+  `reaction list`, `activity list`, `card attachments show`, `board accesses`, and the `comment list` that counts a
+  card's comments) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
   download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
   change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `column move-left` and
-  `move-right` for a column you drag (one per place), `upload file` for a file you drop or paste, and
-  `notification read` and `read-all`. Each action is one command, or two (a closed card is reopened before it moves),
-  and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is `card create`, then a
-  `card list` when the CLI's answer does not give the new card's number, and a `card column` when the card goes in a
-  column. An upload or a download may take up to 5 minutes; Herdr stops any other command after 30 seconds.
+  `move-right` for a column you drag (one per place), `board involvement` for Watch for new cards and Stop watching,
+  `upload file` for a file you drop or paste, and `notification read` and `read-all`. Each action is one command, or
+  two (a closed card is reopened before it moves), and the panel reads again afterwards (not after Watch or Unwatch, or
+  a reaction). New card is `card create`, then a `card list` when the CLI's answer does not give the new card's
+  number, and a `card column` when the card goes in a column. An upload or a download may take up to 5 minutes; Herdr
+  stops any other command after 30 seconds.
 - `sh` on this computer, for the photos: a short script that runs `curl` for one photo address (http or https only,
   following redirects, at most 4 MiB and 20 seconds), keeps the file only when it is a png, jpeg, webp, svg or gif
   image, and deletes that person's older photos (besides shell built-ins such as `[`, `printf` and `echo`, it runs only
@@ -449,16 +471,18 @@ Images from descriptions and comments, under Herdr's app folder in `data/fizzy/f
 short hash of its attachment id or its address. A pasted image is written there first, and becomes the copy of that
 image once it is uploaded; when the upload fails, it is deleted. A card's file for a drag is written to
 `data/fizzy/files/cards`, again at each press. At start, whatever is in `data/fizzy/files` from over 7 days ago is
-deleted (a card shown again downloads its images again). A file whose chip you click is saved in `~/Downloads`. The mod
-writes no other file; the rest goes to Herdr's storage.
+deleted (a card shown again downloads its images again). The folded columns' names, read top to bottom, are small SVG
+files in `data/fizzy/labels` (mods can't turn text), one per name, written once per run. A file whose chip you click
+is saved in `~/Downloads`. The mod writes no other file; the rest goes to Herdr's storage.
 
 **Herdr's storage.** The mod keeps in its local storage (Herdr's `localStorage`): the view, the board you picked and
 whether you follow the space, the list of boards (with each board's auto-postpone period), the CLI's account and
 default board (from `config show`), the signed-in user's id and account, a copy of each board you opened (its columns
 and open cards, each description cut to 300 characters) so it shows at once next time, which lanes and groups are
-folded, the photos' and the images' file names, the ids of the last 300 notifications already announced, what you set
-for watching on the last 200 cards, the mention id it learned for each person, when it last looked through Fizzy's
-activity for them, and whether it may do so by itself.
+folded and which columns are open side by side, the step progress and comment count of the last 400 cards it counted
+(with when each card last changed), the photos' and the images' file names, the ids of the last 300 notifications
+already announced, what you set for watching on the last 200 cards, the mention id it learned for each person, when it
+last looked through Fizzy's activity for them, and whether it may do so by itself.
 
 The mention ids stay on this computer, in that local storage only: the shared `fizzy.people` says only who can be
 tagged, and an id goes nowhere but back to Fizzy, inside a comment or description you save.
@@ -480,8 +504,10 @@ It writes these shared keys, which every mod can read (Herdr keeps them in `shar
 writes nothing. Every 30 seconds while the panel shows, and at once when it comes back, it reads what is on
 screen: the open card with its comments, else the view, and nothing while you edit a title, a description, a step or a
 comment. On Board that is the open cards; the columns are read when they are not known yet (none kept from an earlier
-run) and on Refresh, each time with the board's stalled cards, and when an open card names a column it does not know;
-Not Now and Done are read when you unfold them, on Refresh and after a change you make while they are unfolded. Mine
+run) and on Refresh, each time with the board's stalled cards and its watchers, and when an open card names a column it
+does not know; Not Now and Done are read when you unfold (or open) them, on Refresh and after a change you make while
+they show. After each read of the board, the cards whose step progress and comment count are not kept for them as they
+are now are counted, three at a time. Mine
 asks every board in one call when the CLI has no default board (with one, a boardless read would only see that board,
 so it asks each board), and is read every other time. The pin list is read at start, when a card opens, after a change
 you make and in the Pins view. When a card is read, the reactions of its comments are read the first time (six at a

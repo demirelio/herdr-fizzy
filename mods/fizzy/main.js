@@ -8,7 +8,7 @@ import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, sha
 import { textPx } from "./text.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
-  columnOf, fullCard, noteCard, inactivity, reorderColumns,
+  columnOf, fullCard, noteCard, inactivity, reorderColumns, daysAgo, LABEL_FONT, labelFile, labelBox, labelSvg,
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
@@ -63,6 +63,11 @@ const DESC_INSET = 40, COMMENT_INSET = 66;
 // A lane's color at a given opacity (two hex digits): the tints behind its header and its cards, and their borders.
 const tint = (color, alpha) => `${color}${alpha}`;
 const WATCH_KEPT = 200;
+// Fizzy's side-by-side columns from SIDE_BY_SIDE px of panel width (narrower, the lanes stack), two of them open at once from
+// TWO_OPEN px (each then gets about 300 px). A folded column is FOLDED px wide.
+const SIDE_BY_SIDE = 480, TWO_OPEN = 760, FOLDED = 36;
+// Step progress and comment counts are read COUNT_PARALLEL cards at a time (two commands each), and kept for COUNTS_KEPT cards.
+const COUNT_PARALLEL = 3, COUNTS_KEPT = 400;
 
 const why = e => String(e?.message ?? e);
 const stop = (_e, cx) => cx.stop_propagation();
@@ -84,6 +89,10 @@ const keptMe = () => {
   return typeof kept?.id === "string" && kept.id ? { account: kept.account ?? null, id: kept.id } : null;
 };
 const watchEntries = raw => (Array.isArray(raw) ? raw.filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "boolean").map(([n, on]) => [n, on]) : []);
+// Kept counts, [[number, at, done, total, comments]] -> Map entries (see `counts` in init).
+const orNull = v => (Number.isInteger(v) && v >= 0 ? v : null);
+const countEntries = raw => (Array.isArray(raw) ? raw : []).filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "string")
+  .slice(-COUNTS_KEPT).map(([n, at, done, total, comments]) => [n, { at, done: orNull(done), total: orNull(total), comments: orNull(comments) }]);
 
 // Asks the CLI. Always from the home folder, so that no .fizzy.yaml beside the shell changes what it reads
 // (a default board would narrow the boardless Mine read).
@@ -103,6 +112,7 @@ function slim(card) {
     board: card.board ? { id: card.board.id, name: card.board.name } : undefined,
     tags: (card.tags ?? []).map(t => (typeof t === "string" ? t : t.title)),
     assignees: (card.assignees ?? []).map(u => ({ id: u.id, name: u.name })),
+    creator: card.creator ? { id: card.creator.id, name: card.creator.name } : undefined, created_at: card.created_at,
     last_active_at: card.last_active_at, description: String(card.description ?? "").slice(0, 300),
   };
 }
@@ -347,6 +357,16 @@ export default class Fizzy extends View {
     if (files && typeof files === "object") for (const [key, file] of Object.entries(files)) if (isCachedFile(file) && file.startsWith(`${key}.`)) this.files[key] = file;
     this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map(); this.savedMarkdown = new Map();
     this.width = null; // the panel's, in px, once drawn
+    // Side by side, the open columns of each board (board id -> lane keys, the last opened last); Maybe? when none is kept.
+    const opened = read("openColumns", {});
+    this.openCols = opened && typeof opened === "object" && !Array.isArray(opened) ? opened : {};
+    // A card's step progress and comment count: card number -> { at: the last_active_at they were read for, done, total, comments }
+    // (null where the read failed). Kept between runs; read again only for a card that changed (see wantCounts).
+    this.counts = new Map(countEntries(read("counts", [])));
+    this.countWanted = new Map(); this.countBusy = new Set();
+    this.watchers = new Map(); // board id -> the ids of the people watching it for new cards
+    // The folded columns' names as SVG files (see labelSvg): the ones written this run, wanted by a draw, being written.
+    this.labels = new Set(); this.labelWanted = new Set(); this.labelBusy = new Set();
 
     // Input states are made here and in handlers, never in render.
     // The Board view's filter, and the one Mine and Pins share: each list filters as it is typed into.
@@ -403,8 +423,8 @@ export default class Fizzy extends View {
     // A popup's request is also looked for on a timer: a popup that was left open when the panel was hidden (a hidden
     // copy is not drawn) has no draw to hand its request to, and must not wait until the panel shows again.
     // The same timer looks for a toast's click that had to bring the panel up first, for the new session that Start
-    // is waiting for, and for photos to fetch (never a draw's work).
-    cx.timer.every(REQUEST_EVERY, cx => { this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); });
+    // is waiting for, and for photos, card counts and column labels to fetch or write (never a draw's work).
+    cx.timer.every(REQUEST_EVERY, cx => { this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); this.takeLabels(cx); this.takeCounts(cx); });
     // The people are read again every day: new people, and photos older than a week are fetched again.
     cx.timer.every(AVATAR_EVERY, cx => this.loadUsers(cx));
     // Key commands ("<key>": "fizzy.<command>" in keys.json) and Herdr's `fizzy.<command>` run: panel copies only.
@@ -736,7 +756,7 @@ export default class Fizzy extends View {
   }
 
   unfolded(kind) {
-    return !this.collapsedNow({ key: kind, kind });
+    return this.sideBySide() ? this.openKeys(this.board).includes(kind) : !this.collapsedNow({ key: kind, kind });
   }
 
   // The board's open cards. The columns are read when they are not known yet or `columns` asks (Refresh), and when an open card
@@ -745,18 +765,21 @@ export default class Fizzy extends View {
   loadBoard(cx, { columns = false } = {}) {
     const board = this.board;
     if (!board) return;
-    this.load(`board:${board}`, cx, async () => {
+    this.load(`board:${board}`, cx, async cx => {
       try {
         const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !known, stale = lazy.stale;
         lazy.stale = false;
-        // The stalled cards change over days: they are read with the columns, and a failure only costs their labels.
-        const [listed, open, notNow, done, stalled] = await Promise.all([
+        // The stalled cards and the board's watchers change slowly: they are read with the columns, and a failure only costs
+        // their labels.
+        const [listed, open, notNow, done, stalled, watchers] = await Promise.all([
           wantColumns ? fizzy(cmd.columns(board)) : null, fizzy(cmd.open(board)),
           this.unfolded("not-now") && (stale || !lazy.notNow) ? fizzy(cmd.notNow(board)) : null,
           this.unfolded("done") && (stale || !lazy.done) ? this.doneCards(board, null, lazy.shown, lazy.page) : null,
           wantColumns ? fizzy(cmd.stalled(board)).catch(() => null) : null,
+          wantColumns ? fizzy(cmd.watchers(board)).catch(() => null) : null,
         ]);
         if (stalled) this.stalled.set(board, new Set(stalled));
+        if (watchers) this.watchers.set(board, watchers);
         let read = wantColumns ? listed ?? [] : null;
         if (!read && (open ?? []).some(c => c.column?.id && !known.some(k => k.id === c.column.id))) read = (await fizzy(cmd.columns(board))) ?? [];
         this.meet([open, notNow]);
@@ -766,6 +789,7 @@ export default class Fizzy extends View {
         this.cards.set(board, (open ?? []).map(slim));
         keep(`data:${board}`, { columns: this.columns.get(board), open: this.cards.get(board) });
         if (this.board === board) { this.errors.board = null; this.prune(); }
+        this.wantCounts([...this.cards.get(board), ...(notNow ? lazy.notNow : []), ...(done ? lazy.done : [])]);
       } catch (e) { if (this.board === board) this.errors.board = e; }
     });
   }
@@ -775,7 +799,7 @@ export default class Fizzy extends View {
     const board = this.board;
     if (!board) return;
     const lazy = this.lazyOf(board);
-    this.load(`lane:${kind}:${board}`, cx, async () => {
+    this.load(`lane:${kind}:${board}`, cx, async cx => {
       try {
         if (kind === "done") {
           const d = await this.doneCards(board, null, lazy.shown);
@@ -786,6 +810,7 @@ export default class Fizzy extends View {
           lazy.notNow = cards.map(slim);
         }
         lazy.errors[kind] = null;
+        this.wantCounts(kind === "done" ? lazy.done : lazy.notNow);
       } catch (e) { lazy.errors[kind] = e; }
     });
   }
@@ -942,6 +967,7 @@ export default class Fizzy extends View {
         this.learnMentions((comments ?? []).map(cm => cm.body?.html));
         if (this.detail !== d) return;
         d.card = card; d.comments = comments ?? []; d.error = null;
+        if (card?.last_active_at) this.setCounts(d.number, card.last_active_at, card.steps, d.comments.length);
         this.loadReactions(d.number, d.comments, reactions, cx);
         this.wantImages(d.number, [card?.description_html, ...d.comments.map(cm => cm.body?.html)], cx);
       } catch (e) { if (this.detail === d) d.error = e; }
@@ -959,6 +985,111 @@ export default class Fizzy extends View {
       }
     }
     this.takeFiles(cx);
+  }
+
+  // Fizzy's card lists have no step progress or comment count: each card's are read with `card show` and `comment list`, only
+  // when none are kept for the card as it is now (its last_active_at). The request timer starts them, COUNT_PARALLEL cards at a time.
+  wantCounts(cards) {
+    for (const c of cards ?? []) {
+      if (c?.last_active_at && this.counts.get(c.number)?.at !== c.last_active_at && !this.countBusy.has(c.number)) this.countWanted.set(c.number, c.last_active_at);
+    }
+  }
+
+  takeCounts(cx) {
+    for (const [n, at] of this.countWanted) {
+      if (this.countBusy.size >= COUNT_PARALLEL) break;
+      this.countWanted.delete(n);
+      this.countBusy.add(n);
+      cx.spawn(async cx => {
+        try {
+          const [card, comments] = await Promise.all([this.readCard(n), fizzy(cmd.commentCount(n))]);
+          this.setCounts(n, card?.last_active_at ?? at, card?.steps, comments);
+        } catch { this.setCounts(n, at, null, null); } // not read again until the card changes
+        this.countBusy.delete(n);
+        this.takeCounts(cx);
+        cx.notify();
+      });
+    }
+  }
+
+  setCounts(n, at, steps, comments) {
+    const done = Array.isArray(steps) ? steps.filter(s => s.completed).length : null;
+    this.counts.delete(n);
+    this.counts.set(n, { at, done, total: Array.isArray(steps) ? steps.length : null, comments: orNull(comments) });
+    while (this.counts.size > COUNTS_KEPT) this.counts.delete(this.counts.keys().next().value);
+    keep("counts", [...this.counts].map(([k, v]) => [k, v.at, v.done, v.total, v.comments]));
+  }
+
+  sideBySide() {
+    return (this.width ?? 0) >= SIDE_BY_SIDE;
+  }
+
+  // A board's open columns side by side, the last opened last: as many as fit (two from TWO_OPEN px, else one).
+  openKeys(board) {
+    const kept = this.openCols[board];
+    const keys = Array.isArray(kept) && kept.length ? kept : ["maybe"];
+    return keys.slice(-((this.width ?? 0) >= TWO_OPEN ? 2 : 1));
+  }
+
+  // A folded column opens (the one opened longest ago folds when no more fit); an open one folds, unless it is the only one.
+  toggleColumn(section, cx) {
+    const board = this.board, open = this.openKeys(board);
+    let next;
+    if (open.includes(section.key)) {
+      if (open.length === 1) return;
+      next = open.filter(k => k !== section.key);
+    } else next = [...open, section.key];
+    this.openCols = { ...this.openCols, [board]: next };
+    keep("openColumns", this.openCols);
+    if (!open.includes(section.key) && (section.kind === "not-now" || section.kind === "done")) this.loadLane(section.kind, cx);
+    cx.notify();
+  }
+
+  // Side by side at last (the board's first read can come before the panel's width is known): an open Not Now or Done not
+  // read yet is read now.
+  loadOpenLanes(cx) {
+    if (!this.board) return;
+    const lazy = this.lazyOf(this.board), open = this.openKeys(this.board);
+    if (open.includes("not-now") && !lazy.notNow) this.loadLane("not-now", cx);
+    if (open.includes("done") && !lazy.done) this.loadLane("done", cx);
+  }
+
+  // Watching a board for new cards, or not: shown at once, then the board's watchers are read again.
+  toggleWatching(cx) {
+    const board = this.board, me = this.me, ids = this.watchers.get(board) ?? [];
+    if (!board || !me) return null;
+    const on = !ids.includes(me);
+    this.watchers.set(board, on ? [...ids, me] : ids.filter(id => id !== me));
+    cx.notify();
+    return this.job(cx, async cx => {
+      try { await fizzy(cmd.watchBoard(board, on)); }
+      catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
+      const read = await fizzy(cmd.watchers(board)).catch(() => null);
+      if (read) this.watchers.set(board, read);
+      cx.notify();
+    });
+  }
+
+  // A folded column's name as an SVG file, once it is written (a draw asks for it, the request timer writes it); else null.
+  label(text) {
+    if (this.labels.has(text)) return labelFile(text);
+    this.labelWanted.add(text);
+    return null;
+  }
+
+  takeLabels(cx) {
+    for (const text of this.labelWanted) {
+      this.labelWanted.delete(text);
+      if (this.labels.has(text) || this.labelBusy.has(text)) continue;
+      this.labelBusy.add(text);
+      cx.spawn(async cx => {
+        const r = await exec("sh", ["-c", WRITE_SCRIPT, "fizzy", `${appHome()}/${labelFile(text)}`, labelSvg(text)]).catch(() => null);
+        if (r?.code !== 0) return; // left busy: not tried again this run, and the column shows its count alone
+        this.labelBusy.delete(text);
+        this.labels.add(text);
+        cx.notify();
+      });
+    }
   }
 
   // Everything in FILE_DIR saved over FILE_DAYS days ago is deleted at start, and its images forgotten: a card shown again
@@ -2383,43 +2514,72 @@ export default class Fizzy extends View {
       .when(this.view === "board", el => el.child(this.mineToggle(t)).child(this.newCardButton(t)));
   }
 
-  // A card as a tile in its lane's `color` (a tint behind it, a bar at its left), a gold border when golden: a pin when
-  // pinned, its whole title, then its number, tags, people, Fizzy's inactivity warning and its age. Dragged, it is the card
-  // (every picked card, when it is one of them): onto another lane it moves there, into a terminal it drops its file.
+  // A card as Fizzy draws it. A head line: its number | its board (a light tab on a closed card; in a list that mixes lanes,
+  // its lane in the lane's color too), then its step progress, Fizzy's inactivity warning, ↵ and ⋯. Its title in bold (a pin
+  // before it when pinned), its tags, then who made it and when, when it last changed and who it is assigned to, with their
+  // photos, and its comment count. A gold border when golden, an accent one when picked. Dragged, it is the card (every
+  // picked card, when it is one of them): onto another lane it moves there, into a terminal it drops its file.
   cardRow(t, card, lane, color) {
     const n = card.number, picked = this.selected.has(n), dragged = picked ? this.dragged(this.pickedNumbers()) : [card];
     const quick = (id, icon, tip, action) => div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip(tip)
       .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
       .child(svg(icon).size(13));
-    const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board;
+    const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board, closed = laneOf(card) === "done";
+    const boardName = card.board?.name ?? this.boards?.find(b => b.id === board)?.name ?? "";
     const warn = inactivity(card, { period: this.boards?.find(b => b.id === board)?.period, stalled: Boolean(this.stalled.get(board)?.has(n)), now: now() });
     const warnColor = warn?.kind === "closing" ? t.ansi3 : t.blocked;
-    return this.dragCards(h_flex().id(`fizzy-card-${n}`), dragged).flex_none().items_stretch().gap(9).pl(7).pr(6).py(8).rounded(8).cursor_pointer()
-      .bg(picked ? t.selected : tint(color, "1f"))
+    const counts = this.counts.get(n), steps = counts?.total > 0 ? counts : null, comments = counts?.comments ?? 0;
+    const added = card.created_at ? daysAgo(card.created_at, now()) : "", changed = daysAgo(card.last_active_at, now());
+    const upper = text => String(text ?? "").toUpperCase();
+    const ruled = el => el.pb(3).border_b(1).border_color(t.border);
+    const line = (id, icon, text) => h_flex().id(id).min_w(0).gap(4).items_center()
+      .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(12).flex_none())).child(div().min_w(0).truncate().child(text));
+    const head = h_flex().id(`fizzy-card-head-${n}`).min_w(0).gap(7).items_center().text_size(textPx(11)).font_medium()
+      .text_color(closed ? t.background : t.muted)
+      .when(closed, el => el.px(7).py(2).rounded(4).bg(t.muted))
+      .child(div().flex_none().child(String(n)))
+      .when(Boolean(boardName), el => el.child(div().w(1).h(11).flex_none().bg(closed ? t.background : t.border))
+        .child(div().min_w(0).truncate().child(upper(boardName))));
+    return this.dragCards(v_flex().id(`fizzy-card-${n}`), dragged).flex_none().gap(8).px(11).py(10).rounded(8).cursor_pointer()
+      .bg(picked ? t.selected : t.background)
       .when(card.golden && !picked, el => el.border_2().border_color(t.ansi3))
-      .when(!card.golden || picked, el => el.border_1().border_color(picked ? t.accent : tint(color, "4d")).hover(s => s.border_color(tint(color, "99"))))
+      .when(!card.golden || picked, el => el.border_1().border_color(picked ? t.accent : t.border).hover(s => s.border_color(t.input)))
       .on_mouse_down("left", (_e, cx) => { this.pressed = { number: n, lane }; this.writeCardFiles(dragged, cx); })
       .on_mouse_up("left", (_e, cx) => this.drop(lane, cx))
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.cardMenu(card, cx); })
       .on_click((e, cx) => this.clickCard(card, e, cx))
-      .child(div().w(3).flex_none().rounded(2).bg(color))
-      .child(v_flex().flex_1().min_w(0).gap(7)
-        .child(h_flex().gap(6).items_start().min_w(0)
-          .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(13).mt(2).flex_none().text_color(t.accent)))
-          .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).mt(1).whitespace_normal().font_medium().child(card.title ?? ""))
-          .child(h_flex().flex_none().gap(1)
-            .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
-            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
-        .child(h_flex().gap(6).items_center().min_w(0).text_size(textPx(11)).text_color(t.dim)
-          .child(div().flex_none().child(`#${n}`))
-          .child(h_flex().flex_1().min_w(0).gap(4).items_center().overflow_hidden()
-            .children(tags.slice(0, 3).map(tag => this.chip(t, tag, { max: 150, bg: t.background })))
-            .when(tags.length > 3, el => el.child(div().flex_none().child(`+${tags.length - 3}`))))
-          .when(who.length > 0, el => el.child(h_flex().flex_none().gap(2).children(who.slice(0, 3).map(u => this.avatar(t, u, 18)))))
-          .when(Boolean(warn), el => el.child(div().id(`fizzy-card-warn-${n}`).h(16).px(5).flex_none().flex().items_center().rounded(4)
-            .border_1().border_color(warnColor).text_color(warnColor).font_medium().child(warn.label)))
-          .child(div().flex_none().child(ago(card.last_active_at, now())))));
+      .child(h_flex().gap(6).items_center().min_w(0)
+        .child(head)
+        .when(lane == null, el => el.child(h_flex().id(`fizzy-card-lane-${n}`).flex_none().gap(4).items_center().text_size(textPx(11)).font_medium().text_color(color)
+          .child(div().size(7).rounded_full().bg(color)).child(upper(laneName(card)))))
+        .child(div().flex_1())
+        .when(Boolean(steps), el => el.child(h_flex().id(`fizzy-card-steps-${n}`).flex_none().gap(4).items_center().text_size(textPx(12)).font_medium()
+          .child(svg(ICON("circle-check")).size(14).flex_none().text_color(steps.done === steps.total ? t.done : t.accent)).child(`${steps.done}/${steps.total}`)))
+        .when(Boolean(warn), el => el.child(div().id(`fizzy-card-warn-${n}`).h(16).px(5).flex_none().flex().items_center().rounded(4)
+          .border_1().border_color(warnColor).text_color(warnColor).text_size(textPx(11)).font_medium().child(warn.label)))
+        .child(h_flex().flex_none().gap(1)
+          .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
+          .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
+      .child(h_flex().gap(6).items_start().min_w(0)
+        .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(14).mt(3).flex_none().text_color(t.accent)))
+        .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).whitespace_normal().font_bold().text_size(textPx(15)).child(card.title ?? "")))
+      .when(tags.length > 0, el => el.child(h_flex().gap(4).items_center().min_w(0).overflow_hidden()
+        .children(tags.slice(0, 3).map(tag => this.chip(t, `#${tag}`, { max: 150 })))
+        .when(tags.length > 3, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(`+${tags.length - 3}`)))))
+      .child(h_flex().id(`fizzy-card-meta-${n}`).gap(8).items_center().min_w(0).text_size(textPx(11)).font_medium().text_color(t.accent)
+        .when(Boolean(card.creator), el => el.child(this.avatar(t, card.creator, 24)))
+        .child(v_flex().min_w(0).gap(3)
+          .child(ruled(line(`fizzy-card-added-${n}`, null, upper(added ? `added ${added}` : "added"))))
+          .child(line(`fizzy-card-creator-${n}`, null, upper(card.creator?.name ?? ""))))
+        .child(div().w(1).h(32).flex_none().bg(t.border))
+        .child(v_flex().min_w(0).gap(3)
+          .child(ruled(line(`fizzy-card-changed-${n}`, "refresh", upper(changed))))
+          .child(line(`fizzy-card-assigned-${n}`, "arrow-right", who.length ? upper(who.map(u => u.name).join(", ")) : "")))
+        .when(who.length > 0, el => el.child(h_flex().id(`fizzy-card-people-${n}`).flex_none().gap(2).children(who.slice(0, 2).map(u => this.avatar(t, u, 24)))))
+        .child(div().flex_1())
+        .when(comments > 0, el => el.child(h_flex().id(`fizzy-card-comments-${n}`).flex_none().gap(4).items_center().text_size(textPx(12)).text_color(t.foreground)
+          .child(svg(ICON("message-square-text")).size(16).flex_none().text_color(t.accent)).child(String(comments)))));
   }
 
   // A lane's header: its color as a dot and a tint behind the row; its name, its count in a pill, and + for a new card.
@@ -2461,10 +2621,8 @@ export default class Fizzy extends View {
     // A failed read keeps what was read before on screen, under the message.
     if (this.errors.board) out.push(this.status(t, explain(this.errors.board), cx, true));
     let total = 0;
-    for (const section of sections(columns, this.cards.get(board) ?? [], { notNow: lazy.notNow ?? undefined, done: lazy.done ?? undefined })) {
-      const loaded = section.kind === "not-now" ? Boolean(lazy.notNow) : section.kind === "done" ? Boolean(lazy.done) : true;
-      // Golden cards head their lane; the rest keep Fizzy's order (the sort is stable).
-      const cards = filterCards(section.cards, query, { mine: this.onlyMine, me: this.me }).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
+    for (const section of this.boardSections(board)) {
+      const { loaded, cards, shown } = this.laneCards(section, lazy, query);
       // A filter shows every lane that holds a match, folded or not; the fold kept for the lane is left as it is.
       const closed = this.collapsedNow(section) && !(filtering && cards.length);
       // Each lane is a block: a press let go anywhere in it, between its cards too, moves the card pressed there.
@@ -2474,21 +2632,123 @@ export default class Fizzy extends View {
         .child(this.sectionHeader(t, section, loaded ? cards.length : null, closed));
       out.push(lane);
       if (closed) continue;
-      const body = [];
-      const shown = section.kind === "done" ? cards.slice(0, lazy.shown) : cards;
       total += shown.length;
-      for (const card of shown) body.push(this.cardRow(t, card, section.key, color));
-      const onDemand = section.kind === "done" || section.kind === "not-now";
-      if (onDemand && lazy.errors[section.kind]) body.push(this.status(t, explain(lazy.errors[section.kind]), cx, true, cx => this.loadLane(section.kind, cx), `fizzy-retry-${section.key}`));
-      else if (onDemand && !loaded) body.push(this.status(t, "Loading…", cx));
-      if (section.kind === "done" && loaded && (!lazy.end || cards.length > lazy.shown)) {
-        body.push(h_flex().id("fizzy-more-done").h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
-          .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.moreDone(cx)).child("Show more"));
-      }
-      if (body.length) lane.child(v_flex().px(6).pt(2).pb(6).gap(6).children(body));
+      const body = [
+        ...(section.kind === "maybe" ? [this.watchBox(t)] : []),
+        ...shown.map(card => this.cardRow(t, card, section.key, color)),
+        ...this.laneFoot(t, section, cards, loaded, lazy, cx),
+      ];
+      lane.child(v_flex().px(6).pt(2).pb(6).gap(6).children(body));
     }
     if (!total) out.push(this.status(t, filtering ? "No cards match" : "No cards", cx));
     return out;
+  }
+
+  boardSections(board) {
+    const lazy = this.lazyOf(board);
+    return sections(this.columns.get(board) ?? [], this.cards.get(board) ?? [], { notNow: lazy.notNow ?? undefined, done: lazy.done ?? undefined });
+  }
+
+  // A lane's cards as the filter leaves them, golden first, the rest in Fizzy's order (the sort is stable); `shown`: Done's first
+  // pages only. `loaded`: Not Now and Done are read only when they show.
+  laneCards(section, lazy, query) {
+    const loaded = section.kind === "not-now" ? Boolean(lazy.notNow) : section.kind === "done" ? Boolean(lazy.done) : true;
+    const cards = filterCards(section.cards, query, { mine: this.onlyMine, me: this.me }).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
+    return { loaded, cards, shown: section.kind === "done" ? cards.slice(0, lazy.shown) : cards };
+  }
+
+  // Under a lane's cards: Not Now's or Done's read failing (with Retry) or under way, and Done's Show more.
+  laneFoot(t, section, cards, loaded, lazy, cx) {
+    const out = [], onDemand = section.kind === "done" || section.kind === "not-now";
+    if (onDemand && lazy.errors[section.kind]) out.push(this.status(t, explain(lazy.errors[section.kind]), cx, true, cx => this.loadLane(section.kind, cx), `fizzy-retry-${section.key}`));
+    else if (onDemand && !loaded) out.push(this.status(t, "Loading…", cx));
+    if (section.kind === "done" && loaded && (!lazy.end || cards.length > lazy.shown)) {
+      out.push(h_flex().id("fizzy-more-done").h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
+        .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.moreDone(cx)).child("Show more"));
+    }
+    return out;
+  }
+
+  // Fizzy's board: the columns side by side in the board's order, Not Now first and Done last. A folded column is a narrow pill
+  // (its count, its name read top to bottom); a click opens it, as many open at once as fit (openKeys), each scrolling on its
+  // own. A card let go anywhere over a column moves there; a column's head or pill let go over another column moves that column.
+  boardColumns(t, cx) {
+    const board = this.board;
+    if (!board || !this.columns.get(board)) return v_flex().id("fizzy-list").flex_1().min_h(0).p(8).gap(8).children(this.boardList(t, cx));
+    const lazy = this.lazyOf(board), query = this.boardFilter.value(), lanes = this.boardSections(board);
+    const kept = this.openKeys(board).filter(key => lanes.some(s => s.key === key)), open = kept.length ? kept : ["maybe"];
+    return v_flex().id("fizzy-board").flex_1().min_h(0)
+      .when(Boolean(this.errors.board), el => el.child(this.status(t, explain(this.errors.board), cx, true)))
+      .child(h_flex().id("fizzy-columns").flex_1().min_h(0).items_stretch().gap(8).p(8)
+        .children(lanes.map(section => {
+          const { loaded, cards, shown } = this.laneCards(section, lazy, query);
+          return open.includes(section.key)
+            ? this.openColumn(t, section, { cards, shown, loaded, lazy }, cx)
+            : this.foldedColumn(t, section, loaded ? cards.length : null);
+        })));
+  }
+
+  openColumn(t, section, { cards, shown, loaded, lazy }, cx) {
+    const color = sectionColor(section), addable = section.kind === "column" || section.kind === "maybe";
+    const body = [
+      ...(section.kind === "maybe" ? [this.watchBox(t)] : []),
+      ...shown.map(card => this.cardRow(t, card, section.key, color)),
+      ...this.laneFoot(t, section, cards, loaded, lazy, cx),
+    ];
+    if (loaded && !shown.length && section.kind !== "maybe") body.push(this.status(t, this.boardFilter.value().trim() || this.onlyMine ? "No cards match" : "No cards", cx));
+    return v_flex().id(`fizzy-col-${section.key}`).flex_1().min_w(0).min_h(0).gap(6)
+      .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
+      .child(h_flex().id(`fizzy-col-head-${section.key}`).h(30).flex_none().gap(8).px(8).items_center().justify_center().rounded(7)
+        .when(this.openKeys(this.board).length > 1, el => el.cursor_pointer().hover(s => s.bg(t.hover)))
+        .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
+        .on_click((_e, cx) => this.toggleColumn(section, cx))
+        .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
+        .when(section.kind !== "done", el => el.child(div().size(10).flex_none().rounded_full().bg(color)))
+        .child(div().min_w(0).truncate().text_size(textPx(13)).font_semibold().child(section.name.toUpperCase()))
+        .when(addable, el => el.child(div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
+          .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
+          .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.newCard(section.key, cx); })
+          .child(svg(ICON("plus")).size(13)))))
+      .child(v_flex().id(`fizzy-col-cards-${section.key}`).flex_1().min_h(0).overflow_y_scrollbar().gap(8).pr(4).children(body));
+  }
+
+  // Not Now and Done fold into a gray pill as tall as the board; the other lanes into a pill in their color, then a line.
+  foldedColumn(t, section, count) {
+    const color = sectionColor(section), tall = section.kind === "not-now" || section.kind === "done";
+    const text = section.name.toUpperCase(), label = this.label(text), [w, h] = labelBox(text);
+    return v_flex().id(`fizzy-col-${section.key}`).w(FOLDED).flex_none().items_center().cursor_pointer()
+      .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
+      .on_click((_e, cx) => this.toggleColumn(section, cx))
+      .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
+      .child(v_flex().id(`fizzy-col-pill-${section.key}`).w(FOLDED).flex_none().items_center().gap(8).pt(10).pb(14).rounded(FOLDED / 2)
+        .bg(tall ? t.raised : tint(color, "59")).hover(s => s.bg(tall ? t.hover : tint(color, "80"))).tooltip(section.name)
+        .when(tall, el => el.flex_1())
+        .child(div().id(`fizzy-col-count-${section.key}`).text_size(textPx(13)).font_semibold().child(count == null ? "" : String(count)))
+        .when(Boolean(label), el => el.child(svg(label).w(textPx(w)).h(textPx(h)).flex_none().text_color(t.foreground))))
+      .when(!tall, el => el.child(div().w(1).flex_1().bg(tint(color, "66"))));
+  }
+
+  // The head of Maybe?, as Fizzy's: Add a card, then who watches the board for new cards, and a button to watch it or stop.
+  watchBox(t) {
+    const ids = this.watchers.get(this.board), me = this.me, watching = Boolean(me && ids?.includes(me));
+    const users = people().users ?? [], watchers = (ids ?? []).map(id => users.find(u => u.id === id)).filter(Boolean);
+    return v_flex().id("fizzy-watch").flex_none().items_center().gap(10).px(12).py(14).rounded(8).border_1().border_color(t.border)
+      .child(h_flex().id("fizzy-watch-add").h(30).px(14).gap(6).items_center().rounded_full().cursor_pointer().bg(t.solid).text_color(t.solid_foreground)
+        .text_size(textPx(13)).font_semibold().hover(s => s.opacity(0.88)).on_mouse_down("left", stop)
+        .on_click((_e, cx) => this.newCard("maybe", cx))
+        .child(svg(ICON("plus")).size(14).flex_none()).child("Add a card"))
+      .when(ids != null, el => el
+        .child(h_flex().w_full().gap(8).items_center()
+          .child(div().flex_1().h(1).bg(t.border))
+          .child(div().flex_none().text_size(textPx(11)).font_semibold().text_color(t.muted).child(watchers.length ? "WATCHING FOR NEW CARDS" : "NOBODY WATCHES FOR NEW CARDS"))
+          .child(div().flex_1().h(1).bg(t.border)))
+        .when(watchers.length > 0, el => el.child(h_flex().id("fizzy-watchers").gap(4).items_center().justify_center()
+          .children(watchers.slice(0, 8).map(u => this.avatar(t, u, 28)))
+          .when(watchers.length > 8, el => el.child(div().text_size(textPx(11)).text_color(t.muted).child(`+${watchers.length - 8}`)))))
+        .when(Boolean(me), el => el.child(h_flex().id("fizzy-watch-toggle").h(26).px(8).gap(6).items_center().rounded(6).cursor_pointer()
+          .text_size(textPx(12)).font_semibold().text_color(t.accent).hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => this.toggleWatching(cx))
+          .child(svg(ICON(watching ? "bell-off" : "bell")).size(14).flex_none()).child(watching ? "STOP WATCHING" : "WATCH FOR NEW CARDS"))));
   }
 
   mineList(t, cx) {
@@ -3147,9 +3407,13 @@ export default class Fizzy extends View {
     const lists = !this.settingsOpen && !d, fresh = Boolean(d) && this.fresh === d.number;
     return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(textPx(13))
       .on_size_change((size, cx) => {
+        const layoutNow = () => [this.narrow, this.wide, this.sideBySide(), this.board ? this.openKeys(this.board).length : 0].join();
+        const was = layoutNow(), wasSide = this.sideBySide();
         this.width = size.width;
-        const narrow = size.width < NARROW, wide = size.width >= WIDE;
-        if (narrow !== this.narrow || wide !== this.wide) { this.narrow = narrow; this.wide = wide; cx.notify(); }
+        this.narrow = size.width < NARROW; this.wide = size.width >= WIDE;
+        if (layoutNow() === was) return;
+        if (this.sideBySide() && !wasSide) this.loadOpenLanes(cx);
+        cx.notify();
       })
       .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.endDrag(cx); })
       // A card pressed and let go away from the panel (dragged into a terminal) is not held for ever: the next
@@ -3160,7 +3424,9 @@ export default class Fizzy extends View {
       .when(!this.settingsOpen && Boolean(d), el => el.child(this.detailView(t, cx)))
       .when(lists, el => el
         .when(this.view === "board" && !this.search, el => el.child(this.boardBar(t, cx)))
-        .child(v_flex().id("fizzy-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(8).children(this.listFor(t, cx))))
+        .child(this.view === "board" && !this.search && this.sideBySide()
+          ? this.boardColumns(t, cx)
+          : v_flex().id("fizzy-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(8).children(this.listFor(t, cx))))
       .when(!this.settingsOpen && fresh, el => el.child(this.freshBar(t)))
       .when(!this.settingsOpen && !fresh && (Boolean(d) || (lists && picking)), el => el.child(this.handBar(t)))
       .when(lists && !picking && !this.search && this.view !== "inbox", el => el.child(this.listBar(t)));
