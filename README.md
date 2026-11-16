@@ -44,9 +44,10 @@ narrow pill in the lane's color (gray for Not Now and Done) that fades downwards
 cards the lane holds (a circle when it holds none), with the number of its cards at the top and its name read top to
 bottom, and a faint line on to the board's foot. Not Now and Done are as tall as a pill gets until they are read.
 Click a pill to open that lane; below 760 px that folds the one that was open, from 760 px two stay open (the one
-opened longest ago folds when you open a third). Click an open lane's name to fold it, unless it is the only one open. What is open is kept per board. Not Now and Done are read when they open (so
-a folded one shows no count until then), and again on Refresh and after a change you make while they are open; Done
-shows 50 cards, then **Show more**. The **+** beside an open lane's name makes a new card there.
+opened longest ago folds when you open a third). Click an open lane's name to fold it, unless it is the only one open.
+What is open is kept per board. Not Now and Done are read when they open (so a folded one shows no count until then),
+and again on Refresh and after a change you make while they are open; Done shows 50 cards, then **Show more**. The
+**+** beside an open lane's name makes a new card there.
 
 **Board, stacked.** Narrower than 480 px the lanes stack, each a block of its own: a header tinted in the lane's
 color, with a dot, the lane's name and the number of its cards, and its cards under it. Not Now and Done start folded
