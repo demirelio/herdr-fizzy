@@ -2036,21 +2036,37 @@ test("from 480 px the board is Fizzy's: columns side by side in the board's orde
   assert.deepEqual(["c1", "c2", "not-now"].map(k => textOf(must(tree, `fizzy-col-count-${k}`))), ["1", "1", ""], "Not Now is read only when it opens");
   assert.equal(textOf(must(tree, "fizzy-col-head-maybe")).trim(), "MAYBE?");
   assert.deepEqual(ids(must(tree, "fizzy-col-cards-maybe")).filter(id => /^fizzy-(watch|card-\d+)$/.test(id)), ["fizzy-watch", "fizzy-card-103"], "Add a card and the watchers first, then its cards");
-  const pill = must(tree, "fizzy-col-pill-done"), c1 = must(tree, "fizzy-col-c1");
-  assert.deepEqual([pill.style.w, pill.style.flex_1, pill.style.bg], [36, true, "raised"], "Done: a gray pill as tall as the board");
-  assert.deepEqual([c1.kids.length, c1.kids[1].style.w, c1.kids[1].style.flex_1], [2, 1, true], "a column: its pill, then a line down");
+});
+
+test("a folded column is Fizzy's pill: its color fading out downwards, as tall as its cards make it (a circle with none), over a faint line to the board's foot; Not Now and Done are gray, and as tall as it gets until read", async () => {
+  acct.cards = acct.cards.filter(c => c.number !== 102);
+  for (const n of [111, 112, 113]) acct.cards.push({ ...acct.card(101), id: `id-${n}`, number: n });
+  const m = await mount();
+  const tree = await atWidth(m, 600);
+  const pillOf = key => all(must(tree, `fizzy-col-${key}`), n => n.kind === "path")[0];
+  const look = key => { const p = pillOf(key); return [p.style.h, p.background.angle, p.background.from, p.background.to]; };
+  const [c1, c2] = ["c1", "c2"].map(id => colorOf(acct.columns.b1.find(c => c.id === id)));
+  assert.deepEqual(["c1", "c2"].map(k => textOf(must(tree, `fizzy-col-count-${k}`))), ["4", "0"]);
+  assert.deepEqual(look("c1"), [36 + 4 * 28, 180, `${c1}b3`, `${c1}00`], "four cards: taller, in its color, fading downwards");
+  assert.deepEqual(look("c2"), [36, 180, `${c2}b3`, `${c2}00`], "none: a circle");
+  assert.deepEqual(look("done"), [480, 180, "#8a8f98b3", "#8a8f9800"], "Done, not read: gray, as tall as it gets");
+  const col = must(tree, "fizzy-col-c1"), line = must(tree, "fizzy-col-line-c1");
+  assert.deepEqual([col.kids[0], col.kids[1]], [line, pillOf("c1")], "the line, then the pill over it, then the count and the name");
+  assert.deepEqual([line.style.absolute, line.style.bottom, line.style.w, line.style.bg], [true, 0, 1, `${c1}4d`]);
+  assert.ok(line.style.top > 36, "the line starts below the name");
+  assert.deepEqual(pillOf("c1").path.steps[1], ["arc_to", 18, 18, 0, false, true, 36, 18], "a round top");
 });
 
 test("a folded column's name is drawn sideways from an SVG file the request timer writes once; until then the pill shows its count alone", async () => {
   const m = await mount();
   let tree = await atWidth(m, 600);
-  assert.equal(all(must(tree, "fizzy-col-pill-c1"), n => n.kind === "svg").length, 0, "not written yet");
+  assert.equal(all(must(tree, "fizzy-col-c1"), n => n.kind === "svg").length, 0, "not written yet");
   await timer(m.cx, REQUEST_EVERY).fn(m.cx);
   await m.cx.settle();
   const path = `${state.appHome}/${labelFile("IN PROGRESS")}`;
   assert.equal(acct.written[path], labelSvg("IN PROGRESS"));
   tree = await m.draw();
-  const label = all(must(tree, "fizzy-col-pill-c1"), n => n.kind === "svg")[0];
+  const label = all(must(tree, "fizzy-col-c1"), n => n.kind === "svg")[0];
   assert.equal(label.path, labelFile("IN PROGRESS"));
   assert.ok(label.style.h > label.style.w, "taller than wide");
   const writes = Object.keys(acct.written).length;

@@ -39,9 +39,11 @@ Fizzy** at its right. Mine, Inbox and Pins go straight to their list.
 
 **Board, side by side.** From 480 px of panel width the board looks like Fizzy's: its lanes stand side by side in the
 board's own order, Not Now first and Done last. One lane is open (Maybe?, until you open another), with its name and a
-dot in its color at the top and its cards under it, scrolling on their own. The others are folded: a narrow pill with
-the number of its cards and its name read top to bottom; Not Now and Done are gray pills as tall as the board, a column
-is a pill in its color with a line under it. Click a pill to open that lane; below 760 px that folds the one that was
+dot in its color at the top and its cards under it, scrolling on their own. The others are folded, as in Fizzy: a
+narrow pill in the lane's color (gray for Not Now and Done) that fades out downwards, taller the more cards the lane
+holds (a circle when it holds none), with the number of its cards at the top and its name read top to bottom, and a
+faint line on to the board's foot. Not Now and Done are as tall as a pill gets until they are read. Click a pill to
+open that lane; below 760 px that folds the one that was
 open, from 760 px two stay open (the one opened longest ago folds when you open a third). Click an open lane's name to
 fold it, unless it is the only one open. What is open is kept per board. Not Now and Done are read when they open (so
 a folded one shows no count until then), and again on Refresh and after a change you make while they are open; Done
