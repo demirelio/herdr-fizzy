@@ -205,8 +205,9 @@ dot after the label while `fizzy.unread` is above zero.
   toast. The `new` key opens the same popup, and does nothing without a board.
 - **Board, side by side** (from 480 px of panel width): `fizzy-columns`, the lanes in a row, gap 8, padding 8,
   centered. Open lanes (`openColumns`, per board, Maybe? when none; one below 760 px, two from 760 px, the one opened
-  longest ago folding first) share the width, each at most 380 px: a 30 px head (a 10 px dot in the lane's color but on Done, the name in capitals,
-  13 px semibold, + on Maybe? and the columns) over their cards, which scroll on their own. A folded lane is 36 px wide,
+  longest ago folding first) share the width, each at most 380 px: a 30 px head (a 10 px dot in the lane's color but
+  on Done, the name in capitals, 13 px semibold, + on Maybe? and the columns) over their cards, which scroll on their
+  own. A folded lane is 36 px wide,
   as tall as the board, clipped: its count (13 px semibold, 10 from the top) and its name in capitals read top to bottom,
   over a pill (`window.paint_path`: round at both ends, radius 18) filled with a 180° gradient from the lane's color at
   `b3` (`#8a8f98` for Not Now and Done) to the same at `1a`, 36 px tall and 28 more per card, at most 480 (480
