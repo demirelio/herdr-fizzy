@@ -71,10 +71,11 @@ const tint = (color, alpha) => `${color}${alpha}`;
 const ON_LANE = "#15171c";
 const WATCH_KEPT = 200;
 // Fizzy's side-by-side columns from SIDE_BY_SIDE px of panel width (narrower, the lanes stack), two of them open at once from
-// TWO_OPEN px (each then gets about 300 px). A folded column is FOLDED px wide; its pill is FOLDED px tall and PILL_STEP px
+// TWO_OPEN px (each then gets about 300 px). An open column is at most OPEN_MAX px wide: with room to spare the columns stay
+// together in the middle, as Fizzy's. A folded column is FOLDED px wide; its pill is FOLDED px tall and PILL_STEP px
 // taller for each one the lane holds, at most PILL_MAX, its color (Not Now's and Done's PILL_GRAY) fading from `top` to
 // `foot` down its length, over a line at `line` (alphas): PILL, or PILL_LIT, brighter, under the pointer.
-const SIDE_BY_SIDE = 480, TWO_OPEN = 760, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_GRAY = "#8a8f98";
+const SIDE_BY_SIDE = 480, TWO_OPEN = 760, OPEN_MAX = 380, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_GRAY = "#8a8f98";
 const PILL = { top: "b3", foot: "1a", line: "4d" }, PILL_LIT = { top: "e6", foot: "33", line: "80" };
 // The pill's outline, FOLDED px wide and `height` tall, round at both ends (a circle at its smallest).
 const pillShape = height => {
@@ -2700,7 +2701,7 @@ export default class Fizzy extends View {
     const kept = this.openKeys(board).filter(key => lanes.some(s => s.key === key)), open = kept.length ? kept : ["maybe"];
     return v_flex().id("fizzy-board").flex_1().min_h(0)
       .when(Boolean(this.errors.board), el => el.child(this.status(t, explain(this.errors.board), cx, true)))
-      .child(h_flex().id("fizzy-columns").flex_1().min_h(0).items_stretch().gap(8).p(8)
+      .child(h_flex().id("fizzy-columns").flex_1().min_h(0).items_stretch().justify_center().gap(8).p(8)
         .children(lanes.map(section => {
           const { loaded, cards, shown } = this.laneCards(section, lazy, query);
           return open.includes(section.key)
@@ -2717,7 +2718,7 @@ export default class Fizzy extends View {
       ...this.laneFoot(t, section, cards, loaded, lazy, cx),
     ];
     if (loaded && !shown.length && section.kind !== "maybe") body.push(this.status(t, this.boardFilter.value().trim() || this.onlyMine ? "No cards match" : "No cards", cx));
-    return v_flex().id(`fizzy-col-${section.key}`).flex_1().min_w(0).min_h(0).gap(6)
+    return v_flex().id(`fizzy-col-${section.key}`).flex_1().min_w(0).max_w(OPEN_MAX).min_h(0).gap(6)
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
       .child(h_flex().id(`fizzy-col-head-${section.key}`).h(30).flex_none().gap(8).px(8).items_center().justify_center().rounded(7)
         .when(this.openKeys(this.board).length > 1, el => el.cursor_pointer().hover(s => s.bg(t.hover)))

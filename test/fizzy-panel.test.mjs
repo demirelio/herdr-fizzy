@@ -2061,6 +2061,14 @@ test("a folded column is Fizzy's pill: its color fading downwards to a tenth of 
   assert.deepEqual(pillOf("c2").path.steps.slice(1, 4), [["arc_to", 18, 18, 0, false, true, 36, 18], ["line_to", 36, 18], ["arc_to", 18, 18, 0, false, true, 0, 18]], "at its smallest, a circle");
 });
 
+test("an open column grows no wider than 380 px, and the columns stay together in the middle of a wider panel, as Fizzy's", async () => {
+  const m = await mount();
+  const tree = await atWidth(m, 1200);
+  const row = must(tree, "fizzy-columns"), open = must(tree, "fizzy-col-maybe");
+  assert.deepEqual([open.style.flex_1, open.style.max_w], [true, 380]);
+  assert.equal(row.style.justify_center, true);
+});
+
 test("the folded column under the pointer is drawn brighter, its pill and its line; moving from one to the next never leaves none lit", async () => {
   const m = await mount();
   let tree = await atWidth(m, 600);

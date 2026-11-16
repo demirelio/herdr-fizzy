@@ -39,7 +39,8 @@ Fizzy** at its right. Mine, Inbox and Pins go straight to their list.
 
 **Board, side by side.** From 480 px of panel width the board looks like Fizzy's: its lanes stand side by side in the
 board's own order, Not Now first and Done last. One lane is open (Maybe?, until you open another), with its name and a
-dot in its color at the top and its cards under it, scrolling on their own. The others are folded, as in Fizzy: a
+dot in its color at the top and its cards under it, scrolling on their own; it grows no wider than 380 px, and with
+room to spare the lanes stay together in the middle of the panel, as in Fizzy. The others are folded, as in Fizzy: a
 narrow pill in the lane's color (gray for Not Now and Done) that fades downwards to a tenth of it, taller the more
 cards the lane holds (a circle when it holds none), with the number of its cards at the top and its name read top to
 bottom, and a faint line on to the board's foot; the one under the pointer brightens. Not Now and Done are as tall as
