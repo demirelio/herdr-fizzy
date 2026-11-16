@@ -2982,15 +2982,15 @@ test("the error of one board is not shown on the next one", async () => {
   assert.deepEqual(rowIds(tree), [201]);
 });
 
-const MAYBE_BLUE = "#4f8ef7", NOT_NOW_GRAY = "#8a8f98", DONE_GREEN = "#3fa65b";
+const MAYBE_BLUE = "#4f8ef7", NOT_NOW_GRAY = "#8a8f98", DONE_GRAY = "#d1d5db";
 
-test("a lane's color is its column's; Maybe? is Fizzy's blue, Not Now gray and Done green: the lane's dot on the board, the lane named in its color on a card in a list, the card page's chip", async () => {
+test("a lane's color is its column's; Maybe? is Fizzy's blue, Not Now gray and Done a muted light gray: the lane's dot on the board, the lane named in its color on a card in a list, the card page's chip", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
   const dot = key => must(tree, `fizzy-section-${key}`).kids[1].style.bg;
   const [inProgress, review] = ["c1", "c2"].map(id => colorOf(acct.columns.b1.find(c => c.id === id)));
   assert.ok(inProgress && review && inProgress !== review, "the fixture's two colored columns differ");
-  assert.deepEqual(["c1", "c2", "maybe", "not-now", "done"].map(dot), [inProgress, review, MAYBE_BLUE, NOT_NOW_GRAY, DONE_GREEN]);
+  assert.deepEqual(["c1", "c2", "maybe", "not-now", "done"].map(dot), [inProgress, review, MAYBE_BLUE, NOT_NOW_GRAY, DONE_GRAY]);
   assert.equal(find(tree, "fizzy-card-lane-101"), null, "on the board the lane says it");
   click(tree, "fizzy-view-mine", cx);
   tree = await draw();
@@ -2999,7 +2999,7 @@ test("a lane's color is its column's; Maybe? is Fizzy's blue, Not Now gray and D
   click(tree, "fizzy-home", cx);
   click(await draw(), "fizzy-section-done", cx);
   click(await draw(), "fizzy-card-105", cx);
-  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, DONE_GREEN, "the card page's lane chip has the same dot");
+  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, DONE_GRAY, "the card page's lane chip has the same dot");
 });
 
 test("Escape while a new card's title is written stops the edit: the card keeps its stand-in title, and its page stays with Discard and Done", async () => {
@@ -3552,9 +3552,9 @@ test("a search finds what the lanes do not hold: a closed card on another board,
   assert.deepEqual(rowIds(tree), [102, 210]);
   const bar = id => must(tree, id.replace("fizzy-card-", "fizzy-card-lane-")).style.text_color;
   assert.equal(bar("fizzy-card-102"), colorOf(acct.columns.b1.find(c => c.id === "c2")), "an open card: its column's color");
-  assert.equal(bar("fizzy-card-210"), DONE_GREEN, "a closed card is Done's, whatever its last column was");
+  assert.equal(bar("fizzy-card-210"), DONE_GRAY, "a closed card is Done's, whatever its last column was");
   click(tree, "fizzy-card-210", cx);
-  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, DONE_GREEN, "and opens in Done");
+  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, DONE_GRAY, "and opens in Done");
   click(await draw(), "fizzy-back", cx);
   tree = await searchFor(m, "later");
   assert.deepEqual(rowIds(tree), [104], "a card in Not Now, which no folded lane has read");
@@ -8360,7 +8360,7 @@ test("a card is a plain tile, as Fizzy's: the background, a thin border that str
   assert.equal(must(tree, "fizzy-card-meta-101").style.text_color, c1);
   click(tree, "fizzy-section-done", cx);
   tree = await draw();
-  assert.equal(must(tree, "fizzy-card-head-105").style.bg, DONE_GREEN, "a closed card's: Done's green");
+  assert.equal(must(tree, "fizzy-card-head-105").style.bg, DONE_GRAY, "a closed card's: Done's light gray");
   const title = must(tree, "fizzy-card-title-101");
   assert.deepEqual([title.style.whitespace_normal, title.style.font_bold, title.style.text_size], [true, true, textPx(13)], "the whole title, bold");
   assert.equal(must(tree, "fizzy-card-meta-101").style.text_size, textPx(10), "the line under it smaller");

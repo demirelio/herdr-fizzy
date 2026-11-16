@@ -52,9 +52,9 @@ const DONE_PAGES = 40;
 const MENTION_SCAN_PAGES = 40, MENTION_SCAN_EVERY = 7 * 86400000;
 // Settings opens on this list; each entry opens a page of its own.
 const SETTINGS = [{ id: "mentions", title: "Mentions", icon: "user" }, { id: "groups", title: "Board groups", icon: "kanban" }];
-// The lanes Fizzy gives no column color: Maybe? in Fizzy's own blue, Not Now gray, Done green; a column whose color
-// is not known is gray too.
-const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#3fa65b" }, NO_COLOR = "#8a8f98";
+// The lanes Fizzy gives no column color: Maybe? in Fizzy's own blue, Not Now gray, Done a muted light gray (as Fizzy's);
+// a column whose color is not known is gray too.
+const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#d1d5db" }, NO_COLOR = "#8a8f98";
 // The title a card New card makes carries until its own is saved (Fizzy requires one).
 const NEW_TITLE = "New card";
 const EDITOR_HINT = "(@ mention, # card, drop or paste images)";

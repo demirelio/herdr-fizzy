@@ -52,9 +52,9 @@ color, with a dot, the lane's name and the number of its cards, and its cards un
 and are read each time you unfold them; a click on a lane's header folds or unfolds it (kept per board). The **+** on
 Maybe? and on each column makes a new card there (see **New card** below).
 
-A column has the color it has in Fizzy; Maybe? is blue, Not Now gray and Done green. Maybe? starts with **Add a
-card** and, under **Watching for new cards**, the photos of the people who watch the board, with **Watch for new
-cards** or **Stop watching** for you (it switches at once; the watchers are read with the board's columns, and again
+A column has the color it has in Fizzy; Maybe? is blue, Not Now gray and Done a muted light gray. Maybe? starts with
+**Add a card** and, under **Watching for new cards**, the photos of the people who watch the board, with **Watch for
+new cards** or **Stop watching** for you (it switches at once; the watchers are read with the board's columns, and again
 after you switch).
 
 **Cards** look like Fizzy's. At the top left, the card's number and its board on a tab in its lane's color; in Mine,
