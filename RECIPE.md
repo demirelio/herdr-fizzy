@@ -52,9 +52,10 @@ theme names.
     `#e5b422`, lime `#8cc63f`, aqua `#2fbfbf`, violet `#7c5ce6`, purple `#a855c7`, pink `#e8579f`, red `#e5484d`, orange
     `#f08a24`, green `#3fa65b` (Fizzy also sends `var(--color-card-N)`: default blue, 1 gray, 2 tan, 3 yellow, 4 lime,
     5 aqua, 6 violet, 7 purple, 8 pink). Fizzy gives Maybe?, Not Now and Done none: Maybe? is `#4f8ef7` (Fizzy's own
-    blue), Not Now `#8a8f98`, Done `#d1d5db` (Fizzy's muted light gray). A column whose color is not known is `#8a8f98`.
+    blue), Not Now `#8a8f98`, Done `#9aa0aa` (Fizzy's muted gray). A column whose color is not known is `#8a8f98`.
   - A card is drawn as Fizzy's: rounded 8, clipped, `background` behind it and a 1 px `border` border (`input` on
-    hover); golden, a 2 px `ansi3` border instead; picked, `selected` behind it and a 1 px `accent` border. Its top line
+    hover); golden, a layer under its content (`window.paint_path`, the card's whole rectangle) filled with a 45° linear
+    gradient from `#e5b42200` to `#e5b42238`; picked, `selected` behind it and a 1 px `accent` border. Its top line
     starts with a tab at the card's top left in the lane's color (padding 9 by 4, its bottom right corner rounded 6,
     11 px semibold `#15171c` text): the number, a 1 px rule, the board's name in capitals. In Mine, Pins and the search
     the lane's name in capitals follows (10 px, in the lane's color, after a 6 px dot). At its right: `✓ done/total`

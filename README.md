@@ -52,7 +52,7 @@ color, with a dot, the lane's name and the number of its cards, and its cards un
 and are read each time you unfold them; a click on a lane's header folds or unfolds it (kept per board). The **+** on
 Maybe? and on each column makes a new card there (see **New card** below).
 
-A column has the color it has in Fizzy; Maybe? is blue, Not Now gray and Done a muted light gray. Maybe? starts with
+A column has the color it has in Fizzy; Maybe? is blue, Not Now gray and Done a muted gray. Maybe? starts with
 **Add a card** and, under **Watching for new cards**, the photos of the people who watch the board, with **Watch for
 new cards** or **Stop watching** for you (it switches at once; the watchers are read with the board's columns, and again
 after you switch).
@@ -62,10 +62,11 @@ Pins and the search, where lanes mix, its lane is named beside it too. At the ri
 (✓ 1/2), Fizzy's inactivity warning, ↵ (Insert in chat) and `⋯` (the card's menu). Then the title in bold (a pin
 before it when the card is pinned) and up to three tags. Then, smaller and in the lane's color: who made it, with their
 photo, and how long ago ("Added 127 days ago"); when it last changed ("Today", "Yesterday", "8 days ago") and who it
-is assigned to, with their photos; and at the right the number of its comments. Golden cards come first in their lane and have a gold border. The warning is the one
-Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a quarter of the board's auto-postpone
-period is left since the card last changed, counted in calendar days, else "Stalled" when Fizzy lists the card as
-stalled. A card in Not Now or Done has none.
+is assigned to, with their photos; and at the right the number of its comments. Golden cards come first in their lane,
+with a faint gold glow from the bottom left to the top right, as in Fizzy. The warning is the one Fizzy shows on the
+card: "Closes in 3d" (or "Closes today") once less than a quarter of the board's auto-postpone period is left since the
+card last changed, counted in calendar days, else "Stalled" when Fizzy lists the card as stalled. A card in Not Now or
+Done has none.
 
 Fizzy's card lists carry no step progress or comment count, so the panel reads them for each card of the board shown
 (a `card show` and a `comment list` per card, three cards at a time) and keeps them, for the next run too. A card is

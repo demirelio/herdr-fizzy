@@ -180,7 +180,7 @@ test("the board view lists the lanes in the board's order, Not Now and Done fold
     "only the open cards, and which of them are stalled, always with an explicit board");
 });
 
-test("a card is drawn as Fizzy's: number | board, a bold title, its tags (three, then +N), who made it and when, when it changed and who it is assigned to; golden, a gold border", async () => {
+test("a card is drawn as Fizzy's: number | board, a bold title, its tags (three, then +N), who made it and when, when it changed and who it is assigned to; golden, a gold glow", async () => {
   const { draw } = await mount();
   const tree = await draw();
   const row = must(tree, "fizzy-card-102"), card = acct.card(102);
@@ -196,8 +196,8 @@ test("a card is drawn as Fizzy's: number | board, a bold title, its tags (three,
   assert.deepEqual(iconsIn(tree, "fizzy-card-changed-102").concat(iconsIn(tree, "fizzy-card-assigned-102")), ["mods/fizzy/refresh.svg", "mods/fizzy/arrow-right.svg"]);
   assert.equal(all(must(tree, "fizzy-card-meta-102"), n => n.kind === "div" && n.style?.rounded_full && textOf(n) === "B").length, 2, "Bob made it and has it: his initials twice");
   assert.equal(find(tree, "fizzy-card-steps-102"), null, "no step progress or comment count until they are read");
-  assert.deepEqual([row.style.border_2, row.style.border_color], [true, "ansi3"], "golden: a gold border");
-  assert.deepEqual([must(tree, "fizzy-card-101").style.border_2, must(tree, "fizzy-card-101").style.border_1], [undefined, true], "not golden: the thin one");
+  assert.ok(glowOf(row), "golden: a gold glow");
+  assert.equal(glowOf(must(tree, "fizzy-card-101")), null, "not golden: none");
   assert.equal(textOf(must(tree, "fizzy-card-title-101")), "Fix the login redirect");
 });
 
@@ -2982,9 +2982,11 @@ test("the error of one board is not shown on the next one", async () => {
   assert.deepEqual(rowIds(tree), [201]);
 });
 
-const MAYBE_BLUE = "#4f8ef7", NOT_NOW_GRAY = "#8a8f98", DONE_GRAY = "#d1d5db";
+const MAYBE_BLUE = "#4f8ef7", NOT_NOW_GRAY = "#8a8f98", DONE_GRAY = "#9aa0aa";
+// The layer that gives a golden card its glow (window.paint_path), or null.
+const glowOf = tree_or_node => all(tree_or_node, n => n.kind === "path")[0] ?? null;
 
-test("a lane's color is its column's; Maybe? is Fizzy's blue, Not Now gray and Done a muted light gray: the lane's dot on the board, the lane named in its color on a card in a list, the card page's chip", async () => {
+test("a lane's color is its column's; Maybe? is Fizzy's blue, Not Now gray and Done a muted gray: the lane's dot on the board, the lane named in its color on a card in a list, the card page's chip", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
   const dot = key => must(tree, `fizzy-section-${key}`).kids[1].style.bg;
@@ -8366,14 +8368,18 @@ test("a card is a plain tile, as Fizzy's: the background, a thin border that str
   assert.equal(must(tree, "fizzy-card-meta-101").style.text_size, textPx(10), "the line under it smaller");
 });
 
-test("a golden card has a gold border instead (no hover of its own) and heads its lane; the rest keep Fizzy's order", async () => {
+test("a golden card has the plain border and a faint gold glow under its content, from nothing at the bottom left to the top right, and heads its lane; the rest keep Fizzy's order", async () => {
   acct.cards.push({ ...acct.card(103), id: "id-106", number: 106, title: "Shiny", golden: true }, { ...acct.card(103), id: "id-107", number: 107, title: "Plain" });
   const { draw } = await mount();
   const tree = await draw();
   assert.deepEqual(rowIds(tree).filter(n => lanesOf(tree)[n] === "maybe"), [106, 103, 107], "Fizzy lists 103, 106, 107");
   const golden = must(tree, "fizzy-card-106");
-  assert.deepEqual([golden.style.border_2, golden.style.border_color, golden.style.border_1, golden.hover], [true, "ansi3", undefined, false]);
-  assert.deepEqual([must(tree, "fizzy-card-103").style.border_2, must(tree, "fizzy-card-103").style.border_1], [undefined, true]);
+  assert.deepEqual([golden.style.border_1, golden.style.border_color, golden.style.border_2, golden.style.relative], [true, "border", undefined, true]);
+  const glow = glowOf(golden);
+  assert.equal(golden.kids[0], glow, "under everything else in the card");
+  assert.deepEqual([glow.style.absolute, glow.style.top, glow.style.left, glow.style.size_full], [true, 0, 0, true], "the whole card");
+  assert.deepEqual(glow.background, { kind: "linear-gradient", angle: 45, from: "#e5b42200", to: "#e5b42238" });
+  assert.equal(glowOf(must(tree, "fizzy-card-103")), null);
 });
 
 test("a picked card is drawn as picked whatever it is: the selected background and the accent border, a golden one too", async () => {
@@ -8381,6 +8387,7 @@ test("a picked card is drawn as picked whatever it is: the selected background a
   const tree = await pick(cx, draw, 102);
   const card = must(tree, "fizzy-card-102");
   assert.deepEqual([card.style.bg, card.style.border_1, card.style.border_color, card.style.border_2], ["selected", true, "accent", undefined]);
+  assert.ok(glowOf(card), "and its glow");
 });
 
 test("a pinned card shows a pin before its title, in the accent; the pin list read at start is what says so, in every list", async () => {

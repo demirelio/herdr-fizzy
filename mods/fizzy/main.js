@@ -2,7 +2,7 @@
 // Herdr. It talks to the local `fizzy` CLI. Right-clicks, the "…" buttons and the pickers open this same mod as a
 // popup (props().menu), so the exported class is both the panel and its menus. A popup never writes to Fizzy
 // itself: it leaves a request in shared state and the panel, which stays alive, does it.
-import { View, div, svg, image } from "gpui-kit";
+import { View, div, svg, image, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import { textPx } from "./text.js";
@@ -52,9 +52,14 @@ const DONE_PAGES = 40;
 const MENTION_SCAN_PAGES = 40, MENTION_SCAN_EVERY = 7 * 86400000;
 // Settings opens on this list; each entry opens a page of its own.
 const SETTINGS = [{ id: "mentions", title: "Mentions", icon: "user" }, { id: "groups", title: "Board groups", icon: "kanban" }];
-// The lanes Fizzy gives no column color: Maybe? in Fizzy's own blue, Not Now gray, Done a muted light gray (as Fizzy's);
-// a column whose color is not known is gray too.
-const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#d1d5db" }, NO_COLOR = "#8a8f98";
+// The lanes Fizzy gives no column color: Maybe? in Fizzy's own blue, Not Now gray, Done a muted gray (as Fizzy's); a
+// column whose color is not known is gray too.
+const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#9aa0aa" }, NO_COLOR = "#8a8f98";
+// A golden card's glow, as Fizzy's: a faint gold from nothing at the bottom left to the top right. Elements take a
+// gradient only through window.paint_path, so it is a layer under the card's content.
+const GOLD = "#e5b422";
+const CARD_SHAPE = PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
+const GOLD_GLOW = Background.linear_gradient(45, `${GOLD}00`, `${GOLD}38`);
 // The title a card New card makes carries until its own is saved (Fizzy requires one).
 const NEW_TITLE = "New card";
 const EDITOR_HINT = "(@ mention, # card, drop or paste images)";
@@ -2521,7 +2526,7 @@ export default class Fizzy extends View {
   // A card as Fizzy draws it. A head line: its number | its board on a tab in its lane's `color` at the card's top left (in a
   // list that mixes lanes, its lane named too), then its step progress, Fizzy's inactivity warning, ↵ and ⋯. Its title in
   // bold (a pin before it when pinned), its tags, then, in the lane's color, who made it and when, when it last changed and
-  // who it is assigned to, with their photos, and its comment count. A gold border when golden, an accent one when picked.
+  // who it is assigned to, with their photos, and its comment count. A faint gold glow when golden, an accent border when picked.
   // Dragged, it is the card (every picked card, when it is one of them): onto another lane it moves there, into a terminal
   // it drops its file.
   cardRow(t, card, lane, color) {
@@ -2545,10 +2550,10 @@ export default class Fizzy extends View {
       .child(div().flex_none().child(String(n)))
       .when(Boolean(boardName), el => el.child(div().w(1).h(11).flex_none().bg(tint(ON_LANE, "59")))
         .child(div().min_w(0).truncate().child(upper(boardName))));
-    return this.dragCards(v_flex().id(`fizzy-card-${n}`), dragged).flex_none().rounded(8).overflow_hidden().cursor_pointer()
+    return this.dragCards(v_flex().id(`fizzy-card-${n}`), dragged).relative().flex_none().rounded(8).overflow_hidden().cursor_pointer()
       .bg(picked ? t.selected : t.background)
-      .when(card.golden && !picked, el => el.border_2().border_color(t.ansi3))
-      .when(!card.golden || picked, el => el.border_1().border_color(picked ? t.accent : t.border).hover(s => s.border_color(t.input)))
+      .border_1().border_color(picked ? t.accent : t.border).hover(s => s.border_color(t.input))
+      .when(Boolean(card.golden), el => el.child(window.paint_path(CARD_SHAPE, GOLD_GLOW).absolute().top(0).left(0).size_full()))
       .on_mouse_down("left", (_e, cx) => { this.pressed = { number: n, lane }; this.writeCardFiles(dragged, cx); })
       .on_mouse_up("left", (_e, cx) => this.drop(lane, cx))
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.cardMenu(card, cx); })
