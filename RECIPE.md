@@ -287,8 +287,9 @@ dot after the label while `fizzy.unread` is above zero.
   to `#42` opens nothing. Back, Escape, and the `back` and `view` keys close the search; the x empties the field and
   closes it.
 - **Card.** Click the title to rename (Enter saves, Escape or the x cancels); a lane moves the card there at once
-  (Done closes it, Not Now postpones it), as Mark as Done does; the board on the tab moves it to another board. The
-  lanes are the card's own board's: when that board's columns are not known yet, they are read once with the card,
+  (Done closes it, Not Now postpones it), as Mark as Done does; the board on the tab moves it to another board (the
+  card leaves the lists but stays open, its tab naming the new board at once, then it is read again; a deleted card
+  closes). The lanes are the card's own board's: when that board's columns are not known yet, they are read once with the card,
   and a failure leaves only its own lane. The people in the foot and Tags open their pickers (people: you first,
   with `you` as the hint; tags: a "New tag…" field at the top).
   The description and comments are edited as text with tokens (see Mentions and Images): blank lines split

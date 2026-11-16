@@ -1435,7 +1435,7 @@ export default class Fizzy extends View {
     if (this.watching.get(number) === false) this.rememberWatch(number, undefined);
   }
 
-  // A card that left (deleted, or moved to another board): gone from every list, and from the screen.
+  // A card that left (deleted, or moved to another board): gone from every list and from the picked cards.
   forget(number) {
     const cut = list => list?.filter(c => c.number !== number) ?? list;
     for (const [b, list] of this.cards) this.cards.set(b, cut(list));
@@ -1444,7 +1444,6 @@ export default class Fizzy extends View {
     this.pins = cut(this.pins);
     for (const [b, list] of this.search?.found ?? []) this.search.found.set(b, cut(list));
     this.selected.delete(number);
-    if (this.detail?.number === number) { this.detail = null; this.editing = null; }
   }
 
   // A card's columns, read when a card of another board (Mine, Pins) needs its menu.
@@ -1543,13 +1542,17 @@ export default class Fizzy extends View {
           this.meet(await loadPeople(true));
         });
       }
+      // The card leaves the lists; open, it stays open, on its new board.
       case "moveBoard": {
+        const to = this.boards?.find(b => b.id === op.board);
         this.forget(n);
+        if (to) this.patch(n, c => { c.board = { id: to.id, name: to.name, url: to.url }; });
         cx.notify();
         return later(cmd.moveBoard(n, op.board));
       }
       case "remove": {
         this.forget(n);
+        if (this.detail?.number === n) { this.detail = null; this.editing = null; }
         cx.notify();
         return later(cmd.remove(n));
       }

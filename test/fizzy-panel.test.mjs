@@ -2481,6 +2481,31 @@ test("moving a card to another board, or deleting it, takes it off the screen at
   }
 });
 
+test("the open card moved to another board stays open, on that board at once, and is read again; deleted, it closes", async () => {
+  const { view, cx, draw, tree } = await openDetail();
+  click(tree, "fizzy-detail-board", cx);
+  menuClick(await mountPopup(), "board-b2");
+  drawn(view, cx);
+  await due(cx);
+  assert.equal(view.detail?.number, 101, "still open");
+  assert.match(textOf(must(drawn(view, cx), "fizzy-detail-board")), /^PERSONAL/, "on its new board before Fizzy answers");
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "move", "101", "--to", "b2"]]);
+  const reads = acct.asked("card", "show").length;
+  assert.ok(reads >= 2, "read again after the move");
+  let next = await draw();
+  assert.equal(view.board, "b1", "the board shown stays");
+  assert.match(textOf(must(next, "fizzy-detail-board")), /^PERSONAL/);
+  click(next, "fizzy-back", cx);
+  assert.equal(rowIds(await draw()).includes(101), false, "gone from the board it left");
+  click(await draw(), "fizzy-card-102", cx);
+  await draw();
+  state.shared["fizzy.request"] = { id: "del", op: { kind: "remove", number: 102 } };
+  drawn(view, cx);
+  await due(cx);
+  assert.equal(view.detail, null, "a deleted card closes");
+});
+
 test("Delete in the card popup takes two clicks: the row arms, the second sends", async () => {
   const { draw, cx } = await mount();
   const tree = await draw();
