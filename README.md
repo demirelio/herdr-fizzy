@@ -6,6 +6,17 @@ Your Fizzy boards, cards and notifications in Herdr's side panel, right next to 
 
 _The screenshots and GIFs come from a demo account: the boards, people and chats in them are made up._
 
+## Sponsor
+
+<a href="https://thewildmagic.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/wildmagic-dark.svg">
+    <img src="docs/media/wildmagic.svg" height="40" alt="Wildmagic">
+  </picture>
+</a>
+
+[Wildmagic](https://thewildmagic.com) sponsors this project.
+
 ## What it is
 
 Fizzy for Herdr is a mod that adds a **Fizzy** page to Herdr's right side panel, next to Files and Changes. It puts your
