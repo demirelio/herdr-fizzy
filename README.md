@@ -197,8 +197,13 @@ Pin or Unpin, Watch or Unwatch, Mark golden (or Remove golden), Move to board…
 clicks).
 
 **Settings** (the gear) is a list of pages, each with what it is set to now: **Mentions** (how many people can be
-tagged, and whether the panel finds new ones by itself; see above) and **Board groups** (how many groups). Click one to
-open it. Back goes from a page to the list, and from the list out of Settings.
+tagged, and whether the panel finds new ones by itself; see above), **Board groups** (how many groups) and **Cards**
+(Full or Compact). Click one to open it. Back goes from a page to the list, and from the list out of Settings.
+
+**Compact cards.** **Settings > Cards** has one switch, **Compact cards** (off at first, kept between runs). On, the
+board, Mine, Pins and search results draw each card in three short lines: its number (with its board only in a list
+that mixes boards), its title, then the photos of who has it, when it last changed and its comment count. Tags, who
+made it and when are left out; they are on the card's page.
 
 **Board groups.** The board dropdown lists **Follow current space** ([Which board](#which-board)), then the boards in no
 group, then each group under its name. A new user starts with no groups. **Settings > Board groups** lists each group

@@ -5,8 +5,8 @@
 The icons in `mods/fizzy/` are Lucide icons (https://lucide.dev, https://github.com/lucide-icons/lucide), each a bare
 `<svg>` element. Most files carry the Lucide icon's own name: `arrow-left`, `arrow-right`, `bell`, `bell-off`, `bot`,
 `check`, `chevron-down`, `chevron-right`, `circle-check`, `copy`, `external-link`, `eye`, `eye-off`, `link`,
-`message-square-text`, `pencil`, `pin`, `pin-off`, `plus`, `rotate-ccw`, `search`, `send`, `settings`, `star`,
-`star-off`, `tag`, `trash`, `user`, `user-plus`, `users` and `x`. Four are renamed:
+`message-square-text`, `pencil`, `pin`, `pin-off`, `plus`, `rotate-ccw`, `rows-3`, `search`, `send`, `settings`,
+`star`, `star-off`, `tag`, `trash`, `user`, `user-plus`, `users` and `x`. Four are renamed:
 
 | File | Lucide icon |
 |---|---|

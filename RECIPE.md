@@ -76,6 +76,10 @@ theme names.
     comments. Days are calendar days: `TODAY`, `YESTERDAY`, `N DAYS AGO`. The label is 16 px high, padding 5,
     rounded 4, with a 1 px border and medium text in one color: `ansi3` for `Closes in Nd` and `Closes today`, `blocked`
     for `Stalled`.
+  - A compact card (Settings > Cards): the tab is padding 7 by 2, rounded 5, 10 px, and in a board's own lane holds the
+    number alone; the rest of the top line is as above. Then, padding 10 by 3 and 7, gap 4: the pin (12 px) and the
+    title (12 px, bold, wrapping); no tags; and one line (10 px medium, in the lane's color): up to three 16 px
+    assignee avatars, `refresh` and the day it last changed, and at the right the comment count with a 12 px icon.
   - Mine and search results: a 26 px board name (12 px, medium, `muted`) over that board's cards.
   - Inbox: a **Mark all read** button, then one block per note: a 7 px `accent` dot, the sender's 16 px avatar, the
     title in semibold; the text (12 px, `dim`, wrapping); `#number · board · sender · time` (11 px, `dim`).
@@ -176,16 +180,20 @@ tooltip "Add reaction".
 has no mention id for that person), `#N Title` in bold `ansi3`, and `🖼 name` (an image) or `📎 name` (another file)
 in 12 px `muted` on `raised`, rounded 4, padding 5. A selected token has `selection` behind it.
 
-**Settings**, from the gear: a 42 px header with Back (tooltip "Back"; on a page, "Settings") and "Settings" or the
-page's name, in semibold. Then, padding 10, gap 8, the list: one 52 px block per setting (padding 12 across and 8 down,
-gap 12, rounded 9, 1 px `border`, `input` on hover, `surface`): a 30 px square (rounded 8, `background`) with a 15 px
-icon in `muted` (user for Mentions, kanban for Board groups), the name (medium) over what it is set to (12 px `dim`,
-cut), and a 14 px chevron-right in `dim`.
+**Settings**, from the gear: a 46 px header with a round Back (tooltip "Back"; on a page, "Settings") and "Settings"
+or the page's name, in semibold. Then, padding 10, gap 8, the list: one 52 px block per setting (padding 12 across
+and 8 down, gap 12, rounded 9, 1 px `border`, `input` on hover, `surface`): a 30 px square (rounded 8,
+`background`) with a 15 px icon in `muted` (user for Mentions, kanban for Board groups, rows-3 for Cards), the name
+(medium) over what it is set to (12 px `dim`, cut), and a 14 px chevron-right in `dim`.
 
 | Setting | What it is set to |
 |---|---|
 | Mentions | `Can tag N of M people · Finds new ones by itself`, or `· Manual only`; `Loading people…` |
 | Board groups | `N groups`, `1 group` or `No groups` |
+| Cards | `Full` or `Compact` |
+
+- **Cards**: one block, **Compact cards**, noting what a compact card shows, with the switch (as Mentions' has it) and
+  `On` or `Off`. It is kept between runs (`compactCards`, off at first).
 
 - **Mentions**: four blocks (padding 12, gap 8, rounded 9, 1 px `border`, `surface`; a title in medium, then a note in
   12 px `dim`, then the controls): `You can tag N of M people`, noting `Not yet: <names>` or `Everyone can be tagged
@@ -391,7 +399,7 @@ dot after the label while `fizzy.unread` is above zero.
   boardless `card list --assignee <user> --all` grouped by board when the CLI has no default board (with one, a
   boardless list reads that board only, so each board is read).
 - **Settings** opens on its list; a block opens its page. Back (and the `back` key) goes from a page to the list, and
-  from the list out of Settings. The Mentions switch is kept (`mentionAuto`).
+  from the list out of Settings. The Mentions and Cards switches are kept (`mentionAuto`, `compactCards`).
 - **Board groups.** + adds a group at the top. Clicking the name or the rule edits it in place; the bin asks once
   (`Delete?`); the eye hides; clicking the rest of the line folds. A press with ⌘ or Ctrl held on a board or group picks
   it up: the block under the pointer is `selected` (for a board) or shows a 2 px `accent` line where a group lands, and
@@ -449,8 +457,8 @@ dot after the label while `fizzy.unread` is above zero.
   picker's choice goes into that editor only while it is still open.
 - **Local storage** (the panel's, never shared), as JSON: `view`, `follow`, `board`, `boards` (each with `period`, its
   `auto_postpone_period_in_days`), `config`, `me`, `data:<board>`, `collapsed:<board>`, `folds`, `avatars`,
-  `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, and `files` (image key ->
-  its file in `data/fizzy/files`).
+  `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, `compactCards`, and
+  `files` (image key -> its file in `data/fizzy/files`).
 - **Programs.** `fizzy` 4 or newer, always run from the home folder, every command ending with `--json`. It reads with
   `board list --all`, `column list --board`, `card list --board <id> --all` (also with `--indexed-by not_now`,
   `--assignee <user>`, also with no `--board`; Done as `--indexed-by closed --page <n>`), `search --jq … -- <words>`
