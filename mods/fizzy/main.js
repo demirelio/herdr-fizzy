@@ -382,7 +382,7 @@ export default class Fizzy extends View {
     // Side by side, the open columns of each board (board id -> lane keys, the last opened last); Maybe? when none is kept.
     const opened = read("openColumns", {});
     this.openCols = opened && typeof opened === "object" && !Array.isArray(opened) ? opened : {};
-    this.hoverCol = null; // the folded column under the pointer (see hoverColumn)
+    this.hoverCol = null; this.hoverStep = null; // the folded column and the step under the pointer (see setHover)
     // A card's step progress and comment count: card number -> { at: the last_active_at they were read for, done, total, comments }
     // (null where the read failed). Kept between runs; read again only for a card that changed (see wantCounts).
     this.counts = new Map(countEntries(read("counts", [])));
@@ -2778,7 +2778,7 @@ export default class Fizzy extends View {
     const lineTop = Math.round(10 + textPx(13) * 1.4 + 8 + textPx(h) + 6), look = this.hoverCol === section.key ? PILL_LIT : PILL;
     return v_flex().id(`fizzy-col-${section.key}`).relative().w(FOLDED).flex_none().items_center().gap(8).pt(10).overflow_hidden()
       .cursor_pointer().tooltip(section.name)
-      .on_hover((hovered, cx) => this.hoverColumn(section.key, hovered, cx))
+      .on_hover((hovered, cx) => this.setHover("hoverCol", section.key, hovered, cx))
       .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
       .on_click((_e, cx) => this.toggleColumn(section, cx))
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
@@ -2791,10 +2791,11 @@ export default class Fizzy extends View {
 
   // The folded column under the pointer, drawn brighter. Leaving a column that is not the lit one changes nothing, so
   // entering the next before leaving the last never ends with none lit.
-  hoverColumn(key, hovered, cx) {
-    const next = hovered ? key : this.hoverCol === key ? null : this.hoverCol;
-    if (next === this.hoverCol) return;
-    this.hoverCol = next;
+  // What of a kind is under the pointer (`field`: hoverCol, hoverStep): set as the pointer enters it, cleared as it leaves.
+  setHover(field, key, hovered, cx) {
+    const next = hovered ? key : this[field] === key ? null : this[field];
+    if (next === this[field]) return;
+    this[field] = next;
     cx.notify();
   }
 
@@ -3263,7 +3264,8 @@ export default class Fizzy extends View {
     return v_flex().id("fizzy-desc").flex_none().w_full().child(shown);
   }
 
-  // Ticking a step shows at once; Fizzy's answer (or its refusal) follows. The boxes are in the lane's color, as Fizzy's.
+  // Ticking a step shows at once; Fizzy's answer (or its refusal) follows. The boxes are in the lane's color, as Fizzy's;
+  // a step's bin shows while the pointer is on the step, and an empty space of its size keeps the text's width meanwhile.
   stepsSection(t, full, color) {
     const box = (done, child) => div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1().border_color(done ? color : tint(color, "99"))
       .when(done, el => el.bg(color)).when(Boolean(child), el => el.child(child));
@@ -3273,13 +3275,16 @@ export default class Fizzy extends View {
         ? this.fieldRow(t, h_flex().id(`fizzy-step-edit-${s.id}`).min_h(32).flex_none().pl(26).gap(6).items_center(),
           this.stepEdit, `fizzy-step-input-${s.id}`, `fizzy-step-cancel-${s.id}`, cx => this.cancelEdit(cx))
         : h_flex().id(`fizzy-step-${s.id}`).min_h(28).flex_none().py(2).gap(6).items_start()
+          .on_hover((hovered, cx) => this.setHover("hoverStep", s.id, hovered, cx))
           .child(div().id(`fizzy-step-check-${s.id}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().hover(x => x.bg(t.selected))
             .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => this.toggleStep(s, cx))
             .child(box(s.completed, s.completed ? svg(ICON("check")).size(11).text_color(ON_LANE) : null)))
           .child(div().id(`fizzy-step-text-${s.id}`).flex_1().min_w(0).px(4).py(2).rounded(5).whitespace_normal().cursor_pointer().hover(x => x.bg(t.hover))
             .when(s.completed, el => el.line_through().text_color(t.dim))
             .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => this.editStep(s, cx)).child(s.content ?? ""))
-          .child(this.rowButton(t, `fizzy-step-del-${s.id}`, ICON("trash"), (_e, cx) => this.dropStep(s, cx), "Delete")));
+          .child(this.hoverStep === s.id
+            ? this.rowButton(t, `fizzy-step-del-${s.id}`, ICON("trash"), (_e, cx) => this.dropStep(s, cx), "Delete")
+            : div().size(22).flex_none()));
     }
     return section.child(h_flex().id("fizzy-step-new-row").min_h(30).flex_none().gap(6).items_center()
       .child(div().size(22).flex_none().flex().items_center().justify_center().child(box(false, null)))

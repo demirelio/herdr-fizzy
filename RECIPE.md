@@ -123,8 +123,9 @@ a crossed bell once set to not watching) and pin (lit in `accent`), each lit wit
   semibold capitals, the card's own filled in its color with `#15171c` text, the others in its color (tooltip
   `Move to <lane>`, a click moves the card); its tags as chips; the description (rich text at 14 px;
   `No description`); the steps (16 px boxes outlined in the lane's color, filled with a `#15171c` check when ticked,
-  ticked text struck through and `dim`; at the end an empty box and a borderless field "Add a step…" in the lane's
-  color); and the foot, 11 px in the lane's color: who made it (28 px photo), `ADDED <when>` and `BY <name>`, a
+  ticked text struck through and `dim`; a 22 px bin at the right only while the pointer is on the step, an empty
+  space of that size otherwise; at the end an empty box and a borderless field "Add a step…" in the lane's color);
+  and the foot, 11 px in the lane's color: who made it (28 px photo), `ADDED <when>` and `BY <name>`, a
   `border` line, `UPDATED <when>` (refresh icon) and `ASSIGNED TO <names>` (arrow icon; `nobody`), the values bold,
   then the people's 26 px photos and a round 26 px add-person button (the whole of it opens `users`, tooltip
   "Assign"). Before the card is read whole only what the list knew is there; a field the card does not carry

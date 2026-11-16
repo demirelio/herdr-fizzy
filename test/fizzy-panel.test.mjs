@@ -724,6 +724,24 @@ test("ticking a step shows at once and sends the exact argv; a failed write read
   assert.equal(checked(await draw()), 1, "and after reading again, as Fizzy has it");
 });
 
+test("a step's bin shows only while the pointer is on the step; in its place meanwhile, an empty space of its size", async () => {
+  const { cx, draw, tree } = await openDetail();
+  const end = (tr, id) => must(tr, id).kids.at(-1);
+  for (const id of ["fizzy-step-s1", "fizzy-step-s2"]) {
+    assert.deepEqual([end(tree, id).id, end(tree, id).style.size, Object.keys(end(tree, id).handlers)], [null, 22, []], `${id}: no bin`);
+  }
+  fire(must(tree, "fizzy-step-s2"), "on_hover", true, cx);
+  let next = await draw();
+  assert.equal(end(next, "fizzy-step-s2").id, "fizzy-step-del-s2", "the step under the pointer shows it");
+  assert.equal(find(next, "fizzy-step-del-s1"), null, "the others do not");
+  fire(must(next, "fizzy-step-s1"), "on_hover", true, cx);
+  fire(must(next, "fizzy-step-s2"), "on_hover", false, cx);
+  next = await draw();
+  assert.deepEqual([Boolean(find(next, "fizzy-step-del-s1")), Boolean(find(next, "fizzy-step-del-s2"))], [true, false], "it follows the pointer, whatever order enter and leave come in");
+  fire(must(next, "fizzy-step-s1"), "on_hover", false, cx);
+  assert.equal(find(await draw(), "fizzy-step-del-s1"), null, "gone once the pointer leaves");
+});
+
 test("a step is added from its field and removed by its bin; its box and its text take clicks, the row itself does not", async () => {
   const { cx, draw, tree } = await openDetail();
   assert.equal(must(tree, "fizzy-step-s1").handlers.on_click, undefined, "the row has no click of its own");
@@ -741,6 +759,7 @@ test("a step is added from its field and removed by its bin; its box and its tex
   await cx.settle();
   assert.deepEqual(acct.writes(), [["step", "create", "--card", "101", "--content", "Ship it"]]);
   assert.equal(input.value(), "", "cleared");
+  fire(must(await draw(), "fizzy-step-s2"), "on_hover", true, cx);
   const next = await draw();
   assert.match(textOf(must(next, "fizzy-detail")), /Ship it/);
   const bin = must(next, "fizzy-step-del-s2");

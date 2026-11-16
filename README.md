@@ -138,8 +138,8 @@ Then come:
   as text. Line breaks are kept, and so are lists of lines that start with `- `, `* ` or `• ` (the mark, then a space),
   and mentions, card links and files stay what they are. A numbered list comes back as a bulleted one; other formatting
   is lost on save, and the editor says so when there is some;
-- the steps: tick the box, click the text to change it, the bin removes one, and the field at the bottom adds one.
-  Steps are plain text: `@` and `#` open no picker there, and a file can't go in one;
+- the steps: tick the box, click the text to change it, the bin (shown while you point at the step) removes one, and
+  the field at the bottom adds one. Steps are plain text: `@` and `#` open no picker there, and a file can't go in one;
 - under the card, the comments, oldest first, each in a box beside its writer's photo with its reactions: write one at
   the bottom; edit your own as text, as the description is, and delete your own (deleting takes two clicks). Fizzy's
   own lines, such as "… moved this to Not Now", are folded under **Activity** after the comments.
