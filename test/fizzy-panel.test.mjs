@@ -3612,9 +3612,9 @@ test("the header's search icon opens a field in the header's place; Enter runs o
 test("Escape in the search field, its x, and the `back` key close the search; the x also empties the field", async () => {
   const m = await mount(), { view, cx, draw } = m;
   let tree = await searchFor(m, "login");
-  fire(headerOf(tree), "on_key_down", { key: "a", modifiers: {} }, cx);
+  fire(must(tree, "fizzy-search"), "on_key_down", { key: "a", modifiers: {} }, cx);
   assert.ok(view.search, "other keys leave it");
-  fire(headerOf(tree), "on_key_down", { key: "escape", modifiers: {} }, cx);
+  fire(must(tree, "fizzy-search"), "on_key_down", { key: "escape", modifiers: {} }, cx);
   assert.equal(view.search, null, "Escape");
   tree = await searchFor(m, "login");
   click(tree, "fizzy-search-clear", cx);
@@ -6131,14 +6131,14 @@ test("the Fizzy bar ends with a gear (not the card view's header): it opens Sett
   for (const view of ["board", "mine", "inbox", "pins"]) {
     tree = view === "board" ? tree : (click(tree, `fizzy-view-${view}`, m.cx), await m.draw());
     const buttons = parentOf(tree, "fizzy-open-settings").kids;
-    assert.equal(buttons.at(-1).id, "fizzy-open-settings", `${view}: the gear is the last icon button`);
-    assert.deepEqual(buttons.map(k => k.id), ["fizzy-search-open", "fizzy-refresh", "fizzy-open-settings"]);
+    assert.equal(buttons.at(-1).id, "fizzy-open-settings", `${view}: the gear is the last button`);
+    assert.deepEqual(buttons.map(k => k.id), ["fizzy-refresh", "fizzy-open-settings"]);
   }
   click(tree, "fizzy-home", m.cx);
   tree = await m.draw();
   assert.deepEqual(iconsIn(tree, "fizzy-open-settings"), ["mods/fizzy/settings.svg"], "a gear and no chevron");
   assert.equal(tipOf(tree, "fizzy-open-settings"), "Settings");
-  assert.equal(must(tree, "fizzy-open-settings").style.size, 26);
+  assert.deepEqual([must(tree, "fizzy-open-settings").style.size, must(tree, "fizzy-open-settings").style.rounded_full], [30, true]);
   click(tree, "fizzy-card-101", m.cx);
   assert.equal(find(await m.draw(), "fizzy-open-settings"), null, "the card view's header does not have it");
   click(await m.draw(), "fizzy-back", m.cx);
@@ -7584,26 +7584,28 @@ const headerOf = tree => must(tree, "fizzy").kids[0];
 const resize = (tree, cx, width) => fire(must(tree, "fizzy"), "on_size_change", { width, height: 600 }, cx);
 const LONG_NAME = "Acme: a long board name that has to be cut short";
 
-test("the header of every list view at the default width: the Fizzy icon, Mine, Inbox and Pins together, a spacer, then Search, Refresh and the gear", async () => {
+test("the header of every list view at the default width: Fizzy and the round Search at the left, Mine, Inbox and Pins as one round group in the middle, round Refresh and the gear at the right", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
   for (const view of ["board", "mine", "inbox", "pins"]) {
     if (view !== "board") { click(tree, `fizzy-view-${view}`, cx); tree = await draw(); }
     const head = headerOf(tree);
-    assert.deepEqual([head.style.h, head.style.px, head.style.gap, head.style.border_b, head.style.flex_none], [42, 10, 6, 1, true], `${view}: the header`);
-    assert.equal(head.kids.length, 4, `${view}: the Fizzy button, views, spacer, icon buttons`);
-    const [home, views, spacer, buttons] = head.kids;
-    assert.equal(home.id, "fizzy-home", `${view}: the first place`);
+    assert.deepEqual([head.style.h, head.style.px, head.style.gap, head.style.border_b, head.style.flex_none], [46, 12, 8, 1, true], `${view}: the header`);
+    const [left, views, right] = head.kids;
+    assert.equal(head.kids.length, 3);
+    assert.deepEqual([left.style.flex_1, right.style.flex_1, right.style.justify_end], [true, true, true], `${view}: the sides share the room, so the group is centered`);
+    assert.deepEqual(left.kids.map(k => k.id), ["fizzy-home", "fizzy-search-open"], `${view}: Fizzy, then Search`);
+    const home = left.kids[0];
     assert.deepEqual(home.kids.map(k => k.kind), ["svg"], `${view}: the icon alone at this width`);
     const [icon] = home.kids;
     assert.deepEqual([icon.path, icon.style.size, icon.style.flex_none], [LOGO, 14, true], `${view}: the kanban icon, 14 px`);
     assert.deepEqual([icon.id, icon.style.tooltip, Object.keys(icon.handlers)], [null, undefined, []], `${view}: the button holds the click, not the icon`);
     assert.equal(home.style.tooltip, "Board", `${view}: without its word it says what it opens`);
+    assert.equal(views.id, "fizzy-views");
     assert.deepEqual(views.kids.map(k => k.id), ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"], `${view}: the board-free views, together`);
-    assert.deepEqual([views.style.gap, views.style.flex_none], [2, true]);
-    assert.equal(spacer.style.flex_1, true);
-    assert.deepEqual(buttons.kids.map(k => k.id), ["fizzy-search-open", "fizzy-refresh", "fizzy-open-settings"]);
-    assert.deepEqual([buttons.style.gap, buttons.style.flex_none], [2, true]);
+    assert.deepEqual([views.style.gap, views.style.p, views.style.flex_none, views.style.rounded_full, views.style.border_1], [2, 2, true, true, true], "one round group");
+    assert.deepEqual(right.kids.map(k => k.id), ["fizzy-refresh", "fizzy-open-settings"]);
+    for (const id of ["fizzy-search-open", "fizzy-refresh", "fizzy-open-settings"]) assert.deepEqual([must(tree, id).style.size, must(tree, id).style.rounded_full], [30, true], id);
     assert.match(textOf(must(tree, "fizzy-view-inbox")), /Inbox\s+2/, `${view}: the unread badge stays on the Inbox`);
     for (const id of ["fizzy-view-board", "fizzy-open-board", "fizzy-board"]) assert.equal(find(head, id), null, `${view}: ${id} is not in the header`);
   }
@@ -7679,26 +7681,26 @@ test("a filter shows every lane that holds a match, folded or not, and leaves th
   assert.equal(JSON.parse(localStorage.getItem("collapsed:b1")).c1, true);
 });
 
-test("the header's views are 26 px buttons: the lit one is the view that shows, and none is lit in the Board view", async () => {
+test("the header's views are pills in their group: the lit one is the view that shows, in medium weight; none is lit in the Board view; each lights on hover", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
-  const look = id => { const b = must(tree, id); return [b.style.h, b.style.px, b.style.rounded, b.style.text_size, b.style.flex_none, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
-  const shape = [26, 6, 6, textPx(12), true];
-  for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.deepEqual(look(id), [...shape, "background", "muted", "hover"], `board: ${id}`);
+  const look = id => { const b = must(tree, id); return [b.style.h, b.style.px, b.style.rounded_full, b.style.text_size, b.style.flex_none, b.style.bg, b.style.text_color, b.style.font_medium, b.hoverStyle]; };
+  const shape = [24, 8, true, textPx(12), true], hover = { bg: "hover", text_color: "foreground" };
+  for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.deepEqual(look(id), [...shape, "background", "muted", undefined, hover], `board: ${id}`);
   for (const lit of ["mine", "inbox", "pins"]) {
     click(tree, `fizzy-view-${lit}`, cx);
     tree = await draw();
     for (const view of ["mine", "inbox", "pins"]) {
-      assert.deepEqual(look(`fizzy-view-${view}`), view === lit ? [...shape, "selected", "foreground", "hover"] : [...shape, "background", "muted", "hover"], `${lit}: ${view}`);
+      assert.deepEqual(look(`fizzy-view-${view}`), view === lit ? [...shape, "selected", "foreground", true, hover] : [...shape, "background", "muted", undefined, hover], `${lit}: ${view}`);
     }
   }
 });
 
-test("the Fizzy button is a 26 px button like the views: lit only in the Board view, and a click shows the Board view from Mine, the Inbox and Pins", async () => {
+test("the Fizzy button is a 30 px pill: lit only in the Board view, and a click shows the Board view from Mine, the Inbox and Pins", async () => {
   const { view, cx, draw } = await mount();
   let tree = await draw();
-  const look = () => { const b = must(tree, "fizzy-home"); return [b.style.h, b.style.px, b.style.gap, b.style.rounded, b.style.flex_none, b.style.items_center, b.style.cursor_pointer, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
-  const shape = [26, 6, 6, 6, true, true, true];
+  const look = () => { const b = must(tree, "fizzy-home"); return [b.style.h, b.style.px, b.style.gap, b.style.rounded_full, b.style.flex_none, b.style.items_center, b.style.cursor_pointer, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
+  const shape = [30, 8, 6, true, true, true, true];
   assert.deepEqual(look(), [...shape, "selected", "foreground", "hover"], "lit in the Board view");
   assert.equal(typeof must(tree, "fizzy-home").handlers["on_mouse_down:left"], "function", "the press goes no further, as on the views");
   for (const from of ["mine", "inbox", "pins"]) {
@@ -7728,9 +7730,9 @@ test("with no board yet the Fizzy button still shows the Board view", async () =
   assert.equal(must(tree, "fizzy-home").style.bg, "selected");
 });
 
-const WIDE_HEADER = { word: "Fizzy", homeTip: undefined, tabPx: 8, gap: 8, refresh: true };
-const MIDDLE_HEADER = { word: "", homeTip: "Board", tabPx: 6, gap: 6, refresh: true };
-const NARROW_HEADER = { word: "", homeTip: "Board", tabPx: 6, gap: 6, refresh: false };
+const WIDE_HEADER = { word: "Fizzy", homeTip: undefined, tabPx: 12, gap: 8, refresh: true };
+const MIDDLE_HEADER = { word: "", homeTip: "Board", tabPx: 8, gap: 8, refresh: true };
+const NARROW_HEADER = { word: "", homeTip: "Board", tabPx: 6, gap: 4, refresh: false };
 
 test("the header has three tiers: 440 px and up spells out Fizzy; 340 to 439 keeps the icon; under 340 leaves Refresh out", async () => {
   const { cx, draw } = await mount();
@@ -7747,7 +7749,7 @@ test("the header has three tiers: 440 px and up spells out Fizzy; 340 to 439 kee
     resize(tree, cx, width);
     tree = await draw();
     assert.deepEqual(look(tree), expected, `${width} px`);
-    assert.equal(parentOf(tree, "fizzy-view-mine").style.gap, expected.gap === 8 ? 3 : 2, `${width} px: the gap between the views`);
+    assert.equal(parentOf(tree, "fizzy-view-mine").style.gap, 2, `${width} px: the gap between the views`);
     if (expected.word) {
       const word = must(tree, "fizzy-home").kids.find(k => textOf(k) === "Fizzy");
       assert.deepEqual([word.style.font_semibold, word.style.flex_none], [true, true], `${width} px: the word is semibold and keeps its width`);
@@ -7756,6 +7758,43 @@ test("the header has three tiers: 440 px and up spells out Fizzy; 340 to 439 kee
     assert.equal(tipOf(tree, "fizzy-home"), expected.homeTip);
     for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.equal(must(tree, id).style.px, expected.tabPx, `${width} px: ${id}`);
   }
+});
+
+test("from 640 px the header holds the search field by Fizzy: Enter searches every board, the results take the list's place under the same header, and Escape, a view or the x close them", async () => {
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  resize(tree, cx, 639);
+  tree = await draw();
+  assert.ok(find(tree, "fizzy-search-open") && !find(tree, "fizzy-search"), "639: the round button");
+  resize(tree, cx, 640);
+  tree = await draw();
+  assert.deepEqual(headerOf(tree).kids[0].kids.map(k => k.id), ["fizzy-home", "fizzy-search"], "the field itself, no button");
+  const box = must(tree, "fizzy-search"), input = all(box, n => n.kind === "input")[0];
+  assert.deepEqual([box.style.flex_1, box.style.min_w, input.style.h, input.style.rounded_full, input.style.border_color], [true, 0, 30, true, "input"]);
+  assert.deepEqual(iconsIn(tree, "fizzy-search"), ["mods/fizzy/search.svg"]);
+  const search = async () => {
+    const field = inputOf(tree, "fizzy-search");
+    field.edit("login", cx);
+    field.submit(cx);
+    await cx.settle();
+    tree = await draw();
+  };
+  await search();
+  assert.equal(view.search?.q, "login");
+  assert.ok(find(tree, "fizzy-search-head"), "the results");
+  assert.equal(find(tree, "fizzy-search-back"), null, "the header stays as it is");
+  assert.equal(all(must(tree, "fizzy-search"), n => n.kind === "input")[0].style.border_color, "accent", "the field says a search is open");
+  assert.deepEqual(["fizzy-home", "fizzy-view-mine"].map(id => must(tree, id).style.bg), ["background", "background"], "no view is lit over the results");
+  fire(must(tree, "fizzy-search"), "on_key_down", { key: "escape", modifiers: {} }, cx);
+  assert.equal(view.search, null, "Escape");
+  await search();
+  click(tree, "fizzy-view-mine", cx);
+  assert.deepEqual([view.search, view.view], [null, "mine"], "a view");
+  await search();
+  click(tree, "fizzy-search-clear", cx);
+  assert.deepEqual([view.search, view.searchField.value()], [null, ""], "the x, which empties the field");
+  await press(cx, "search");
+  assert.deepEqual([view.search, view.searchField.focused], [null, true], "the search key only puts the focus in the field");
 });
 
 test("the header redraws only when the width crosses 340 or 440, and Refresh stays reachable by its key when the header leaves it out", async () => {

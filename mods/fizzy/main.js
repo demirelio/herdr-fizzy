@@ -38,12 +38,15 @@ const FIELD_MENUS = new Set(["tags", ...PICKERS]);
 // The most cards a "#" popup is handed, and how long (ms) after the typing stops it looks up a number it was not handed.
 const CARD_REFS = 300, LOOKUP_DELAY = 300;
 // The bottom bars: one line of controls, each as high as BAR_BUTTON. Below NARROW px of panel width (its narrowest is
-// 280) the hand-off buttons drop their icons and keep their labels, and the header drops Refresh (an Inbox badge leaves
-// no room for it), so each still fits in one line. Below WIDE px the header tightens its buttons and gaps and drops its
-// "Fizzy" word, which at 340 would leave under 1 px beside a three-digit badge.
+// 280) the hand-off buttons drop their icons and keep their labels, and the header drops Refresh and tightens its views
+// and gaps (an Inbox badge leaves no room otherwise), so each still fits in one line. Below WIDE px the header's views
+// are tighter too and it drops its "Fizzy" word, which at 340 would not fit beside a three-digit badge.
 const BAR_BUTTON = 28, NARROW = 340, WIDE = 440;
 // The board row's round buttons, and the list bar's round filters and field, are ROUND px high.
 const ROUND = 30;
+// From SEARCH_WIDE px of panel width the header holds the search field itself (the centered views leave it about 120 px
+// there); narrower, a round button opens it in the header's place.
+const SEARCH_WIDE = 640;
 // The Board view's filters beside its field: each keeps only the cards it names; together, the cards all of them name.
 const BOARD_FILTERS = [{ key: "mine", icon: "user", tip: "My cards" }, { key: "golden", icon: "star", tip: "Golden cards" }, { key: "pinned", icon: "pin", tip: "Pinned cards" }];
 // Transparent, not the background color: a background-colored border would show as a frame inside a highlighted block.
@@ -351,6 +354,7 @@ export default class Fizzy extends View {
     // One at a time: a newer Start replaces it. Looked at by the request timer (see takeStart), never by a draw.
     this.starting = null;
     this.narrow = false; this.wide = false; // the panel is narrower than NARROW px, or at least WIDE px (the default width is neither)
+    this.inlineSearch = false; // the panel is at least SEARCH_WIDE px: the search field is in the header
     // Profile photos: { [user id]: { file, at } } is kept between runs, `paths` is what is drawn from it ({ [user id]: image path }),
     // `wanted` the users still to fetch (id -> photo address), `fetching` the ones being fetched, `failedAt` when a failed one may
     // be tried again. Only this panel fetches (see takeAvatars); popups read the paths from shared state.
@@ -938,10 +942,11 @@ export default class Fizzy extends View {
     return true;
   }
 
-  // The header turns into the search field, its results replace the list of any view. The field keeps its words.
+  // The search field takes the focus (narrow, the header turns into it); its results replace the list of any view. The field
+  // keeps its words.
   openSearch(cx) {
     this.goBack(cx);
-    this.search ??= { q: null, found: new Map(), count: 0, error: null, waiting: false };
+    if (!this.inlineSearch) this.search ??= { q: null, found: new Map(), count: 0, error: null, waiting: false };
     this.searchField.focus();
     cx.timer.after(200, () => this.searchField.focus());
   }
@@ -2374,14 +2379,6 @@ export default class Fizzy extends View {
     }
   }
 
-  iconButton(t, id, icon, action, enabled = true, tip = null, size = 26) {
-    return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded(6)
-      .text_color(enabled ? t.muted : t.dim).on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
-      .when(enabled, el => el.hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().on_click(action))
-      .when(Boolean(tip), el => el.tooltip(tip))
-      .child(svg(icon).size(14));
-  }
-
   // A round toggle. state: "on" | "off" | "unknown" (not known, still clickable) | "inert" (not known, does nothing).
   toggleButton(t, id, icon, state, tip, action, onColor = t.accent) {
     return div().id(id).size(ROUND).flex_none().flex().items_center().justify_center().rounded_full().border_1()
@@ -2438,8 +2435,8 @@ export default class Fizzy extends View {
   header(t, cx) {
     if (this.settingsOpen) {
       const page = SETTINGS.find(s => s.id === this.settingsPage);
-      return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .child(this.iconButton(t, "fizzy-back", ICON("arrow-left"), (_e, cx) => this.settingsBack(cx), true, page ? "Settings" : "Back"))
+      return h_flex().h(46).flex_none().px(12).gap(10).items_center().border_b(1).border_color(t.border)
+        .child(this.roundButton(t, "fizzy-back", "arrow-left", page ? "Settings" : "Back", cx => this.settingsBack(cx)))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(page?.title ?? "Settings"));
     }
     // A card's page: Back, and the card's toggles and actions, all round, as Fizzy has them beside a card.
@@ -2458,30 +2455,42 @@ export default class Fizzy extends View {
         .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-act-open", "external-link", "Open in Fizzy", c.url ? cx => cx.open_url(c.url) : null)))
         .child(this.roundButton(t, "fizzy-card-menu", "more", "More", cx => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx))));
     }
-    if (this.search) {
-      const field = this.searchField;
-      return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .on_key_down((e, cx) => { if (e.key === "escape") this.closeSearch(cx); })
-        .child(this.iconButton(t, "fizzy-search-back", ICON("arrow-left"), (_e, cx) => this.closeSearch(cx), true, "Back"))
-        .child(div().id("fizzy-search").relative().flex_1().min_w(0)
-          .child(Input.new(field).h(BAR_BUTTON).pl(8).pr(field.value() ? 28 : 8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
-          .when(field.value() !== "", el => el.child(this.clearButton(t, "fizzy-search-clear", BAR_BUTTON, cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); }))));
+    // Narrow, the search takes the header's place: Back and the field.
+    if (this.search && !this.inlineSearch) {
+      return h_flex().h(46).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
+        .child(this.roundButton(t, "fizzy-search-back", "arrow-left", "Back", cx => this.closeSearch(cx)))
+        .child(this.searchBox(t));
     }
-    return h_flex().h(42).flex_none().px(10).gap(this.wide ? 8 : 6).items_center().border_b(1).border_color(t.border)
-      .child(this.homeButton(t))
-      .child(h_flex().flex_none().gap(this.wide ? 3 : 2).children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
-      .child(div().flex_1())
-      .child(h_flex().flex_none().gap(2)
-        .child(this.iconButton(t, "fizzy-search-open", ICON("search"), (_e, cx) => this.openSearch(cx), true, "Search all boards"))
-        .when(!this.narrow, el => el.child(this.iconButton(t, "fizzy-refresh", ICON("refresh"), (_e, cx) => this.retry(cx), true, "Refresh")))
-        .child(this.iconButton(t, "fizzy-open-settings", ICON("settings"), (_e, cx) => this.openSettings(cx), true, "Settings")));
+    // Fizzy and the search at the left, the views as one group in the middle, Refresh and Settings at the right: both sides
+    // share the room left over equally, so the group stays centered while they fit.
+    return h_flex().h(46).flex_none().px(this.narrow ? 10 : 12).gap(this.narrow ? 4 : 8).items_center().border_b(1).border_color(t.border)
+      .child(h_flex().flex_1().gap(this.wide ? 8 : 4).items_center()
+        .child(this.homeButton(t))
+        .child(this.inlineSearch ? this.searchBox(t) : this.roundButton(t, "fizzy-search-open", "search", "Search all boards", cx => this.openSearch(cx))))
+      .child(h_flex().id("fizzy-views").flex_none().p(2).gap(2).items_center().rounded_full().border_1().border_color(t.input)
+        .children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
+      .child(h_flex().flex_1().gap(6).items_center().justify_end()
+        .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-refresh", "refresh", "Refresh", cx => this.retry(cx))))
+        .child(this.roundButton(t, "fizzy-open-settings", "settings", "Settings", cx => this.openSettings(cx))));
   }
 
+  // The search field, round like the list bar's: Enter searches every board (or opens `#number`), the x or Escape closes the
+  // search; its border is the accent while a search is open.
+  searchBox(t) {
+    const field = this.searchField, words = field.value() !== "";
+    return div().id("fizzy-search").relative().flex_1().min_w(0)
+      .on_key_down((e, cx) => { if (e.key === "escape") this.closeSearch(cx); })
+      .child(Input.new(field).h(ROUND).pl(32).pr(words ? ROUND : 14).rounded_full().border_1().border_color(this.search ? t.accent : t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
+      .child(svg(ICON("search")).absolute().left(12).top(8).size(14).text_color(t.dim))
+      .when(words, el => el.child(this.clearButton(t, "fizzy-search-clear", ROUND, cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); })));
+  }
+
+  // Fizzy, which shows the Board view: a pill, lit while the Board view shows; its word only when wide.
   homeButton(t) {
-    const shown = this.view === "board";
-    return h_flex().id("fizzy-home").h(26).px(this.wide ? 8 : 6).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
+    const shown = this.view === "board" && !this.search;
+    return h_flex().id("fizzy-home").h(ROUND).px(this.wide ? 12 : 8).gap(6).flex_none().items_center().rounded_full().cursor_pointer()
       .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
+      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
       .on_click((_e, cx) => this.setView("board", cx))
       .when(!this.wide, el => el.tooltip("Board"))
       .child(svg(ICON("kanban")).size(14).flex_none())
@@ -2514,10 +2523,12 @@ export default class Fizzy extends View {
     return Boolean(this.boardFilter.value().trim()) || this.only.size > 0;
   }
 
+  // One view of the header's group: a pill inside it, lit while its view shows.
   viewButton(t, id, label) {
-    return h_flex().id(`fizzy-view-${id}`).h(26).px(this.wide ? 8 : 6).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(textPx(12))
-      .bg(this.view === id ? t.selected : t.background).text_color(this.view === id ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
+    const shown = this.view === id && !this.search;
+    return h_flex().id(`fizzy-view-${id}`).h(ROUND - 6).px(this.narrow ? 6 : this.wide ? 12 : 8).gap(5).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12))
+      .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted).when(shown, el => el.font_medium())
+      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
       .on_click((_e, cx) => this.setView(id, cx))
       .child(label)
       .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(textPx(10)).text_color(t.accent_foreground).child(String(this.unread))));
@@ -3548,10 +3559,10 @@ export default class Fizzy extends View {
     const lists = !this.settingsOpen && !d, fresh = Boolean(d) && this.fresh === d.number;
     return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(textPx(13))
       .on_size_change((size, cx) => {
-        const layoutNow = () => [this.narrow, this.wide, this.sideBySide(), this.board ? this.openKeys(this.board).length : 0].join();
+        const layoutNow = () => [this.narrow, this.wide, this.inlineSearch, this.sideBySide(), this.board ? this.openKeys(this.board).length : 0].join();
         const was = layoutNow(), wasSide = this.sideBySide();
         this.width = size.width;
-        this.narrow = size.width < NARROW; this.wide = size.width >= WIDE;
+        this.narrow = size.width < NARROW; this.wide = size.width >= WIDE; this.inlineSearch = size.width >= SEARCH_WIDE;
         if (layoutNow() === was) return;
         if (this.sideBySide() && !wasSide) this.loadOpenLanes(cx);
         cx.notify();

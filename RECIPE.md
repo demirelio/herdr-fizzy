@@ -14,25 +14,29 @@ Top to bottom, inside the panel (Herdr's `main` layout gives it 368 px, at least
 column, rounded 10, with a 1 px `border` and the `background` color; text is 13 px in `foreground`. Colors here are
 theme names.
 
-- **Header**, 42 px, padding 10, a 1 px line under it. At the left, **Fizzy**: the kanban icon (14 px) and, from 440 px
-  of panel width, the word "Fizzy" in semibold, 26 px high; it is `selected` while the Board view shows, and without
-  the word it has the tooltip "Board". Then **Mine**, **Inbox** and **Pins** (12 px, `selected` when shown); while
-  there are unread notifications, Inbox carries a round 16 px badge in `accent` with their number. At the right (gap
-  2), **Search** (tooltip "Search all boards"), **Refresh** and **Settings**: 26 px icon buttons, 14 px icons in
-  `muted`, `hover` behind them and `foreground` on hover. The panel's width has three tiers, measured on the panel's
-  root (its border included):
+- **Header**, 46 px, padding 12, a 1 px line under it, in three parts. At the left, **Fizzy**, a 30 px pill: the
+  kanban icon (14 px) and, from 440 px of panel width, the word "Fizzy" in semibold; `selected` while the Board view
+  shows, and without the word it has the tooltip "Board"; then the search (below). In the middle, **Mine**, **Inbox**
+  and **Pins** as one round group (a 1 px `input` border, padding 2, gap 2): 24 px pills, 12 px, `muted`; the one shown
+  `selected`, `foreground` and medium; `hover` and `foreground` on hover. While there are unread notifications, Inbox
+  carries a round 16 px badge in `accent` with their number. At the right (gap 6), **Refresh** and **Settings**, round
+  30 px buttons as on a card's page. The left and right parts share the room left equally, so the group stays centered
+  while they fit. While search results show, no view is lit. The panel's width has four tiers, measured on the
+  panel's root (its border included):
 
-  | Panel width | Fizzy and the views | Gap | Refresh |
-  |---|---|---|---|
-  | 440 px and up | icon and word, padding 8 | 8, 3 between the views | shown |
-  | 340 to 439 px (368 by default) | icon alone, padding 6 | 6, 2 between the views | shown |
-  | under 340 px | icon alone, padding 6 | 6, 2 between the views | left out |
+  | Panel width | Fizzy | The views' padding | Gap | Search | Refresh |
+  |---|---|---|---|---|---|
+  | 640 px and up | icon and word | 12 | 8 | the field | shown |
+  | 440 to 639 px | icon and word | 12 | 8 | a round button | shown |
+  | 340 to 439 px (368 by default) | icon alone | 8 | 8, 4 by Fizzy | a round button | shown |
+  | under 340 px (padding 10) | icon alone | 6 | 4 | a round button | left out |
 
-  Without Refresh, Refresh stays reachable by the `refresh` key and the 30 s poll. While the search is open, the
-  header (padding 10, gap 6) is Back (26 px, arrow-left, tooltip "Back") and the search field, taking the room: 28 px,
-  rounded 7, 1 px `accent` border, `background`, 12 px, padding 8, placeholder "Search all boards, or #number…". While
-  a field has words, a 20 px **x** sits at its right end inside it (4 px in, rounded 5, a 12 px x in `dim`; `hover`
-  behind it and `foreground` on hover; tooltip "Clear"), and the field's right padding is 28.
+  Without Refresh, Refresh stays reachable by the `refresh` key and the 30 s poll. The search field is round like the
+  list bar's filter: 30 px, a 1 px `input` border (`accent` while a search is open), `background`, 12 px, padding 32 at
+  the left with a 14 px search icon in `dim`, placeholder "Search all boards, or #number…"; while it has words, a
+  round 20 px **x** sits 5 px in from its right end (a 12 px x in `dim`; `hover` behind it and `foreground` on hover;
+  tooltip "Clear"), and the right padding is 30. Under 640 px the round button (tooltip "Search all boards") opens the
+  search: the header becomes Back (round, arrow-left) and that field, taking the room.
 - **Board row**, as Fizzy's head, padding 12 by 6, gap 10, **in the Board view only** (Mine, Inbox and Pins go straight
   from the header to their list; it is left out while the search is open): **Who can see this board**, a 1 px `border`
   rule, the board's name, another rule, **Open board in Fizzy**. The rules share the room around the name. The name
@@ -275,18 +279,20 @@ dot after the label while `fizzy.unread` is above zero.
   keeps the cards assigned to the signed-in user, Golden cards the golden ones, Pinned cards those in the pins list;
   with several on, a card must pass them all. On Board, while words or a filter narrow it, every lane holding a match
   is drawn unfolded; the fold kept for it does not change. The x empties the field.
-- **Search.** The header's search icon (and the `search` key) leaves an open card or Settings and turns the header into
-  the search field, focused; the search takes the place of any view's list, and the board row and the list's bar go. The
-  field keeps its words when the search closes. Enter runs one `fizzy search` (account-wide: every board, open, Not Now
-  and closed cards, comments), shows `Searching…`, then a section per board; a newer search drops the older one's
+- **Search.** The `search` key leaves an open card or Settings and puts the focus in the search field: from 640 px it is
+  in the header already; narrower, the header's search button (and the key) turns the header into it, with the
+  search's page under it. Once Enter runs a search, its results take the place of any view's list, and the board row
+  and the list's bar go; the header stays. The field keeps its words when the search closes. Enter runs one
+  `fizzy search` (account-wide: every board, open, Not Now and closed cards, comments), shows `Searching…`, then a
+  section per board; a newer search drops the older one's
   results. A leading `#` and surrounding white space are cut from the words. When 15 cards come back (Fizzy's most), a
   dim line says `Fizzy shows its 15 newest matches. Add words to narrow it.` When Fizzy does not answer (TIMEOUT or
   `rate_limit`: its limit is 300 searches an hour per user), the line says `Fizzy didn't answer the search. Its search
   limit (300 an hour, shared with your agents) may be used up. Try again later.` with Retry, and nothing retries by
   itself. A field holding only `#<number>` (white space around it allowed) opens that card and closes the search, with
   the field emptied: pasted (more than one character arriving at once), at once; typed, on Enter, so `#4` on the way
-  to `#42` opens nothing. Back, Escape, and the `back` and `view` keys close the search; the x empties the field and
-  closes it.
+  to `#42` opens nothing. Back, Escape, a view, and the `back` and `view` keys close the search; the x empties the
+  field and closes it.
 - **Card.** Click the title to rename (Enter saves, Escape or the x cancels); a lane moves the card there at once
   (Done closes it, Not Now postpones it), as Mark as Done does; the board on the tab moves it to another board (the
   card leaves the lists but stays open, its tab naming the new board at once, then it is read again; a deleted card
@@ -547,7 +553,7 @@ dot after the label while `fizzy.unread` is above zero.
   board's auto-postpone period shows `Closes in Nd`.
 - On Board, a filter's words open every lane with a match; My cards keeps the signed-in user's cards, Golden cards the
   golden ones and Pinned cards the pinned ones.
-- The search icon, then a pasted `#N`, opens card N; words and Enter list Fizzy's matches by board.
+- A pasted `#N` in the search field opens card N; words and Enter list Fizzy's matches by board.
 - In a comment, `@` and a person the panel can tag, then Comment, makes a Fizzy mention (the person is notified); `#`
   and a card makes a link that opens that card in the panel.
 - A comment's reaction chip toggles yours in Fizzy (`fizzy reaction list` agrees).

@@ -21,16 +21,17 @@ The repo holds:
 
 ## What you see
 
-**The header.** From the left: **Fizzy** (its icon and name; below 440 px of panel width, the icon alone) shows the
-Board view. Then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, and at the right
-**Search**, **Refresh** and **Settings**. Below 340 px Refresh is left out; the `refresh` key and the 30-second poll
-still read again. On the Board view only, the **board row** sits under the header, as Fizzy's head: the board's name
-in the middle, big and bold, between two thin rules (click it to pick another board; "Following space" sits under it
-while it follows the space's own board), **Who can see this board** at the left and **Open board in Fizzy** at the
-right, both round. Who can see this board lists the people who can, with **Everyone on the team** at the top: a switch
-that lets every member of the team see the board, or only the people given it. Adding or taking away one person is
-done in Fizzy (the CLI can't): a person's row, and the last row, open the board there. Mine, Inbox and Pins go
-straight to their list.
+**The header.** At the left, **Fizzy** (its icon and name; below 440 px of panel width, the icon alone) shows the
+Board view, and the **search** field sits next to it (below 640 px, a round search button that opens it). In the
+middle, **Mine**, **Inbox** (with the number of unread notifications) and **Pins** form one round group, the view shown
+lit. At the right, round **Refresh** and **Settings** buttons. Below 340 px Refresh is left out; the `refresh` key and
+the 30-second poll still read again. On the Board view only, the **board row** sits under the header, as Fizzy's
+head: the board's name in the middle, big and bold, between two thin rules (click it to pick another board;
+"Following space" sits under it while it follows the space's own board), **Who can see this board** at the left and
+**Open board in Fizzy** at the right, both round. Who can see this board lists the people who can, with **Everyone on
+the team** at the top: a switch that lets every member of the team see the board, or only the people given it. Adding
+or taking away one person is done in Fizzy (the CLI can't): a person's row, and the last row, open the board there.
+Mine, Inbox and Pins go straight to their list.
 
 **The bar at the foot** follows the view:
 
@@ -97,14 +98,16 @@ every stacked lane that holds a match is open, folded or not; the fold kept for 
 side, the open lanes show the matches and each folded pill counts its own. The filter only sees cards the panel has
 already read; search finds the rest.
 
-**Search.** The search icon in the header turns the header into a search field, and the results take the place of the
-list, in any view. Press Enter: the panel asks Fizzy once, across every board, in open, Not Now and closed cards and in
-comments, and shows what it finds, a section per board. Fizzy answers with its 15 newest matches at most; when it
+**Search.** Type in the header's search field (on a narrower panel, its search button turns the header into the
+field) and press Enter; the results take the place of the list, in any view, under the same header. On Enter the
+panel asks Fizzy once, across every board, in open, Not Now and closed cards and in comments, and shows what it finds,
+a section per board. Fizzy answers with its 15 newest matches at most; when it
 does, the list says so, and more words narrow it. Fizzy limits searches to 300 an hour per person, shared with anything
 else of yours that searches, so the panel never searches as you type; when Fizzy does not answer, the panel says the
 limit may be used up, and never tries again by itself. A card's number with its `#`, such as `#42`, opens that card
-instead, from any board: at once when you paste it, on Enter when you type it. The arrow or Escape closes the search,
-and the field keeps its words for next time; the x empties the field and closes the search.
+instead, from any board: at once when you paste it, on Enter when you type it. Escape, a view, or the arrow on a
+narrow panel closes the search, and the field keeps its words for next time; the x empties the field and closes the
+search.
 
 **Mine** lists the cards assigned to you on every board, a section per board. **Pins** lists your pinned cards.
 
@@ -435,7 +438,7 @@ command only while the Fizzy page is shown, so with the panel hidden or another 
 | `settings` | Opens Settings |
 | `insert`, `send`, `start`, `copy` | The hand-off buttons: for the open card, else the picked cards, else (Board view) the board shown |
 | `new` | Opens the **New card** board picker (nothing happens until a board shows); choosing a board makes a card in its Maybe? and opens it |
-| `search` | Opens the search in the header, leaving an open card or Settings |
+| `search` | Puts the focus in the header's search field (narrow, opens it), leaving an open card or Settings |
 | `filter` | Puts the cursor in the filter at the foot, closing the search and unpicking cards (from the Inbox, which has none, it shows the Board view first) |
 | `menu:<number>` | Opens that card's menu |
 
