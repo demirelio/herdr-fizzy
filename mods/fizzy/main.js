@@ -44,9 +44,9 @@ const CARD_REFS = 300, LOOKUP_DELAY = 300;
 const BAR_BUTTON = 28, NARROW = 340, WIDE = 440;
 // The board row's round buttons, and the list bar's round filters and field, are ROUND px high.
 const ROUND = 30;
-// From SEARCH_WIDE px of panel width the header holds the search field itself (the centered views leave it about 120 px
+// From SEARCH_WIDE px of panel width the header holds the search field itself (the centered views leave it about 130 px
 // there); narrower, a round button opens it in the header's place.
-const SEARCH_WIDE = 640;
+const SEARCH_WIDE = 560;
 // The Board view's filters beside its field: each keeps only the cards it names; together, the cards all of them name.
 const BOARD_FILTERS = [{ key: "mine", icon: "user", tip: "My cards" }, { key: "golden", icon: "star", tip: "Golden cards" }, { key: "pinned", icon: "pin", tip: "Pinned cards" }];
 // Transparent, not the background color: a background-colored border would show as a frame inside a highlighted block.
@@ -2461,13 +2461,13 @@ export default class Fizzy extends View {
         .child(this.roundButton(t, "fizzy-search-back", "arrow-left", "Back", cx => this.closeSearch(cx)))
         .child(this.searchBox(t));
     }
-    // Fizzy and the search at the left, the views as one group in the middle, Refresh and Settings at the right: both sides
+    // The search at the left, Fizzy and the views as one group in the middle, Refresh and Settings at the right: both sides
     // share the room left over equally, so the group stays centered while they fit.
     return h_flex().h(46).flex_none().px(this.narrow ? 10 : 12).gap(this.narrow ? 4 : 8).items_center().border_b(1).border_color(t.border)
-      .child(h_flex().flex_1().gap(this.wide ? 8 : 4).items_center()
-        .child(this.homeButton(t))
+      .child(h_flex().flex_1().items_center()
         .child(this.inlineSearch ? this.searchBox(t) : this.roundButton(t, "fizzy-search-open", "search", "Search all boards", cx => this.openSearch(cx))))
       .child(h_flex().id("fizzy-views").flex_none().p(2).gap(2).items_center().rounded_full().border_1().border_color(t.input)
+        .child(this.homeButton(t))
         .children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
       .child(h_flex().flex_1().gap(6).items_center().justify_end()
         .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-refresh", "refresh", "Refresh", cx => this.retry(cx))))
@@ -2485,13 +2485,18 @@ export default class Fizzy extends View {
       .when(words, el => el.child(this.clearButton(t, "fizzy-search-clear", ROUND, cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); })));
   }
 
-  // Fizzy, which shows the Board view: a pill, lit while the Board view shows; its word only when wide.
-  homeButton(t) {
-    const shown = this.view === "board" && !this.search;
-    return h_flex().id("fizzy-home").h(ROUND).px(this.wide ? 12 : 8).gap(6).flex_none().items_center().rounded_full().cursor_pointer()
-      .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted)
+  // A pill of the header's view group: a click shows `view`; lit while it shows (none is while search results show).
+  viewPill(t, id, view) {
+    const shown = this.view === view && !this.search;
+    return h_flex().id(id).h(ROUND - 6).px(this.narrow ? 6 : this.wide ? 12 : 8).gap(5).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12))
+      .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted).when(shown, el => el.font_medium())
       .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => this.setView("board", cx))
+      .on_click((_e, cx) => this.setView(view, cx));
+  }
+
+  // Fizzy, the group's first pill, shows the Board view: its icon, and its word only when wide.
+  homeButton(t) {
+    return this.viewPill(t, "fizzy-home", "board")
       .when(!this.wide, el => el.tooltip("Board"))
       .child(svg(ICON("kanban")).size(14).flex_none())
       .when(this.wide, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
@@ -2523,13 +2528,9 @@ export default class Fizzy extends View {
     return Boolean(this.boardFilter.value().trim()) || this.only.size > 0;
   }
 
-  // One view of the header's group: a pill inside it, lit while its view shows.
+  // Mine, Inbox (with the unread count) or Pins in the header's view group.
   viewButton(t, id, label) {
-    const shown = this.view === id && !this.search;
-    return h_flex().id(`fizzy-view-${id}`).h(ROUND - 6).px(this.narrow ? 6 : this.wide ? 12 : 8).gap(5).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12))
-      .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted).when(shown, el => el.font_medium())
-      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => this.setView(id, cx))
+    return this.viewPill(t, `fizzy-view-${id}`, id)
       .child(label)
       .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(textPx(10)).text_color(t.accent_foreground).child(String(this.unread))));
   }

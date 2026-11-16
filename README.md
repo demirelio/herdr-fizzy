@@ -21,10 +21,10 @@ The repo holds:
 
 ## What you see
 
-**The header.** At the left, **Fizzy** (its icon and name; below 440 px of panel width, the icon alone) shows the
-Board view, and the **search** field sits next to it (below 640 px, a round search button that opens it). In the
-middle, **Mine**, **Inbox** (with the number of unread notifications) and **Pins** form one round group, the view shown
-lit. At the right, round **Refresh** and **Settings** buttons. Below 340 px Refresh is left out; the `refresh` key and
+**The header.** At the left, the **search** field (below 560 px of panel width, a round search button that opens it).
+In the middle, one round group: **Fizzy** (its icon and name; below 440 px, the icon alone), which shows the Board
+view, then **Mine**, **Inbox** (with the number of unread notifications) and **Pins**, the view shown lit. At the
+right, round **Refresh** and **Settings** buttons. Below 340 px Refresh is left out; the `refresh` key and
 the 30-second poll still read again. On the Board view only, the **board row** sits under the header, as Fizzy's
 head: the board's name in the middle, big and bold, between two thin rules (click it to pick another board;
 "Following space" sits under it while it follows the space's own board), **Who can see this board** at the left and
