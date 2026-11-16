@@ -395,6 +395,12 @@ the same for those pages, when the bar shows their buttons. Only `fizzy-tabs` ta
 bar is `fizzy-tabs`, such as `fizzy-core`, the bar is always shown, so the key works whether the panel is open or
 hidden; in other layouts it does nothing.
 
+**`fizzy-tabs.search:fizzy`** brings the Fizzy page up (it never hides it) with the search of every board open and
+its field focused. Bind it yourself, for example `"cmd-k": "fizzy-tabs.search:fizzy"` in the `global` section on macOS
+(Herdr uses ⌘K for nothing). On Linux pick another key than `ctrl-k`, which terminal programs use to cut to the end of
+the line. The tab bar asks the panel through `fizzy.request`, which the panel reads even while it is hidden, as
+Herdr gives a `fizzy.*` key only to a shown panel.
+
 The panel takes commands of its own: bind `"<key>": "fizzy.<command>"` in `keys.json`, for example
 `{ "global": { "<your key>": "fizzy.insert" } }`. A command is `name` or `name:arg` (`name arg` works too, and the
 name's case doesn't matter); an unknown one, or one with nothing to act on, does nothing. Herdr delivers a `fizzy.*`
@@ -497,7 +503,7 @@ It writes these shared keys, which every mod can read (Herdr keeps them in `shar
 | `fizzy.avatars` | Each person's photo file, by user id |
 | `fizzy.boardGroups` | Your board groups, and the order you gave the boards |
 | `fizzy.board` | The last choice made in the board dropdown or the New card picker |
-| `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod): a change, a reaction, the person or card picked for a box, or a hand-off with its text; the panel sets it to null once it has handled it |
+| `fizzy.request` | An action a popup hands to the panel (popups are copies of the same mod): a change, a reaction, the person or card picked for a box, or a hand-off with its text; or, from the tab bar's `search:fizzy`, `{ op: { kind: "search" } }`. The panel sets it to null once it has handled it |
 | `new-menu.agents` | Herdr's own `new-menu` cache of the agents each machine reported; the Start list shows it at once, and writes back what the machine answered |
 
 **When it asks Fizzy.** Never while `herdr-app check` loads it (as `install.sh` does): there it runs nothing and

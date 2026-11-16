@@ -359,7 +359,9 @@ dot after the label while `fizzy.unread` is above zero.
   embed it with`.
 - **Keys.** `<tab bar>.panel:fizzy` toggles the Fizzy page like its button. No key is bound to it unless asked
   (`install.sh --add-key` binds `cmd-shift-j`, on Linux `ctrl-shift-j`, in `global` when that key is free): an edit to
-  `keys.json` stops Herdr adding its new default shortcuts to it.
+  `keys.json` stops Herdr adding its new default shortcuts to it. `<tab bar>.search:fizzy` (for `cmd-k`, bound by
+  hand) shows the Fizzy page and sets `fizzy.request` to `{ id, op: { kind: "search" } }`, which the panel, shown or
+  hidden, takes on its request timer and opens the search with.
   `fizzy.<command>` (`refresh`, `view[:board|mine|inbox|pins]`, `board:<id or name>`, `follow`,
   `open:<n>[:<notification id>]`, `back`, `settings`, `insert`, `send`, `start`, `copy`, `new`, `search`, `filter`,
   `menu:<n>`) reaches the panel while it is shown. `filter` closes the search, unpicks the cards and focuses the view's

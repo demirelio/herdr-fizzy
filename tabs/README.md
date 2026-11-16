@@ -16,6 +16,10 @@ time that it fits ([When it doesn't fit](#when-it-doesnt-fit)).
   for a page the bar offers. Bind it in `keys.json` as `"<key>": "<your tab bar>.panel:fizzy"`.
   [`keys.json`](keys.json) here suggests `cmd-shift-j` on macOS and `ctrl-shift-j` on Linux: take the one for your
   system.
+- A key command `search:fizzy`: the Fizzy page comes up (it is never hidden by it) with the search of every board open.
+  Herdr gives key commands to shown mods only, so the bar asks the Fizzy panel, shown or hidden, through the shared
+  value `fizzy.request` (`{ id, op: { kind: "search" } }`). Bind it as `"cmd-k": "<your tab bar>.search:fizzy"`
+  (macOS; on Linux not `ctrl-k`, which terminal programs use).
 - Herdr's tab bar remembers, for each space, which page of the side panel you had open; the patch adds Fizzy to the
   pages it offers, so that includes Fizzy.
 
@@ -73,7 +77,8 @@ The first two hunks (the import and the loop) are refused into `main.js.rej`, an
 
 3. delete `main.js.rej`, and `main.js.orig` if `patch` made one.
 
-`panelCommand` ignores commands that aren't `panel:<page>`, so it shares the loop with any other feature's handler.
+`panelCommand` ignores commands that aren't `panel:<page>` or `search:fizzy`, so it shares the loop with any other
+feature's handler.
 
 ## When it doesn't fit
 

@@ -218,6 +218,28 @@ test("the key command panel:fizzy does what the button does, reading the layout 
   assert.ok(b.cx.notified >= 2, "each command ends with cx.notify");
 });
 
+test("the key command search:fizzy shows the Fizzy page, never hiding it, and asks the Fizzy panel through shared state to open its search; with no Fizzy page it does nothing", async () => {
+  const b = bar();
+  state.layout = layoutWith({ hidden: false, active: "fizzy", children: WITH_FIZZY });
+  sendCommand("search:fizzy");
+  await tick();
+  assert.deepEqual(ran(), OPEN_FIZZY, "already shown: shown again, not hidden");
+  const [[key, request]] = calls.setShared;
+  assert.equal(key, "fizzy.request");
+  assert.deepEqual(request.op, { kind: "search" });
+  assert.match(request.id, /^search-\d+$/);
+  calls.run.length = 0; calls.setShared.length = 0;
+  sendCommand("Search fizzy");
+  await tick();
+  assert.deepEqual([ran(), calls.setShared.length], [OPEN_FIZZY, 1], "in any case, with a space");
+  calls.run.length = 0; calls.setShared.length = 0;
+  state.layout = layoutWith({ children: ["files", "changes"] });
+  sendCommand("search:fizzy");
+  await tick();
+  assert.deepEqual([ran(), calls.setShared], [[], []]);
+  assert.ok(b.cx.notified >= 3);
+});
+
 test("panel:<page> works for every offered page, in any case; anything else is ignored", async () => {
   bar();
   for (const command of ["panel:nowhere", "panel:", "panel", "other:tab", "open:42:n1", "panel:files", "PANEL:CHANGES", "Panel:Fizzy"]) sendCommand(command);

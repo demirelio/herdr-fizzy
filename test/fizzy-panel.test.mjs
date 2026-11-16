@@ -2356,6 +2356,19 @@ test("each request kind from a popup becomes the right command", async () => {
   ]);
 });
 
+test("a tab bar's search request (⌘K) opens the search, also while the panel is hidden (its request timer takes it), and leaves shared state empty", async () => {
+  const { view, cx, draw } = await mount();
+  click(await draw(), "fizzy-card-101", cx);
+  await cx.settle();
+  state.layout = layoutWith({ hidden: true, active: "fizzy", children: ["files", "changes", "fizzy"] });
+  state.shared["fizzy.request"] = { id: "search-1", op: { kind: "search" } };
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  assert.ok(view.search, "the search is open");
+  assert.equal(view.detail, null, "the open card made way for it");
+  assert.equal(view.searchField.focused, true);
+  assert.equal(state.shared["fizzy.request"], null);
+});
+
 test("a request from before this copy started is not done again; the next one is", async () => {
   state.shared["fizzy.request"] = { id: "old", op: { kind: "move", number: 101, target: "done" } };
   const { draw } = await mount();

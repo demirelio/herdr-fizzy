@@ -1427,6 +1427,8 @@ export default class Fizzy extends View {
     const later = (...lists) => this.job(cx, cx => this.write(lists, cx));
     switch (op.kind) {
       case "insert": return insertText(op.text, cx);
+      // A tab bar's `search:fizzy` (⌘K): it shows the page, and the search opens here, whether the panel was shown or not.
+      case "search": this.openSearch(cx); cx.notify(); return null;
       // The Send popup's choice: that session comes to the front, and the text is pasted into it.
       case "paste": {
         const to = agents().find(a => a.address === op.address);
