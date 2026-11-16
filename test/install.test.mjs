@@ -19,18 +19,18 @@ const MERGE = join(ROOT, "scripts/merge-keys.mjs");
 const OUR_KEYS = join(ROOT, "tabs/keys.json");
 const PATCH_TEXT = readFileSync(join(ROOT, "tabs/fizzy-button.patch"), "utf8");
 const BASH = existsSync("/bin/bash") ? "/bin/bash" : "bash";
-const ACTION = "fizzy-tabs.panel:fizzy";
+const ACTION = "fizzy-tabs.panel:fizzy", SEARCH_ACTION = "fizzy-tabs.search:fizzy";
 const MADE = ["mods/fizzy", "mods/fizzy-tabs", "layouts/fizzy-core.json"];
 const REPORTED = "1.2.3";
 
-// For each system the uname stub can report: the key install.sh suggests for the Fizzy button, and the modifiers of
-// the key its layout hints name.
+// For each system the uname stub can report: the keys install.sh suggests for the Fizzy button and its search, and the
+// modifiers of the key its layout hints name.
 const SYSTEMS = {
-  Darwin: { key: "cmd-shift-j", layoutModifiers: "cmd-shift-" },
-  Linux: { key: "ctrl-shift-j", layoutModifiers: "ctrl-shift-" },
+  Darwin: { key: "cmd-shift-j", search: "cmd-shift-k", layoutModifiers: "cmd-shift-" },
+  Linux: { key: "ctrl-shift-j", search: "ctrl-shift-s", layoutModifiers: "ctrl-shift-" },
 };
 const SYSTEM = "Darwin";
-const { key: KEY } = SYSTEMS[SYSTEM];
+const { key: KEY, search: SEARCH_KEY } = SYSTEMS[SYSTEM];
 
 const quote = text => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // Whether `lines` has `line`, where each `{key}` in it is a key with `system`'s layout modifiers other than the
@@ -128,7 +128,9 @@ const KEYS = `{
   }
 }
 `;
-const withKey = key => KEYS.replace(`"layout.switch"\n`, `"layout.switch",\n    "${key}": "${ACTION}"\n`);
+// The keys.json --add-key leaves: both keys of a system at the end of "global" (`search` null: the Fizzy button's alone).
+const withKey = (key, search = SEARCH_KEY) => KEYS.replace(`"layout.switch"\n`,
+  `"layout.switch",\n    "${key}": "${ACTION}"${search ? `,\n    "${search}": "${SEARCH_ACTION}"` : ""}\n`);
 const WITH_KEY = withKey(KEY);
 
 function executable(file, text) {
@@ -233,10 +235,11 @@ function ownSetup(w) {
   return () => [treeHash(bar), read(w, "layouts/desk.json")];
 }
 
-// What a run without --add-key says about the key.
-const suggested = (w, key = KEY) => [
-  `keys: none added. For a key that opens Fizzy, add this line to the "global" section of ${w.app}/keys.json, or run ./install.sh --add-key:`,
-  `    "${key}": "${ACTION}"`,
+// What a run without --add-key says about the keys (`search` null: the search's key is bound already).
+const suggested = (w, key = KEY, search = SEARCH_KEY) => [
+  `keys: none added. For keys that open Fizzy and its search, add these lines to the "global" section of ${w.app}/keys.json, or run ./install.sh --add-key:`,
+  ...(key ? [`    "${key}": "${ACTION}"`] : []),
+  ...(search ? [`    "${search}": "${SEARCH_ACTION}"`] : []),
   "keys: install.sh leaves keys.json alone unless asked: while nobody has edited it, Herdr adds its new default shortcuts to it when it updates, and any edit makes the whole file yours, which stops that",
 ];
 
@@ -565,7 +568,7 @@ test("your own tab bar clone and layout are never touched; near its end the run 
   assert.ok(r.lines.includes("Your own layouts (desk) and tab bars (desk-bar) are as they were. To add Fizzy to them:"), r.out);
   assert.ok(r.lines.includes(`  sed "s#mods/tabs/#mods/desk-bar/#g" "${ROOT.replace(/\/$/, "")}/tabs/fizzy-button.patch" | patch -N -F 0 -p1 -d "${w.app}/mods/desk-bar"`), r.out);
   assert.ok(r.lines.some(l => l.startsWith(`  f="${w.app}/layouts/desk.json"; `) && l.includes(`jq --arg tabs "desk-bar" -f`)), r.out);
-  assert.ok(r.lines.includes(`  and in keys.json, "global": "${KEY}": "desk-bar.panel:fizzy"`), r.out);
+  assert.ok(r.lines.includes(`  and in keys.json, "global": "${KEY}": "desk-bar.panel:fizzy", "${SEARCH_KEY}": "desk-bar.search:fizzy"`), r.out);
 });
 
 test("the lines printed for your own tab bar and layout work as printed, the patch line refuses a second go, and a run after them has nothing more to say", () => {
@@ -705,29 +708,34 @@ test("--mod-only installs mods/fizzy alone, without jq or patch, and prints the 
   assert.ok(r.lines.includes(`  herdr-app do mod.clone '{"name":"tabs","as":"<your tab bar>"}'`), r.out);
 });
 
-test("by default keys.json is left alone, byte for byte and not saved, and the run prints the line to add for this system and why", () => {
-  for (const [name, keys, env, key] of [["key-default", KEYS, {}, KEY], ["key-default-linux", KEYS, { STUB_UNAME: "Linux" }, SYSTEMS.Linux.key],
-    ["key-default-no-file", null, {}, KEY]]) {
+test("by default keys.json is left alone, byte for byte and not saved, and the run prints the lines to add for this system and why", () => {
+  for (const [name, keys, env, { key, search }] of [["key-default", KEYS, {}, SYSTEMS.Darwin], ["key-default-linux", KEYS, { STUB_UNAME: "Linux" }, SYSTEMS.Linux],
+    ["key-default-no-file", null, {}, SYSTEMS.Darwin]]) {
     const w = home(name, { keys }), r = install(w, [], env);
     assert.equal(r.status, 0, r.out);
     if (keys === null) assert.equal(existsSync(join(w.app, "keys.json")), false, name);
     else assert.equal(read(w, "keys.json"), KEYS, name);
     assert.equal(existsSync(w.state), false, name);
-    for (const line of suggested(w, key)) assert.ok(r.lines.includes(line), `${name}: ${line}\n---\n${r.out}`);
-    assert.deepEqual(JSON.parse(`{${suggested(w, key)[1]}}`), { [key]: ACTION }, "the line goes into keys.json as printed");
+    const lines = suggested(w, key, search);
+    for (const line of lines) assert.ok(r.lines.includes(line), `${name}: ${line}\n---\n${r.out}`);
+    assert.deepEqual(JSON.parse(`{${lines[1]},${lines[2]}}`), { [key]: ACTION, [search]: SEARCH_ACTION }, "the lines go into keys.json as printed");
   }
   const w = home("key-default-bsd"), r = install(w, [], { STUB_UNAME: "FreeBSD" });
   assert.equal(r.status, 0, r.out);
   assert.equal(read(w, "keys.json"), KEYS);
-  assert.ok(r.lines.includes(`keys: none added. For a key that opens Fizzy, bind one to ${ACTION} in the "global" section of ${w.app}/keys.json (tabs/README.md)`), r.out);
+  assert.ok(r.lines.includes(`keys: none added. For keys that open Fizzy and its search, bind keys to ${ACTION} ${SEARCH_ACTION} in the "global" section of ${w.app}/keys.json (tabs/README.md)`), r.out);
 });
 
-test("without --add-key, a key keys.json already binds to the Fizzy button, in any section, is named instead", () => {
-  const theirs = KEYS.replace(`"terminal.copy"`, `"terminal.copy",\n    "f5": "${ACTION}"`), w = home("key-default-bound", { keys: theirs }), r = install(w);
+test("without --add-key, a key keys.json already binds to the Fizzy button or its search, in any section, is named instead", () => {
+  const both = KEYS.replace(`"terminal.copy"`, `"terminal.copy",\n    "f5": "${ACTION}",\n    "f6": "${SEARCH_ACTION}"`), w = home("key-default-bound", { keys: both }), r = install(w);
   assert.equal(r.status, 0, r.out);
-  assert.equal(read(w, "keys.json"), theirs);
-  assert.ok(r.lines.includes(`keys: f5 is already ${ACTION}`), r.out);
+  assert.equal(read(w, "keys.json"), both);
+  assert.ok(r.lines.includes(`keys: f5 is already ${ACTION}`) && r.lines.includes(`keys: f6 is already ${SEARCH_ACTION}`), r.out);
   assert.doesNotMatch(r.out, /none added/);
+  const panelOnly = KEYS.replace(`"terminal.copy"`, `"terminal.copy",\n    "f5": "${ACTION}"`), v = home("key-default-panel-bound", { keys: panelOnly }), s = install(v);
+  assert.ok(s.lines.includes(`keys: f5 is already ${ACTION}`), s.out);
+  for (const line of suggested(v, null)) assert.ok(s.lines.includes(line), `${line}\n---\n${s.out}`);
+  assert.ok(!s.lines.includes(`    "${KEY}": "${ACTION}"`), "the bound one is not suggested again");
 });
 
 const keysRun = (name, keys, env = {}) => {
@@ -735,37 +743,37 @@ const keysRun = (name, keys, env = {}) => {
   return { w, r: install(w, ["--add-key"], env) };
 };
 
-test("--add-key adds the key at the end of global, every other byte of keys.json stays, and the old file is saved", () => {
+test("--add-key adds the keys at the end of global, every other byte of keys.json stays, and the old file is saved", () => {
   const { w, r } = keysRun("key-add", KEYS);
   assert.equal(r.status, 0, r.out);
   assert.equal(read(w, "keys.json"), WITH_KEY);
-  assert.ok(r.lines.includes(`keys: added ${KEY}: ${ACTION}`), r.out);
+  assert.ok(r.lines.includes(`keys: added ${KEY}: ${ACTION}`) && r.lines.includes(`keys: added ${SEARCH_KEY}: ${SEARCH_ACTION}`), r.out);
   assert.ok(r.lines.some(l => l.startsWith("keys: saved the previous keys.json as ")));
   assert.equal(readFileSync(join(backupsOf(w), stamps(w)[0], "keys.json"), "utf8"), KEYS);
   assert.doesNotMatch(r.out, /none added/);
 });
 
-test(`--add-key on Linux adds ${SYSTEMS.Linux.key}`, () => {
+test(`--add-key on Linux adds ${SYSTEMS.Linux.key} and ${SYSTEMS.Linux.search} (ctrl-shift-k is Herdr's own there)`, () => {
   const { w, r } = keysRun("key-linux", KEYS, { STUB_UNAME: "Linux" });
   assert.equal(r.status, 0, r.out);
-  assert.equal(read(w, "keys.json"), withKey(SYSTEMS.Linux.key));
-  assert.ok(r.lines.includes(`keys: added ${SYSTEMS.Linux.key}: ${ACTION}`), r.out);
+  assert.equal(read(w, "keys.json"), withKey(SYSTEMS.Linux.key, SYSTEMS.Linux.search));
+  assert.ok(r.lines.includes(`keys: added ${SYSTEMS.Linux.key}: ${ACTION}`) && r.lines.includes(`keys: added ${SYSTEMS.Linux.search}: ${SEARCH_ACTION}`), r.out);
 });
 
-test("--add-key keeps a key you bound to something else, in global or any other section, and names it; the run still exits 0", () => {
+test("--add-key keeps a key you bound to something else, in global or any other section, and names it, still adding the free one; the run still exits 0", () => {
   for (const [name, theirs, line] of [
     ["key-taken", KEYS.replace(`"tab.new",`, `"tab.new",\n    "shift-cmd-j": "my.thing",`), `keys: kept your shift-cmd-j: my.thing; to use ${ACTION}, bind another key to it in keys.json`],
     ["key-taken-terminal", KEYS.replace(`"terminal.copy"`, `"terminal.copy",\n    "${KEY}": "send:x"`), `keys: kept your ${KEY} in "terminal": send:x; to use ${ACTION}, bind another key to it in keys.json`],
   ]) {
     const { w, r } = keysRun(name, theirs);
     assert.equal(r.status, 0, r.out);
-    assert.equal(read(w, "keys.json"), theirs, name);
+    assert.equal(read(w, "keys.json"), theirs.replace(`"layout.switch"\n`, `"layout.switch",\n    "${SEARCH_KEY}": "${SEARCH_ACTION}"\n`), `${name}: the search's key is added`);
     assert.ok(r.lines.includes(line), `${line}\n---\n${r.out}`);
   }
 });
 
 test("--add-key with no keys.json, no node, an unknown system or a keys.json that is not JSON: keys.json is left alone and the run says what to add", () => {
-  const line = `"${KEY}": "${ACTION}"`;
+  const line = `"${KEY}": "${ACTION}", "${SEARCH_KEY}": "${SEARCH_ACTION}"`;
   let { w, r } = keysRun("key-no-file", null);
   assert.equal(r.status, 0, r.out);
   assert.equal(existsSync(join(w.app, "keys.json")), false);
@@ -780,7 +788,7 @@ test("--add-key with no keys.json, no node, an unknown system or a keys.json tha
   ({ w, r } = keysRun("key-bsd", KEYS, { STUB_UNAME: "FreeBSD" }));
   assert.equal(r.status, 0, r.out);
   assert.equal(read(w, "keys.json"), KEYS);
-  assert.ok(r.lines.includes(`keys: no key is suggested on this system: bind one to ${ACTION} in keys.json (tabs/README.md)`), r.out);
+  assert.ok(r.lines.includes(`keys: no key is suggested on this system: bind keys to ${ACTION} and ${SEARCH_ACTION} in keys.json (tabs/README.md)`), r.out);
 
   ({ w, r } = keysRun("key-bad-json", `{ "global": { "cmd-q": "app.quit", } }`));
   assert.equal(r.status, 0, r.out);
@@ -1087,8 +1095,17 @@ const OURS = JSON.parse(readFileSync(OUR_KEYS, "utf8"));
 const WANTED = { global: { [KEY]: ACTION } };
 const outcomes = result => result.notes.map(n => [n.key, n.outcome]);
 
-test("tabs/keys.json suggests, in its global section, the Fizzy button of fizzy-tabs under each system's key", () => {
-  assert.deepEqual(OURS, { global: Object.fromEntries(Object.values(SYSTEMS).map(({ key }) => [key, ACTION])) });
+test("tabs/keys.json suggests, in its global section, the Fizzy button and the search of fizzy-tabs under each system's keys, none of them Herdr's own", () => {
+  const systems = Object.values(SYSTEMS);
+  assert.deepEqual(OURS, { global: Object.fromEntries([...systems.map(({ key }) => [key, ACTION]), ...systems.map(({ search }) => [search, SEARCH_ACTION])]) });
+  // Herdr 0.1.16's own shift-letter keys (defaults/keys.macos.json, defaults/keys.json).
+  const herdrs = {
+    Darwin: ["cmd-shift-d", "cmd-shift-l", "cmd-shift-p", "cmd-shift-w"],
+    Linux: ["b", "c", "e", "f", "k", "l", "n", "o", "p", "t", "v", "w", "x", "z"].map(letter => `ctrl-shift-${letter}`),
+  };
+  for (const [system, { key, search }] of Object.entries(SYSTEMS)) {
+    for (const ours of [key, search]) assert.ok(!herdrs[system].includes(ours), `${system}: ${ours} is not one of Herdr's own keys`);
+  }
 });
 
 test("chord: one key however its modifiers are ordered or cased; '-' can be the key itself", () => {
@@ -1110,7 +1127,7 @@ test("chord: one key under any name of its modifiers and in any case of its key;
 
 test("addKeys adds a free key at the end of its section and leaves every other byte; a second time it is the same text", () => {
   const added = addKeys(KEYS, WANTED);
-  assert.equal(added.text, WITH_KEY);
+  assert.equal(added.text, withKey(KEY, null));
   assert.deepEqual(outcomes(added), [[KEY, "added"]]);
   assert.equal(added.bound, true);
   const again = addKeys(added.text, WANTED);
@@ -1171,7 +1188,7 @@ test("describe says what happened to the key", () => {
   assert.equal(describe({ ...note, outcome: "elsewhere" }), `keys: ${KEY} is not in "global": nothing to remove`);
 });
 
-test("merge-keys.mjs exits 0 when the key is ours afterwards, 2 when it is kept or the file refused, 1 when called wrongly; --dry-run writes nothing", () => {
+test("merge-keys.mjs exits 0 when the keys are ours afterwards, 2 when one is kept or the file refused, 1 when called wrongly; --only may be given again; --dry-run writes nothing", () => {
   const dir = join(tmp, "merge-script"), theirs = join(dir, "keys.json"), backup = join(dir, "backup");
   mkdirSync(dir);
   const merge = (text, ...args) => {
@@ -1179,10 +1196,13 @@ test("merge-keys.mjs exits 0 when the key is ours afterwards, 2 when it is kept 
     return spawnSync(process.execPath, [MERGE, ...args.map(a => a === "THEIRS" ? theirs : a === "BACKUP" ? backup : a === "OURS" ? OUR_KEYS : a)], { encoding: "utf8" });
   };
   assert.equal(merge(KEYS, "add", "OURS", "THEIRS", "BACKUP", "--only", KEY).status, 0);
-  assert.equal(readFileSync(theirs, "utf8"), WITH_KEY);
+  assert.equal(readFileSync(theirs, "utf8"), withKey(KEY, null), "one --only: that key alone");
+  assert.equal(merge(KEYS, "add", "OURS", "THEIRS", "BACKUP", "--only", KEY, "--only", SEARCH_KEY).status, 0);
+  assert.equal(readFileSync(theirs, "utf8"), WITH_KEY, "two: both");
   assert.equal(readFileSync(join(backup, "keys.json"), "utf8"), KEYS);
-  assert.equal(merge(WITH_KEY, "remove", "OURS", "THEIRS", "BACKUP", "--only", KEY).status, 0);
+  assert.equal(merge(WITH_KEY, "remove", "OURS", "THEIRS", "BACKUP", "--only", KEY, "--only", SEARCH_KEY).status, 0);
   assert.equal(readFileSync(theirs, "utf8"), KEYS);
+  assert.equal(merge(KEYS, "add", "OURS", "THEIRS", "BACKUP", "--only", KEY, "--only").status, 1, "an --only with no key");
   rmSync(backup, { recursive: true });
   const dry = merge(KEYS, "add", "OURS", "THEIRS", "BACKUP", "--only", KEY, "--dry-run");
   assert.equal(dry.status, 0);

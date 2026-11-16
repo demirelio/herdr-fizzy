@@ -16,7 +16,7 @@ The repo holds:
 | `tabs/` | `fizzy-button.patch`, the Fizzy button for a copy of Herdr's tab bar, and `keys.json`, the key it suggests on macOS and on Linux ([tabs/README.md](tabs/README.md)) |
 | `layout/` | `add-fizzy.jq`, which adds the Fizzy page to a layout ([layout/README.md](layout/README.md)) |
 | `install.sh` | Puts it all in place on Herdr's own setup, and takes it out again |
-| `scripts/merge-keys.mjs` | What `install.sh --add-key` adds the key to your `keys.json` with, and `--uninstall` takes it out with |
+| `scripts/merge-keys.mjs` | What `install.sh --add-key` adds the keys to your `keys.json` with, and `--uninstall` takes them out with |
 | `test/` | The tests, and what they run on: mocks of Herdr's mod API, a fake `fizzy` CLI and a stand-in `patch` |
 
 ## What you see
@@ -286,8 +286,8 @@ Dropped on a terminal on another machine, the file is copied there.
   `wl-paste` or `xclip` to paste an image. Without a paste tool, drop the file on the box instead.
 - For `install.sh`: **bash** (macOS's own 3.2 will do), **jq**, **patch**, **diff** and **cmp**. `--mod-only` needs
   only diff and cmp; `--uninstall` needs only jq.
-- **Node.js**, only for `install.sh --add-key` and `--uninstall` to add the key to `keys.json` or take it out (without
-  it the script prints the line instead), and, 22 or newer, for the tests.
+- **Node.js**, only for `install.sh --add-key` and `--uninstall` to add the keys to `keys.json` or take them out
+  (without it the script prints the lines instead), and, 22 or newer, for the tests.
 
 ## Install
 
@@ -295,14 +295,15 @@ Dropped on a terminal on another machine, the file is copied there.
 ./install.sh               install mods/fizzy; build the fizzy-tabs tab bar (Herdr's own, plus the Fizzy button of
                            tabs/fizzy-button.patch) and the fizzy-core layout (Herdr's main, plus the Fizzy page of
                            layout/add-fizzy.jq); switch Herdr to fizzy-core if this run made it and Herdr shows
-                           main; print the keys.json line for a key that opens Fizzy, without adding it
-./install.sh --add-key     the same, and bind cmd-shift-j (Linux: ctrl-shift-j) to the Fizzy button in keys.json
-                           if that key is free
+                           main; print the keys.json lines for keys that open Fizzy and its search, without
+                           adding them
+./install.sh --add-key     the same, and bind cmd-shift-j (Linux: ctrl-shift-j) to the Fizzy button and
+                           cmd-shift-k (Linux: ctrl-shift-s) to its search in keys.json, each if it is free
 ./install.sh --mod-only    only mods/fizzy, for your own tab bar and layout (tabs/README.md, layout/README.md)
 ./install.sh --dry-run     build everything in a scratch folder and say what would change, changing nothing; it
                            runs no herdr-app check
 ./install.sh --uninstall   remove fizzy-core, fizzy-tabs (unless a layout of yours shows it), mods/fizzy, and the
-                           key from the "global" section of keys.json while it is the Fizzy button's
+                           keys from the "global" section of keys.json while they are still Fizzy's
 ./install.sh --help
 ```
 
@@ -320,18 +321,19 @@ On Herdr's own setup it makes these, in Herdr's app folder (`HERDR_APP_HOME`, el
   its tab bar pointed at `fizzy-tabs` ([`layout/add-fizzy.jq`](layout/add-fizzy.jq)). The panel stays hidden, and Files
   stays in front until you pick Fizzy.
 
-**The key** is yours to add. Since Herdr 0.1.13, a `keys.json` nobody has edited gets Herdr's new default shortcuts
+**The keys** are yours to add. Since Herdr 0.1.13, a `keys.json` nobody has edited gets Herdr's new default shortcuts
 when Herdr updates, and any edit makes the whole file yours, which stops that. So by default the run leaves `keys.json`
-alone: it prints the line to add to its `global` section, `"cmd-shift-j": "fizzy-tabs.panel:fizzy"` on macOS or
-`"ctrl-shift-j": "fizzy-tabs.panel:fizzy"` on Linux (on another system, it says to bind a key of your own), and why it
-did not add it. When `keys.json` already binds a key to `fizzy-tabs.panel:fizzy`, in any section, it names that key
-instead.
+alone: it prints the lines to add to its `global` section, `"cmd-shift-j": "fizzy-tabs.panel:fizzy"` and
+`"cmd-shift-k": "fizzy-tabs.search:fizzy"` on macOS, `"ctrl-shift-j": "fizzy-tabs.panel:fizzy"` and
+`"ctrl-shift-s": "fizzy-tabs.search:fizzy"` on Linux, where Herdr's own `ctrl-shift-k` opens its mod picker (on
+another system, it says to bind keys of your own), and why it did not add them. When `keys.json` already binds a key
+to one of those actions, in any section, it names that key instead.
 
-`--add-key` adds that line at the end of `global` (a `global` section is added when the file has none), only when the
-key is bound nowhere in the file: a key you use is never replaced (the run names it, and still exits 0). The merge
-leaves every other byte of the file as it was, and saves the old file in the backups folder first. It needs `node`;
-without it, without a `keys.json`, or with one that is not valid JSON, the run prints the line to add. When there is no
-`fizzy-tabs`, there is no key to add either.
+`--add-key` adds those lines at the end of `global` (a `global` section is added when the file has none), each only
+when its key is bound nowhere in the file: a key you use is never replaced (the run names it, and still exits 0). The
+merge leaves every other byte of the file as it was, and saves the old file in the backups folder first. It needs
+`node`; without it, without a `keys.json`, or with one that is not valid JSON, the run prints the lines to add. When
+there is no `fizzy-tabs`, there are no keys to add either.
 
 It switches Herdr to `fizzy-core` only when this run made that layout, nothing failed to go in, Herdr is running, and
 Herdr shows its own `main` layout. Otherwise it says how to switch: Herdr's layout key, `cmd-shift-l` (Linux:
@@ -387,9 +389,10 @@ of the tab bar, and [`layout/README.md`](layout/README.md) adds the page to your
 When Herdr shows `fizzy-core`, it switches to `main` first; if that fails, nothing is removed, it says to switch to
 another layout (with `cmd-shift-l`, Linux: `ctrl-shift-l`) and run it again, and it exits with 1. Then it removes
 `layouts/fizzy-core.json`, `mods/fizzy-tabs` and `mods/fizzy`, each saved in the backups folder first, and takes
-`cmd-shift-j` (Linux: `ctrl-shift-j`) out of the `global` section of `keys.json` only while it still names
-`fizzy-tabs.panel:fizzy`, whether `--add-key` or you put it there. That key in another section, and another key you
-bound to the Fizzy button, stay. Without `node`, it prints the line to take out. It keeps `fizzy-tabs` while a layout
+`cmd-shift-j` and `cmd-shift-k` (Linux: `ctrl-shift-j` and `ctrl-shift-s`) out of the `global` section of `keys.json`
+only while they still name `fizzy-tabs.panel:fizzy` and `fizzy-tabs.search:fizzy`, whether `--add-key` or you put
+them there. Those keys in another section, and other keys you bound to those actions, stay. Without `node`, it prints
+the lines to take out. It keeps `fizzy-tabs` while a layout
 of yours shows it, prints the line that points that layout back at Herdr's own tab bar, and exits 2. A
 `fizzy-core.json` it did not make, a `fizzy-tabs` that is not a copy of Herdr's tab bar, and anything that is a link,
 stay as well; those count as done.
@@ -415,7 +418,7 @@ it is the board already shown: then following and the pick stay as they are.
 
 ## Keys
 
-**`fizzy-tabs.panel:fizzy`** is the action of the key `install.sh` prints a line for, and binds with `--add-key`:
+**`fizzy-tabs.panel:fizzy`** is the action of the first key `install.sh` prints a line for, and binds with `--add-key`:
 `cmd-shift-j` on macOS, `ctrl-shift-j` on Linux ([Install](#install)). It does what the tab bar's Fizzy button does:
 it brings the Fizzy page up, or hides the panel when Fizzy is already in front. `panel:files` and `panel:changes` do
 the same for those pages, when the bar shows their buttons. Only `fizzy-tabs` takes these keys: in a layout whose tab
@@ -423,9 +426,9 @@ bar is `fizzy-tabs`, such as `fizzy-core`, the bar is always shown, so the key w
 hidden; in other layouts it does nothing.
 
 **`fizzy-tabs.search:fizzy`** brings the Fizzy page up (it never hides it) with the search of every board open and
-its field focused. Bind it yourself, for example `"cmd-k": "fizzy-tabs.search:fizzy"` in the `global` section on macOS
-(Herdr uses ⌘K for nothing). On Linux pick another key than `ctrl-k`, which terminal programs use to cut to the end of
-the line. The tab bar asks the panel through `fizzy.request`, which the panel reads even while it is hidden, as
+its field focused. It is the action of the other key `install.sh` prints a line for, and binds with `--add-key`:
+`cmd-shift-k` on macOS, `ctrl-shift-s` on Linux, where Herdr's own `ctrl-shift-k` opens its mod picker. The tab bar
+asks the panel through `fizzy.request`, which the panel reads even while it is hidden, as
 Herdr gives a `fizzy.*` key only to a shown panel.
 
 The panel takes commands of its own: bind `"<key>": "fizzy.<command>"` in `keys.json`, for example

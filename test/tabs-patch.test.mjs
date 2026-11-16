@@ -247,13 +247,17 @@ test("panel:<page> works for every offered page, in any case; anything else is i
   assert.deepEqual(ran(), WITH_FIZZY.flatMap(page => [["layout.select", { stack: "panel-body", child: page }], ["layout.show", { id: "panel" }]]));
 });
 
-test("tabs/keys.json binds its keys to fizzy-tabs, and the command it sends opens the Fizzy page", async () => {
-  const actions = Object.values(KEYS).flatMap(Object.values);
-  assert.deepEqual([...new Set(actions)], ["fizzy-tabs.panel:fizzy"]);
-  bar();
-  sendCommand(actions[0].slice("fizzy-tabs.".length));
-  await tick();
-  assert.deepEqual(ran(), OPEN_FIZZY);
+test("tabs/keys.json binds its keys to fizzy-tabs, and each command it sends opens the Fizzy page (the search's opens its search too)", async () => {
+  const actions = [...new Set(Object.values(KEYS).flatMap(Object.values))];
+  assert.deepEqual(actions, ["fizzy-tabs.panel:fizzy", "fizzy-tabs.search:fizzy"]);
+  for (const action of actions) {
+    bar();
+    calls.run.length = 0; calls.setShared.length = 0;
+    sendCommand(action.slice("fizzy-tabs.".length));
+    await tick();
+    assert.deepEqual(ran(), OPEN_FIZZY, action);
+    assert.deepEqual(calls.setShared.map(([key, value]) => [key, value.op]), action.endsWith("search:fizzy") ? [["fizzy.request", { kind: "search" }]] : [], action);
+  }
 });
 
 test("one loop: a command whose run() throws does not end it", async () => {

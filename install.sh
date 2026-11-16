@@ -4,20 +4,21 @@
 #   ./install.sh               install mods/fizzy; build the fizzy-tabs tab bar (Herdr's own, plus the Fizzy button of
 #                              tabs/fizzy-button.patch) and the fizzy-core layout (Herdr's main, plus the Fizzy page of
 #                              layout/add-fizzy.jq); switch Herdr to fizzy-core if this run made it and Herdr shows
-#                              main; print the keys.json line for a key that opens Fizzy, without adding it
-#   ./install.sh --add-key     the same, and bind cmd-shift-j (Linux: ctrl-shift-j) to the Fizzy button in keys.json
-#                              if that key is free
+#                              main; print the keys.json lines for keys that open Fizzy and its search, without
+#                              adding them
+#   ./install.sh --add-key     the same, and bind cmd-shift-j (Linux: ctrl-shift-j) to the Fizzy button and
+#                              cmd-shift-k (Linux: ctrl-shift-s) to its search in keys.json, each if it is free
 #   ./install.sh --mod-only    only mods/fizzy, for your own tab bar and layout (tabs/README.md, layout/README.md)
 #   ./install.sh --dry-run     build everything in a scratch folder and say what would change, changing nothing; it
 #                              runs no herdr-app check
 #   ./install.sh --uninstall   remove fizzy-core, fizzy-tabs (unless a layout of yours shows it), mods/fizzy, and the
-#                              key from the "global" section of keys.json while it is the Fizzy button's
+#                              keys from the "global" section of keys.json while they are still Fizzy's
 #   ./install.sh --help
 #
 # For Herdr 0.1.16 or newer: fizzy-tabs is built only when a dry run of the patch shows that all of it fits this
 # Herdr's tab bar with no fuzz.
 #
-# The key goes into keys.json only with --add-key: while nobody has edited keys.json, Herdr adds its new default
+# The keys go into keys.json only with --add-key: while nobody has edited keys.json, Herdr adds its new default
 # shortcuts to it when it updates, and any edit makes the whole file yours, which stops that.
 #
 # A mod that is new or changed passes herdr-app check in the scratch folder before it goes in. Where herdr-app check
@@ -55,6 +56,7 @@ MOD=fizzy
 TABS=fizzy-tabs
 LAYOUT=fizzy-core
 ACTION="$TABS.panel:fizzy"
+SEARCH_ACTION="$TABS.search:fizzy"
 PATCH="$REPO/tabs/fizzy-button.patch"
 FILTER="$REPO/layout/add-fizzy.jq"
 KEYS="$REPO/tabs/keys.json"
@@ -216,7 +218,7 @@ porting_lines() {
     say "  sed \"s#mods/tabs/#mods/$bar/#g\" \"$PATCH\" | patch -N -F 0 -p1 -d \"$APP_HOME/mods/$bar\""
   fi
   say "  f=\"$APP_HOME/layouts/$layout.json\"; t=\"\$(mktemp \"\$f.XXXXXX\")\" && jq --arg tabs \"$bar\" -f \"$FILTER\" \"\$f\" > \"\$t\" && mv \"\$t\" \"\$f\" || rm -f \"\$t\""
-  if [ -n "$key" ]; then say "  and in keys.json, \"global\": \"$key\": \"$bar.panel:fizzy\""; fi
+  if [ -n "$key" ]; then say "  and in keys.json, \"global\": \"$key\": \"$bar.panel:fizzy\", \"$(search_key)\": \"$bar.search:fizzy\""; fi
   say "tabs/README.md and layout/README.md say more."
 }
 
@@ -226,6 +228,8 @@ by_platform() {
   return 0
 }
 platform_key() { by_platform cmd-shift-j ctrl-shift-j; }
+# Linux's ctrl-shift-k is Herdr's own (mod.open:picker), so the search's key differs there.
+search_key() { by_platform cmd-shift-k ctrl-shift-s; }
 # The key Herdr's default keymap binds to layout.switch.
 layout_key() { by_platform cmd-shift-l ctrl-shift-l; }
 switch_hint() {
@@ -234,18 +238,18 @@ switch_hint() {
   say "${key:+$key switches layouts, or }run herdr-app do layout.switch --name $1"
 }
 
-# The platform's key from tabs/keys.json into (add) or out of (remove) the person's keys.json, by merge-keys.mjs; more
-# flags go to it. Returns its status: 0 the key is the Fizzy button's (or gone), 2 it is not (the lines say why), 1 the
-# file could not be written.
+# The platform's keys from tabs/keys.json (the Fizzy button's and the search's) into (add) or out of (remove) the
+# person's keys.json, by merge-keys.mjs; more flags go to it. Returns its status: 0 the keys are ours (or gone), 2 one
+# is not (the lines say why), 1 the file could not be written.
 merge_key() {
-  local mode="$1" key line theirs="$APP_HOME/keys.json"
+  local mode="$1" key search line theirs="$APP_HOME/keys.json"
   shift
-  key="$(platform_key)"
+  key="$(platform_key)" search="$(search_key)"
   if [ -z "$key" ]; then
-    if [ "$mode" = add ]; then say "keys: no key is suggested on this system: bind one to $ACTION in keys.json (tabs/README.md)"; fi
+    if [ "$mode" = add ]; then say "keys: no key is suggested on this system: bind keys to $ACTION and $SEARCH_ACTION in keys.json (tabs/README.md)"; fi
     return 2
   fi
-  line="\"$key\": \"$ACTION\""
+  line="\"$key\": \"$ACTION\", \"$search\": \"$SEARCH_ACTION\""
   if [ ! -f "$theirs" ]; then
     if [ "$mode" = add ]; then say "keys: $APP_HOME has no keys.json, so none was made: once Herdr has written one, add $line to its \"global\" section"; fi
     return 2
@@ -255,21 +259,26 @@ merge_key() {
     else say "keys: node not found, so keys.json was left alone: take $line out of $theirs if it is there"; fi
     return 2
   fi
-  node "$MERGE" "$mode" "$KEYS" "$theirs" "$BACKUP" --only "$key" "$@"
+  node "$MERGE" "$mode" "$KEYS" "$theirs" "$BACKUP" --only "$key" --only "$search" "$@"
 }
 
-# Without --add-key: the key keys.json already binds to the Fizzy button, or the line to add for one and why it was
-# not added.
+# Without --add-key: for the Fizzy button and the search, the key keys.json already binds to it, or the line to add
+# for one and why it was not added.
 suggest_key() {
-  local bound key
-  bound="$(jq -r --arg action "$ACTION" '[.[]? | objects | to_entries[] | select(.value == $action) | .key] | first // empty' "$APP_HOME/keys.json" 2>/dev/null)" || bound=""
-  if [ -n "$bound" ]; then say "keys: $bound is already $ACTION"; return 0; fi
-  key="$(platform_key)"
-  if [ -n "$key" ]; then
-    say "keys: none added. For a key that opens Fizzy, add this line to the \"global\" section of $APP_HOME/keys.json, or run ./install.sh --add-key:"
-    indent "\"$key\": \"$ACTION\""
+  local action bound key unbound=()
+  for action in "$ACTION" "$SEARCH_ACTION"; do
+    bound="$(jq -r --arg action "$action" '[.[]? | objects | to_entries[] | select(.value == $action) | .key] | first // empty' "$APP_HOME/keys.json" 2>/dev/null)" || bound=""
+    if [ -n "$bound" ]; then say "keys: $bound is already $action"; else unbound+=("$action"); fi
+  done
+  if [ "${#unbound[@]}" = 0 ]; then return 0; fi
+  if [ -n "$(platform_key)" ]; then
+    say "keys: none added. For keys that open Fizzy and its search, add these lines to the \"global\" section of $APP_HOME/keys.json, or run ./install.sh --add-key:"
+    for action in "${unbound[@]}"; do
+      if [ "$action" = "$ACTION" ]; then key="$(platform_key)"; else key="$(search_key)"; fi
+      indent "\"$key\": \"$action\""
+    done
   else
-    say "keys: none added. For a key that opens Fizzy, bind one to $ACTION in the \"global\" section of $APP_HOME/keys.json (tabs/README.md)"
+    say "keys: none added. For keys that open Fizzy and its search, bind keys to ${unbound[*]} in the \"global\" section of $APP_HOME/keys.json (tabs/README.md)"
   fi
   say "keys: install.sh leaves keys.json alone unless asked: while nobody has edited it, Herdr adds its new default shortcuts to it when it updates, and any edit makes the whole file yours, which stops that"
 }

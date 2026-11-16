@@ -18,15 +18,16 @@ time that it fits ([When it doesn't fit](#when-it-doesnt-fit)).
   system.
 - A key command `search:fizzy`: the Fizzy page comes up (it is never hidden by it) with the search of every board open.
   Herdr gives key commands to shown mods only, so the bar asks the Fizzy panel, shown or hidden, through the shared
-  value `fizzy.request` (`{ id, op: { kind: "search" } }`). Bind it as `"cmd-k": "<your tab bar>.search:fizzy"`
-  (macOS; on Linux not `ctrl-k`, which terminal programs use).
+  value `fizzy.request` (`{ id, op: { kind: "search" } }`). Bind it as `"<key>": "<your tab bar>.search:fizzy"`;
+  [`keys.json`](keys.json) here suggests `cmd-shift-k` on macOS and `ctrl-shift-s` on Linux, where Herdr's own
+  `ctrl-shift-k` opens its mod picker.
 - Herdr's tab bar remembers, for each space, which page of the side panel you had open; the patch adds Fizzy to the
   pages it offers, so that includes Fizzy.
 
-[`../install.sh`](../install.sh) builds all this as `fizzy-tabs` on Herdr's own setup. It prints the `keys.json` line
-for the key and adds it only with `--add-key`, when the key is free: since Herdr 0.1.13, a `keys.json` nobody has edited
-gets Herdr's new default shortcuts when Herdr updates, and any edit makes the whole file yours, which stops that. The
-rest of this page is for doing it by hand.
+[`../install.sh`](../install.sh) builds all this as `fizzy-tabs` on Herdr's own setup. It prints the `keys.json` lines
+for both keys and adds them only with `--add-key`, each when it is free: since Herdr 0.1.13, a `keys.json` nobody has
+edited gets Herdr's new default shortcuts when Herdr updates, and any edit makes the whole file yours, which stops
+that. The rest of this page is for doing it by hand.
 
 ## Apply it to your own tab bar
 
@@ -50,10 +51,11 @@ context has those lines, so the `sed` rewrites the patch the same way. Put `--dr
 whether it fits; `-N` refuses to apply it twice.
 
 Then point your layout's tab-bar block at the clone and add the Fizzy page
-([`../layout/README.md`](../layout/README.md)), and bind the key in `keys.json` (on Linux, `ctrl-shift-j`):
+([`../layout/README.md`](../layout/README.md)), and bind the keys in `keys.json` (on Linux, `ctrl-shift-j` and
+`ctrl-shift-s`):
 
 ```json
-{ "global": { "cmd-shift-j": "desk-tabs.panel:fizzy" } }
+{ "global": { "cmd-shift-j": "desk-tabs.panel:fizzy", "cmd-shift-k": "desk-tabs.search:fizzy" } }
 ```
 
 ## A clone that already has a nextCommand() loop
@@ -94,12 +96,12 @@ one it makes no `fizzy-core` layout either. Then apply the patch to a clone of y
 sed "s#mods/tabs/#mods/$BAR/#g" tabs/fizzy-button.patch | patch -R -F 0 -p1 -d "$APP_HOME/mods/$BAR"
 ```
 
-Or delete the clone, once your layout points back at the tab bar it showed before. Take the key out of `keys.json`
-too. For `fizzy-tabs`, `../install.sh --uninstall` removes the clone and takes `cmd-shift-j` (Linux: `ctrl-shift-j`)
-out of the `global` section of `keys.json` while it is bound to `fizzy-tabs.panel:fizzy` there (that key in another
-section stays), and also removes `mods/fizzy` and the `fizzy-core` layout: it has no option to remove the tab bar
-alone. It keeps `fizzy-tabs` while a layout of yours shows it, and prints the line that points that layout back at
-Herdr's own tab bar.
+Or delete the clone, once your layout points back at the tab bar it showed before. Take the keys out of `keys.json`
+too. For `fizzy-tabs`, `../install.sh --uninstall` removes the clone and takes `cmd-shift-j` and `cmd-shift-k` (Linux:
+`ctrl-shift-j` and `ctrl-shift-s`) out of the `global` section of `keys.json` while they are bound to
+`fizzy-tabs.panel:fizzy` and `fizzy-tabs.search:fizzy` there (those keys in another section stay), and also removes
+`mods/fizzy` and the `fizzy-core` layout: it has no option to remove the tab bar alone. It keeps `fizzy-tabs` while a
+layout of yours shows it, and prints the line that points that layout back at Herdr's own tab bar.
 
 ## Without the patch
 

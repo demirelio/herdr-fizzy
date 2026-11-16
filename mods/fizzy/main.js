@@ -1389,7 +1389,7 @@ export default class Fizzy extends View {
     const later = (...lists) => this.job(cx, cx => this.write(lists, cx));
     switch (op.kind) {
       case "insert": return insertText(op.text, cx);
-      // A tab bar's `search:fizzy` (⌘K): it shows the page, and the search opens here, whether the panel was shown or not.
+      // A tab bar's `search:fizzy`: it shows the page, and the search opens here, whether the panel was shown or not.
       case "search": this.openSearch(cx); cx.notify(); return null;
       case "boardForAll": return this.setBoardForAll(op.board, Boolean(op.on), cx);
       case "paste": {
