@@ -444,8 +444,8 @@ comment, open in your browser.
   `reaction list`, `user list`, `tag list`, `pin list`, `notification tray`, `activity list`, `search`,
   `card attachments show`, `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`,
   `notification tray`, `reaction list`, `activity list`, `card attachments show`, `board accesses`, and the
-  `comment list` that counts a card's comments) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
-  download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
+  `comment list` that counts a card's comments) and `config show` ask with `--jq` for only the fields the panel uses.
+  `card attachments download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
   change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `column move-left` and
   `move-right` for a column you drag (one per place), `board involvement` for Watch for new cards and Stop watching,
   `board update --all_access` for Everyone on the team, `upload file` for a file you drop or paste, and
