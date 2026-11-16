@@ -442,17 +442,17 @@ comment, open in your browser.
 - `fizzy`, on this computer, run from your home folder, every command with `--json`. To read: `board list`,
   `board accesses` (who can see and watch the board), `column list`, `card list`, `card show`, `comment list`,
   `reaction list`, `user list`, `tag list`, `pin list`, `notification tray`, `activity list`, `search`,
-  `card attachments show`, `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`, `notification tray`,
-  `reaction list`, `activity list`, `card attachments show`, `board accesses`, and the `comment list` that counts a
-  card's comments) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
+  `card attachments show`, `identity show` and `config show`. The reads it repeats (`card list`, `search`, `pin list`,
+  `notification tray`, `reaction list`, `activity list`, `card attachments show`, `board accesses`, and the
+  `comment list` that counts a card's comments) and `config show` ask with `--jq` for only the fields the panel uses. `card attachments
   download` saves an attachment to a file: an image into the panel's images folder, a file you click into Downloads. To
   change something, only when you do: `card`, `step`, `comment` and `reaction` commands, `column move-left` and
   `move-right` for a column you drag (one per place), `board involvement` for Watch for new cards and Stop watching,
   `board update --all_access` for Everyone on the team, `upload file` for a file you drop or paste, and
   `notification read` and `read-all`. Each action is one command, or two (a closed card is reopened before it moves),
-  and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is `card create`, then a `card list` when the CLI's answer does not give the new card's
-  number, and a `card column` when the card goes in a column. An upload or a download may take up to 5 minutes; Herdr
-  stops any other command after 30 seconds.
+  and the panel reads again afterwards (not after Watch or Unwatch, or a reaction). New card is `card create`, then a
+  `card list` when the CLI's answer does not give the new card's number, and a `card column` when the card goes in a
+  column. An upload or a download may take up to 5 minutes; Herdr stops any other command after 30 seconds.
 - `sh` on this computer, for the photos: a short script that runs `curl` for one photo address (http or https only,
   following redirects, at most 4 MiB and 20 seconds), keeps the file only when it is a png, jpeg, webp, svg or gif
   image, and deletes that person's older photos (besides shell built-ins such as `[`, `printf` and `echo`, it runs only
