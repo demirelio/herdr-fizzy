@@ -301,11 +301,14 @@ export function sections(columns, open, extra = {}) {
 
 const tagTitle = t => (typeof t === "string" ? t : t?.title);
 // Cards whose words all appear (case does not matter) in the title, "#<number>", tags, assignees' names, column
-// name or description. `mine`: only cards assigned to `me` (a user id); with no `me` known none qualifies.
-export function filterCards(cards, query, { mine = false, me = null } = {}) {
+// name or description. `mine`: only cards assigned to `me` (a user id); with no `me` known none qualifies. `golden`: only
+// golden cards. `pinned`: only the cards whose numbers it holds (a Set).
+export function filterCards(cards, query, { mine = false, me = null, golden = false, pinned = null } = {}) {
   const words = String(query ?? "").toLowerCase().split(/\s+/).filter(Boolean), meId = idOf(me);
   return (cards ?? []).filter(c => {
     if (mine && !(meId && (c.assignees ?? []).some(u => u.id === meId))) return false;
+    if (golden && !c.golden) return false;
+    if (pinned && !pinned.has(c.number)) return false;
     if (!words.length) return true;
     const hay = [c.title, `#${c.number}`, ...(c.tags ?? []).map(tagTitle), ...(c.assignees ?? []).map(u => u.name), c.column?.name, c.description]
       .filter(Boolean).join("\n").toLowerCase();

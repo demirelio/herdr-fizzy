@@ -89,7 +89,7 @@ async function panelPaths() {
   // The filter with words (its clear button), then the search of every board (its field, then its results).
   panel.boardFilter.edit("login", cx);
   tree = await draw();
-  for (const name of ["search", "x", "user", "plus"]) assert.ok(drawn(find(tree, "fizzy-list-bar")).includes(`mods/fizzy/${name}.svg`), `the list bar draws ${name}.svg`);
+  for (const name of ["search", "x", "user", "star", "pin"]) assert.ok(drawn(find(tree, "fizzy-list-bar")).includes(`mods/fizzy/${name}.svg`), `the list bar draws ${name}.svg`);
   panel.boardFilter.edit("", cx);
   press(await draw(), "fizzy-search-open");
   panel.searchField.edit("login", cx);

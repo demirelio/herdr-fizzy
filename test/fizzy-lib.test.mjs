@@ -545,6 +545,20 @@ test("filterCards: `mine` keeps only cards assigned to me, and works together wi
   assert.deepEqual(nums("", { mine: true }), []);
 });
 
+test("filterCards: `golden` keeps the golden cards, `pinned` the numbers it holds; with `mine` and the words, a card must pass them all", () => {
+  const cards = [
+    card(1, { title: "alpha", golden: true, assignees: [user("me", "Ada")] }),
+    card(2, { title: "alpha", golden: true }),
+    card(3, { title: "beta", assignees: [user("me", "Ada")] }),
+  ];
+  const nums = (q, o) => filterCards(cards, q, o).map(c => c.number);
+  assert.deepEqual(nums("", { golden: true }), [1, 2]);
+  assert.deepEqual(nums("", { pinned: new Set([2, 3]) }), [2, 3]);
+  assert.deepEqual(nums("", { pinned: new Set() }), [], "nothing pinned: none");
+  assert.deepEqual(nums("alpha", { golden: true, mine: true, me: "me" }), [1]);
+  assert.deepEqual(nums("", { golden: true, pinned: new Set([3]) }), []);
+});
+
 test("colorOf: Fizzy's named colors as hex, null for none or unknown", () => {
   for (const name of ["Blue", "Gray", "Tan", "Yellow", "Lime", "Aqua", "Violet", "Purple", "Pink", "Red", "Orange", "Green"]) {
     assert.match(colorOf({ color: { name, value: "x" } }), /^#[0-9a-f]{6}$/, name);

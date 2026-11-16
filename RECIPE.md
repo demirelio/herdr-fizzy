@@ -79,26 +79,24 @@ theme names.
   - States as one dim 12 px line: `Loading…`, `Press Enter to search every board, comments included.` (the search,
     before Enter), `Searching…`, `No cards`, `No cards match`, `No cards found` (the search), `No boards`,
     `No pinned cards`, `You're all caught up`; an error adds a 28 px **Retry** row.
-- **The bars**, at the foot: one line each, `chrome` behind it, a 1 px line above it, padding 6.
+- **The bars**, at the foot: one line each. The list bar is in the board row's look: no background or line of its
+  own, padding 12 across and 6 down, gap 8. The others have `chrome` behind them, a 1 px line above, padding 6.
 
   | Where | Bar |
   |---|---|
-  | Board, no card picked | the filter, My cards and New card (gap 6) |
+  | Board, no card picked | the filter, My cards, Golden cards and Pinned cards |
   | Mine and Pins, no card picked | the filter |
   | A card; a list or the search with cards picked | the hand-off buttons |
   | A card New card has just made | Discard and Done |
   | The Inbox; the search with no card picked; Settings | none |
 
-  - The filter takes the room: a 28 px field, rounded 7, 1 px `input` border, `background`, 12 px, padding 28 at the
-    left, where a 14 px search icon sits in `dim` (9 px in, 7 down), and the **x** of the search field while it has
-    words. The Board view's field says "Filter this board…"; Mine and Pins share one that says "Filter cards…".
-  - **My cards**: 28 px, rounded 7, padding 8, gap 5, 12 px, a 13 px user icon and "My cards", a 1 px `input` border,
-    `background`, `muted` text, `hover` behind it on hover; on, an `accent` border, `selected` behind it and
-    `foreground` text.
-  - **New card**: 28 px, rounded 7, padding 10, gap 5, 12 px medium, a 13 px plus and "New card", in the
-    primary-button colors (`solid` behind `solid_foreground`; `opacity` 0.88 on hover). Until a board shows it is
-    `raised` and `dim`, with no hover, pointer or click.
-  - Below 340 px My cards and New card are their icon alone, 28×28, with the tooltips "My cards" and "New card".
+  - The filter takes the room: a 30 px round field, 1 px `input` border, `background`, 12 px, padding 32 at the left,
+    where a 14 px search icon sits in `dim` (12 px in, 8 down), and 14 at the right; while it has words, a round 20 px
+    **x** 5 px in from the top and right. The Board view's field says "Filter this board…"; Mine and Pins share one
+    that says "Filter cards…".
+  - **My cards** (user icon), **Golden cards** (star) and **Pinned cards** (pin): the board row's round buttons, 30 px,
+    a 1 px `input` border, the 14 px icon in `muted`, the name as the tooltip, `hover` behind it on hover. On, the
+    border and icon take the filter's color (`accent`; Golden cards Fizzy's gold `#e5b422`) and `selected` is behind it.
   - The hand-off buttons, gap 4: four buttons sharing the width, each 28 px, rounded 7, `raised`, 12 px medium:
     **Insert**, **Send** ▾, **Start** ▾, **Copy**, each with a 13 px icon before its label and an 11 px chevron after
     Send and Start. Below 340 px the icons go and the labels and chevrons stay, on one line at 280.
@@ -195,9 +193,9 @@ dot after the label while `fizzy.unread` is above zero.
   first board. That default is kept for the next start; the very first start waits for it before it picks a board.
   Picking a board in the dropdown stops following; its first row, **Follow current space**, starts it again and shows
   the space's board (or `no .fizzy.yaml`) as its hint.
-- **New card.** Fizzy has no drafts, so New card makes the card at once. The Board view bar's New card opens the
-  `newCard` popup: the label "New card on", then the boards as the dropdown lists them (hidden ones left out, except
-  the board shown), the board shown ticked and highlighted so that Enter means "on this board", and no Follow row.
+- **New card.** Fizzy has no drafts, so New card makes the card at once. The `new` key opens the `newCard` popup:
+  the label "New card on", then the boards as the dropdown lists them (hidden ones left out, except the board shown),
+  the board shown ticked and highlighted so that Enter means "on this board", and no Follow row.
   Choosing a board writes `fizzy.board` with `compose: true`. The panel moves to that board as for any pick (following
   off, the pick kept), except when it is the board already shown: then following and the pick stay as they are. A
   moment later (a draw may not act) it leaves an open card or Settings, shows the Board view, closes the search, and
@@ -206,7 +204,7 @@ dot after the label while `fizzy.unread` is above zero.
   the newest open card titled `New card` is the one. The card opens with its title field empty and focused; Enter
   saves the title, and Escape, or no title, leaves `New card`. Its foot is **Discard** (`card delete`, then back to
   the list) and **Done** (back to the list). While one is being made, New card does nothing; a failure is an `error`
-  toast. The `new` key opens the same popup, and does nothing without a board.
+  toast. Without a board the `new` key does nothing.
 - **Board, side by side** (from 480 px of panel width): `fizzy-columns`, the lanes in a row, gap 8, padding 8,
   centered. Open lanes (`openColumns`, per board, Maybe? when none; one below 760 px, two from 760 px, the one opened
   longest ago folding first) share the width, each at most 380 px: a 30 px head (a 10 px dot in the lane's color but
@@ -248,7 +246,8 @@ dot after the label while `fizzy.unread` is above zero.
   any card is picked, the hand-off buttons replace the list's bar.
 - **Filter.** As you type, every word must appear in the title, `#number`, a tag, an assignee's name, the column or the
   first 300 characters of the description. The Board view's field is its own; Mine and Pins share the other. My cards
-  keeps the cards assigned to the signed-in user. On Board, while words or My cards filter, every lane holding a match
+  keeps the cards assigned to the signed-in user, Golden cards the golden ones, Pinned cards those in the pins list;
+  with several on, a card must pass them all. On Board, while words or a filter narrow it, every lane holding a match
   is drawn unfolded; the fold kept for it does not change. The x empties the field.
 - **Search.** The header's search icon (and the `search` key) leaves an open card or Settings and turns the header into
   the search field, focused; the search takes the place of any view's list, and the board row and the list's bar go. The
@@ -516,7 +515,8 @@ dot after the label while `fizzy.unread` is above zero.
   card.
 - A golden card heads its lane with an `ansi3` border, a pinned one shows a pin, and a card past three quarters of the
   board's auto-postpone period shows `Closes in Nd`.
-- On Board, a filter's words open every lane with a match; My cards keeps the signed-in user's cards.
+- On Board, a filter's words open every lane with a match; My cards keeps the signed-in user's cards, Golden cards the
+  golden ones and Pinned cards the pinned ones.
 - The search icon, then a pasted `#N`, opens card N; words and Enter list Fizzy's matches by board.
 - In a comment, `@` and a person the panel can tag, then Comment, makes a Fizzy mention (the person is notified); `#`
   and a card makes a link that opens that card in the panel.

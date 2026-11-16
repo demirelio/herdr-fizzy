@@ -34,7 +34,7 @@ straight to their list.
 
 **The bar at the foot** follows the view:
 
-- On Board: the filter, **My cards** and **New card**. Below 340 px, My cards and New card show their icon alone.
+- On Board, in the board row's round look: the filter, then **My cards**, **Golden cards** and **Pinned cards**.
 - On Mine and Pins: the filter alone.
 - Inside a card, and in a list while you have cards picked: **Insert**, **Send**, **Start** and **Copy**
   ([Hand a card to an agent](#hand-a-card-to-an-agent)).
@@ -88,12 +88,14 @@ keep their places. ⌘-click or Ctrl-click picks several
 cards; ⌘-click or Ctrl-click one again to unpick it. While cards are picked, the hand-off buttons take the filter's
 place at the foot.
 
-**Filter and My cards.** The filter at the foot narrows the list as you type: it keeps the cards whose title,
-`#number`, tags, assignees' names, column or the first 300 characters of the description hold every word you type, in
-any case. The x empties it. Board has a filter of its own; Mine and Pins share one. On Board, **My cards** keeps only
-the cards assigned to you, and while a filter or My cards is on, every stacked lane that holds a match is open, folded
-or not; the fold kept for the lane does not change. Side by side, the open lanes show the matches and each folded pill
-counts its own. The filter only sees cards the panel has already read; search finds the rest.
+**Filter, My cards, Golden cards and Pinned cards.** The filter at the foot narrows the list as you type: it keeps the
+cards whose title, `#number`, tags, assignees' names, column or the first 300 characters of the description hold every
+word you type, in any case. The x empties it. Board has a filter of its own; Mine and Pins share one. On Board, the
+round buttons beside it keep only the cards assigned to you (**My cards**), the golden ones (**Golden cards**) or the
+ones you pinned (**Pinned cards**); with more than one on, a card must pass them all. While words or a button filter,
+every stacked lane that holds a match is open, folded or not; the fold kept for the lane does not change. Side by
+side, the open lanes show the matches and each folded pill counts its own. The filter only sees cards the panel has
+already read; search finds the rest.
 
 **Search.** The search icon in the header turns the header into a search field, and the results take the place of the
 list, in any view. Press Enter: the panel asks Fizzy once, across every board, in open, Not Now and closed cards and in
@@ -111,12 +113,11 @@ click marks one read (it leaves the list) and opens its card; **Mark all read** 
 is never listed; with none left it says "You're all caught up".
 
 **New card.** Fizzy has no drafts: a card is on the board the moment it is made. So **New card** makes the card at
-once. The button in the Board view's bar (and the `new` key) opens a picker of your boards under "New card on", the
-board shown ticked and highlighted. Choosing one shows that board, makes a card titled "New card" in its Maybe?, and
-opens it with an empty title field, ready for you to type the title and press Enter; the description, steps, people and
-the rest are there at once. The bar at its foot has **Discard**, which deletes the card again, and **Done**, which
-keeps it and goes back to the list. A lane's **+** does the same in that lane, without the picker. A title you never
-save leaves the card as "New card".
+once. The `new` key opens a picker of your boards under "New card on", the board shown ticked and highlighted.
+Choosing one shows that board, makes a card titled "New card" in its Maybe?, and opens it with an empty title field,
+ready for you to type the title and press Enter; the description, steps, people and the rest are there at once. The
+bar at its foot has **Discard**, which deletes the card again, and **Done**, which keeps it and goes back to the list.
+A lane's **+** does the same in that lane, without the picker. A title you never save leaves the card as "New card".
 
 **A card.** Click one to open it. Its top bar has Back, the card's number and board, three toggles (**pin**, **watch**
 and **golden**), Open in Fizzy (left out when the panel is narrow) and `⋯`, the card's menu. Fizzy doesn't tell anyone

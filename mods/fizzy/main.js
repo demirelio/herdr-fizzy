@@ -38,11 +38,14 @@ const FIELD_MENUS = new Set(["tags", ...PICKERS]);
 // The most cards a "#" popup is handed, and how long (ms) after the typing stops it looks up a number it was not handed.
 const CARD_REFS = 300, LOOKUP_DELAY = 300;
 // The bottom bars: one line of controls, each as high as BAR_BUTTON. Below NARROW px of panel width (its narrowest is
-// 280) the hand-off buttons drop their icons and keep their labels, My cards and New card shrink to their icons, and
-// the header drops Refresh (an Inbox badge leaves no room for it), so each still fits in one line. Below WIDE px the
-// header tightens its buttons and gaps and drops its "Fizzy" word, which at 340 would leave under 1 px beside a
-// three-digit badge.
+// 280) the hand-off buttons drop their icons and keep their labels, and the header drops Refresh (an Inbox badge leaves
+// no room for it), so each still fits in one line. Below WIDE px the header tightens its buttons and gaps and drops its
+// "Fizzy" word, which at 340 would leave under 1 px beside a three-digit badge.
 const BAR_BUTTON = 28, NARROW = 340, WIDE = 440;
+// The board row's round buttons, and the list bar's round filters and field, are ROUND px high.
+const ROUND = 30;
+// The Board view's filters beside its field: each keeps only the cards it names; together, the cards all of them name.
+const BOARD_FILTERS = [{ key: "mine", icon: "user", tip: "My cards" }, { key: "golden", icon: "star", tip: "Golden cards" }, { key: "pinned", icon: "pin", tip: "Pinned cards" }];
 // Transparent, not the background color: a background-colored border would show as a frame inside a highlighted block.
 const CLEAR = "#00000000";
 // The Done lane is read at most this many pages deep in one go (the CLI's pages are short).
@@ -325,7 +328,7 @@ export default class Fizzy extends View {
     this.busy = new Set(); this.again = new Map(); // key -> the task to run once more when the read in flight ends
     this.reading = new Map(); // card number -> its `card show` in flight (shared by whoever asks meanwhile)
     this.selected = new Set();
-    this.onlyMine = false;
+    this.only = new Set(); // the keys of the BOARD_FILTERS that are on
     this.detail = null; this.editing = null; this.armedComment = null;
     // Fizzy tells no one whether a card is watched: this is only what the panel set itself (card number -> on), newest last.
     this.watching = new Map(watchEntries(read("watching", [])).slice(-WATCH_KEPT));
@@ -2456,7 +2459,7 @@ export default class Fizzy extends View {
         .child(this.iconButton(t, "fizzy-search-back", ICON("arrow-left"), (_e, cx) => this.closeSearch(cx), true, "Back"))
         .child(div().id("fizzy-search").relative().flex_1().min_w(0)
           .child(Input.new(field).h(BAR_BUTTON).pl(8).pr(field.value() ? 28 : 8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
-          .when(field.value() !== "", el => el.child(this.clearButton(t, "fizzy-search-clear", cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); }))));
+          .when(field.value() !== "", el => el.child(this.clearButton(t, "fizzy-search-clear", BAR_BUTTON, cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); }))));
     }
     return h_flex().h(42).flex_none().px(10).gap(this.wide ? 8 : 6).items_center().border_b(1).border_color(t.border)
       .child(this.homeButton(t))
@@ -2479,28 +2482,30 @@ export default class Fizzy extends View {
       .when(this.wide, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
   }
 
-  newCardButton(t) {
-    const enabled = Boolean(this.board), label = !this.narrow;
-    return h_flex().id("fizzy-new").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).text_size(textPx(12)).font_medium()
-      .bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim)
-      .when(label, el => el.px(10))
-      .when(!label, el => el.w(BAR_BUTTON).tooltip("New card"))
-      .on_mouse_down("left", stop)
-      .when(enabled, el => el.hover(s => s.opacity(0.88)).cursor_pointer().on_click(() => this.newCardMenu()))
-      .child(svg(ICON("plus")).size(13).flex_none())
-      .when(label, el => el.child("New card"));
+  // A round button of the board row and the list bar: `action(cx)` on a click (none: dim, and no click); `on`: a filter that is
+  // on, in `color`.
+  roundButton(t, id, icon, tip, action, { on = false, color = t.accent } = {}) {
+    return div().id(id).size(ROUND).flex_none().flex().items_center().justify_center().rounded_full().border_1()
+      .border_color(on ? color : t.input).text_color(on ? color : action ? t.muted : t.dim).tooltip(tip).on_mouse_down("left", stop)
+      .when(on, el => el.bg(t.selected))
+      .when(Boolean(action), el => el.cursor_pointer().hover(s => (on ? s.bg(t.hover) : s.bg(t.hover).text_color(t.foreground))).on_click((_e, cx) => action(cx)))
+      .child(svg(ICON(icon)).size(14).flex_none());
   }
 
-  mineToggle(t) {
-    const on = this.onlyMine, label = !this.narrow;
-    return h_flex().id("fizzy-only-mine").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).cursor_pointer().text_size(textPx(12))
-      .border_1().border_color(on ? t.accent : t.input).bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { this.onlyMine = !on; cx.notify(); })
-      .when(label, el => el.px(8))
-      .when(!label, el => el.w(BAR_BUTTON).tooltip("My cards"))
-      .child(svg(ICON("user")).size(13).flex_none())
-      .when(label, el => el.child("My cards"));
+  boardFilterButton(t, { key, icon, tip }) {
+    const on = this.only.has(key);
+    return this.roundButton(t, `fizzy-only-${key}`, icon, tip, cx => { if (on) this.only.delete(key); else this.only.add(key); cx.notify(); },
+      { on, color: key === "golden" ? GOLD : t.accent });
+  }
+
+  // What the Board view's filters keep, for filterCards; `filtering`: they or its field's words narrow the lanes.
+  boardFilters() {
+    const pinned = this.only.has("pinned") ? new Set((this.pins ?? []).map(p => p.number)) : null;
+    return { mine: this.only.has("mine"), me: this.me, golden: this.only.has("golden"), pinned };
+  }
+
+  boardFiltering() {
+    return Boolean(this.boardFilter.value().trim()) || this.only.size > 0;
   }
 
   viewButton(t, id, label) {
@@ -2517,13 +2522,9 @@ export default class Fizzy extends View {
   boardBar(t, cx) {
     const current = this.boards?.find(b => b.id === this.board);
     const following = Boolean(this.follow && this.board && this.spaceBoard(cx) === this.board);
-    const round = (id, icon, tip, action) => div().id(id).size(30).flex_none().flex().items_center().justify_center().rounded_full()
-      .border_1().border_color(t.input).text_color(action ? t.muted : t.dim).tooltip(tip).on_mouse_down("left", stop)
-      .when(Boolean(action), el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => action(cx)))
-      .child(svg(ICON(icon)).size(14).flex_none());
     const rule = () => div().flex_1().min_w(8).h(1).bg(t.border);
     return h_flex().id("fizzy-board-bar").flex_none().px(12).py(6).gap(10).items_center()
-      .child(round("fizzy-board-access", "users", "Who can see this board", current && this.access.has(current.id) ? () => this.accessMenu() : null))
+      .child(this.roundButton(t, "fizzy-board-access", "users", "Who can see this board", current && this.access.has(current.id) ? () => this.accessMenu() : null))
       .child(rule())
       .child(v_flex().id("fizzy-board").min_w(0).px(8).py(2).items_center().rounded(8).cursor_pointer().hover(s => s.bg(t.hover))
         .on_mouse_down("left", stop).on_click((_e, cx) => this.boardsMenu(cx))
@@ -2533,30 +2534,32 @@ export default class Fizzy extends View {
           .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
         .when(following, el => el.child(div().text_size(textPx(10)).font_medium().text_color(t.dim).child("FOLLOWING SPACE"))))
       .child(rule())
-      .child(round("fizzy-open-board", "external-link", "Open board in Fizzy", current?.url ? cx => cx.open_url(current.url) : null));
+      .child(this.roundButton(t, "fizzy-open-board", "external-link", "Open board in Fizzy", current?.url ? cx => cx.open_url(current.url) : null));
   }
 
   filterOf(view) {
     return view === "board" ? this.boardFilter : this.filter;
   }
 
-  // The x at the right end inside a field with words: one click empties it.
-  clearButton(t, id, clear) {
-    return div().id(id).absolute().right(4).top(4).size(20).flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
+  // The x at the right end inside a field `height` px high with words: one click empties it.
+  clearButton(t, id, height, clear) {
+    const inset = (height - 20) / 2;
+    return div().id(id).absolute().right(inset).top(inset).size(20).flex().items_center().justify_center().rounded_full().cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("Clear")
       .on_mouse_down("left", stop).on_click((_e, cx) => clear(cx))
       .child(svg(ICON("x")).size(12));
   }
 
-  // The foot of the Board, Mine and Pins lists while nothing is picked: the filter, and in the Board view My cards and New card.
+  // The foot of the Board, Mine and Pins lists while nothing is picked, in the board row's look: a round field that filters the
+  // list, and in the Board view the round filters (BOARD_FILTERS).
   listBar(t) {
     const field = this.filterOf(this.view), words = field.value() !== "";
-    return h_flex().id("fizzy-list-bar").flex_none().p(6).gap(6).items_center().bg(t.chrome).border_t(1).border_color(t.border)
+    return h_flex().id("fizzy-list-bar").flex_none().px(12).py(6).gap(8).items_center()
       .child(div().id("fizzy-filter").relative().flex_1().min_w(0)
-        .child(Input.new(field).h(BAR_BUTTON).pl(28).pr(words ? 28 : 8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
-        .child(svg(ICON("search")).absolute().left(9).top(7).size(14).text_color(t.dim))
-        .when(words, el => el.child(this.clearButton(t, "fizzy-filter-clear", cx => { field.set_value(""); field.focus(); cx.notify(); }))))
-      .when(this.view === "board", el => el.child(this.mineToggle(t)).child(this.newCardButton(t)));
+        .child(Input.new(field).h(ROUND).pl(32).pr(words ? ROUND : 14).rounded_full().border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
+        .child(svg(ICON("search")).absolute().left(12).top(8).size(14).text_color(t.dim))
+        .when(words, el => el.child(this.clearButton(t, "fizzy-filter-clear", ROUND, cx => { field.set_value(""); field.focus(); cx.notify(); }))))
+      .when(this.view === "board", el => el.children(BOARD_FILTERS.map(f => this.boardFilterButton(t, f))));
   }
 
   // A card as Fizzy draws it. A head line: its number | its board on a tab in its lane's `color` at the card's top left (in a
@@ -2664,7 +2667,7 @@ export default class Fizzy extends View {
     if (!board) return [this.status(t, this.errors.boards ? explain(this.errors.boards) : this.boards ? "No boards" : "Loading…", cx, Boolean(this.errors.boards))];
     if (!columns) return [this.status(t, this.errors.board ? explain(this.errors.board) : "Loading…", cx, Boolean(this.errors.board))];
     const lazy = this.lazyOf(board), query = this.boardFilter.value(), out = [];
-    const filtering = Boolean(query.trim()) || this.onlyMine;
+    const filtering = this.boardFiltering();
     // A failed read keeps what was read before on screen, under the message.
     if (this.errors.board) out.push(this.status(t, explain(this.errors.board), cx, true));
     let total = 0;
@@ -2700,7 +2703,7 @@ export default class Fizzy extends View {
   // pages only. `loaded`: Not Now and Done are read only when they show.
   laneCards(section, lazy, query) {
     const loaded = section.kind === "not-now" ? Boolean(lazy.notNow) : section.kind === "done" ? Boolean(lazy.done) : true;
-    const cards = filterCards(section.cards, query, { mine: this.onlyMine, me: this.me }).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
+    const cards = filterCards(section.cards, query, this.boardFilters()).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
     return { loaded, cards, shown: section.kind === "done" ? cards.slice(0, lazy.shown) : cards };
   }
 
@@ -2742,7 +2745,7 @@ export default class Fizzy extends View {
       ...shown.map(card => this.cardRow(t, card, section.key, color)),
       ...this.laneFoot(t, section, cards, loaded, lazy, cx),
     ];
-    if (loaded && !shown.length && section.kind !== "maybe") body.push(this.status(t, this.boardFilter.value().trim() || this.onlyMine ? "No cards match" : "No cards", cx));
+    if (loaded && !shown.length && section.kind !== "maybe") body.push(this.status(t, this.boardFiltering() ? "No cards match" : "No cards", cx));
     return v_flex().id(`fizzy-col-${section.key}`).flex_1().min_w(0).max_w(OPEN_MAX).min_h(0).gap(6)
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
       .child(h_flex().id(`fizzy-col-head-${section.key}`).h(30).flex_none().gap(8).px(8).items_center().justify_center().rounded(7)
