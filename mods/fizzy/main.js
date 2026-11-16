@@ -8,7 +8,7 @@ import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, sha
 import { textPx } from "./text.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
-  columnOf, fullCard, noteCard, inactivity, reorderColumns, daysAgo, LABEL_FONT, labelFile, labelBox, labelSvg,
+  columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, LABEL_FONT, labelFile, labelBox, labelSvg,
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
@@ -67,7 +67,9 @@ const GOLD_GLOW = Background.linear_gradient(45, `${GOLD}00`, `${GOLD}38`);
 const NEW_TITLE = "New card";
 const EDITOR_HINT = "(@ mention, # card, drop or paste images)";
 // How much narrower than the panel the description's and the comments' text is (px): their padding, and the scrollbar.
-const DESC_INSET = 40, COMMENT_INSET = 66;
+const DESC_INSET = 70, COMMENT_INSET = 86, COMMENT_AVATAR = 28;
+// A card page's title is its lane's color this much of the way to white, as Fizzy's.
+const TITLE_LIGHT = 0.55;
 // A lane's color at a given opacity (two hex digits): the tints behind its header and its cards, and their borders.
 const tint = (color, alpha) => `${color}${alpha}`;
 // Text on a lane's color (a card's tab): dark, as Fizzy's, which reads on every lane color in a light theme and a dark one.
@@ -404,7 +406,7 @@ export default class Fizzy extends View {
       if (!(pasted && this.jumpToCard(cx))) cx.notify(); // the clear button shows only while it has words
     });
     this.searchField.on("submit", (_e, cx) => { if (!this.jumpToCard(cx)) this.searchAll(cx); });
-    this.stepInput = InputState.new({ placeholder: "Add a step" });
+    this.stepInput = InputState.new({ placeholder: "Add a step…" });
     this.stepInput.on("submit", (_e, cx) => this.addStep(cx));
     this.commentArea = TextareaState.new({ placeholder: `Write a comment… ${EDITOR_HINT}`, rows: 3 });
     this.watchRefs(this.commentArea, "comment");
@@ -987,6 +989,9 @@ export default class Fizzy extends View {
         const [card, comments] = await Promise.all([this.readCard(d.number), fizzy(cmd.comments(d.number))]);
         this.meet(comments);
         this.learnMentions((comments ?? []).map(cm => cm.body?.html));
+        // The card's lanes (laneStrip) are its board's columns; a failed read only leaves its own lane shown.
+        const board = card?.board?.id;
+        if (board && !this.columns.has(board)) await this.columnsFor(board).catch(() => null);
         if (this.detail !== d) return;
         d.card = card; d.comments = comments ?? []; d.error = null;
         if (card?.last_active_at) this.setCounts(d.number, card.last_active_at, card.steps, d.comments.length);
@@ -2374,10 +2379,10 @@ export default class Fizzy extends View {
       .child(svg(icon).size(14));
   }
 
-  // state: "on" | "off" | "unknown" (not known, still clickable) | "inert" (not known, does nothing).
+  // A round toggle. state: "on" | "off" | "unknown" (not known, still clickable) | "inert" (not known, does nothing).
   toggleButton(t, id, icon, state, tip, action, onColor = t.accent) {
-    return div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6)
-      .text_color(state === "on" ? onColor : state === "off" ? t.muted : t.dim)
+    return div().id(id).size(ROUND).flex_none().flex().items_center().justify_center().rounded_full().border_1()
+      .border_color(state === "on" ? onColor : t.input).text_color(state === "on" ? onColor : state === "off" ? t.muted : t.dim)
       .when(state === "on", el => el.bg(t.selected))
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
       .when(state !== "inert", el => el.cursor_pointer().tooltip(tip).on_click(action)
@@ -2386,7 +2391,7 @@ export default class Fizzy extends View {
   }
 
   textButton(t, id, icon, label, action, primary = false) {
-    return h_flex().id(id).h(30).px(10).gap(6).flex_none().items_center().rounded(7).cursor_pointer().text_size(textPx(12)).font_medium()
+    return h_flex().id(id).h(30).px(14).gap(6).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12)).font_medium()
       .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground)
       .hover(s => s.opacity(0.88)).on_mouse_down("left", stop).on_click(action)
       .when(Boolean(icon), el => el.child(svg(icon).size(13).flex_none()))
@@ -2434,23 +2439,21 @@ export default class Fizzy extends View {
         .child(this.iconButton(t, "fizzy-back", ICON("arrow-left"), (_e, cx) => this.settingsBack(cx), true, page ? "Settings" : "Back"))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(page?.title ?? "Settings"));
     }
+    // A card's page: Back, and the card's toggles and actions, all round, as Fizzy has them beside a card.
     if (this.detail) {
-      const d = this.detail, c = d.card ?? d.summary, n = d.number, board = c.board?.name ?? "";
+      const d = this.detail, c = d.card ?? d.summary, n = d.number;
       const pinned = this.pinOf(n), watching = this.watchOf(n), golden = c.golden;
-      return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .child(this.iconButton(t, "fizzy-back", ICON("arrow-left"), (_e, cx) => this.goBack(cx), true, "Back"))
-        .child(div().id("fizzy-detail-number").flex_none().text_size(textPx(12)).text_color(t.dim).child(`#${n}`))
-        .child(div().id("fizzy-detail-board").flex_1().min_w(0).truncate().text_size(textPx(12)).text_color(t.dim).when(Boolean(board), el => el.tooltip(board)).child(board))
-        .child(h_flex().flex_none().gap(2)
-          .child(this.toggleButton(t, "fizzy-pin", ICON("pin"), pinned == null ? "inert" : pinned ? "on" : "off", pinned ? "Unpin" : "Pin",
-            (_e, cx) => this.apply({ kind: "pin", number: n, on: !pinned }, cx)))
-          .child(this.toggleButton(t, "fizzy-watch", ICON(watching === false ? "eye-off" : "eye"), watching === undefined ? "unknown" : watching ? "on" : "off", watching ? "Unwatch" : "Watch",
-            (_e, cx) => this.apply({ kind: "watch", number: n, on: watching !== true }, cx)))
-          .child(this.toggleButton(t, "fizzy-golden", ICON("star"), typeof golden === "boolean" ? (golden ? "on" : "off") : "inert", golden ? "Remove golden" : "Mark golden",
-            (_e, cx) => this.apply({ kind: "golden", number: n, on: !golden }, cx), t.ansi3)))
-        .child(h_flex().flex_none().gap(2)
-          .when(!this.narrow, el => el.child(this.iconButton(t, "fizzy-act-open", ICON("external-link"), (_e, cx) => cx.open_url(c.url), Boolean(c.url), "Open in Fizzy")))
-          .child(this.iconButton(t, "fizzy-card-menu", ICON("more"), (_e, cx) => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx)), true, "More")));
+      return h_flex().h(46).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
+        .child(this.roundButton(t, "fizzy-back", "arrow-left", "Back", cx => this.goBack(cx)))
+        .child(div().flex_1())
+        .child(this.toggleButton(t, "fizzy-golden", ICON("star"), typeof golden === "boolean" ? (golden ? "on" : "off") : "inert", golden ? "Remove golden" : "Mark golden",
+          (_e, cx) => this.apply({ kind: "golden", number: n, on: !golden }, cx), GOLD))
+        .child(this.toggleButton(t, "fizzy-watch", ICON(watching === false ? "bell-off" : "bell"), watching === undefined ? "unknown" : watching ? "on" : "off", watching ? "Stop watching" : "Watch",
+          (_e, cx) => this.apply({ kind: "watch", number: n, on: watching !== true }, cx)))
+        .child(this.toggleButton(t, "fizzy-pin", ICON("pin"), pinned == null ? "inert" : pinned ? "on" : "off", pinned ? "Unpin" : "Pin",
+          (_e, cx) => this.apply({ kind: "pin", number: n, on: !pinned }, cx)))
+        .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-act-open", "external-link", "Open in Fizzy", c.url ? cx => cx.open_url(c.url) : null)))
+        .child(this.roundButton(t, "fizzy-card-menu", "more", "More", cx => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx))));
     }
     if (this.search) {
       const field = this.searchField;
@@ -2482,10 +2485,10 @@ export default class Fizzy extends View {
       .when(this.wide, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
   }
 
-  // A round button of the board row and the list bar: `action(cx)` on a click (none: dim, and no click); `on`: a filter that is
-  // on, in `color`.
-  roundButton(t, id, icon, tip, action, { on = false, color = t.accent } = {}) {
-    return div().id(id).size(ROUND).flex_none().flex().items_center().justify_center().rounded_full().border_1()
+  // A round button of the board row, the list bar and a card's page: `action(cx)` on a click (none: dim, and no click); `on`: a
+  // filter that is on, in `color`.
+  roundButton(t, id, icon, tip, action, { on = false, color = t.accent, size = ROUND } = {}) {
+    return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded_full().border_1()
       .border_color(on ? color : t.input).text_color(on ? color : action ? t.muted : t.dim).tooltip(tip).on_mouse_down("left", stop)
       .when(on, el => el.bg(t.selected))
       .when(Boolean(action), el => el.cursor_pointer().hover(s => (on ? s.bg(t.hover) : s.bg(t.hover).text_color(t.foreground))).on_click((_e, cx) => action(cx)))
@@ -2656,7 +2659,7 @@ export default class Fizzy extends View {
 
   // The foot of a card New card just made: Discard deletes it, Done keeps it and goes back to the list.
   freshBar(t) {
-    return h_flex().id("fizzy-fresh-bar").flex_none().p(6).gap(6).items_center().bg(t.chrome).border_t(1).border_color(t.border)
+    return h_flex().id("fizzy-fresh-bar").flex_none().px(12).py(8).gap(6).items_center()
       .child(this.textButton(t, "fizzy-fresh-discard", ICON("trash"), "Discard", (_e, cx) => this.discardFresh(cx)))
       .child(div().flex_1())
       .child(this.textButton(t, "fizzy-fresh-done", ICON("check"), "Done", (_e, cx) => this.goBack(cx), true));
@@ -2885,21 +2888,30 @@ export default class Fizzy extends View {
     return out;
   }
 
-  // One of the bar's four buttons: an icon (left out when the panel is narrow), a label, and, for the two that open a menu,
-  // a small chevron after the label. `action` null: the button is dim and inert (no hover, no tooltip). The label is what
-  // gives way when the room runs out.
-  barButton(t, id, icon, label, action, menu = false) {
+  // One of the bar's four buttons, round like the list bar's: an icon (left out when the panel is narrow), a label, and, for
+  // the two that open a menu, a small chevron after the label; `tip` says what it does. `action` null: the button is dim and
+  // inert (no hover, no tooltip). The label is what gives way when the room runs out.
+  barButton(t, id, icon, label, tip, action, menu = false) {
     const on = Boolean(action);
-    return h_flex().id(id).h(BAR_BUTTON).flex_1().min_w(0).px(6).gap(4).items_center().justify_center().overflow_hidden().rounded(7).text_size(textPx(12)).font_medium()
-      .bg(t.raised).text_color(on ? t.foreground : t.dim)
-      .when(on, el => el.cursor_pointer().hover(s => s.bg(t.hover)).on_mouse_down("left", stop).on_click(action))
+    return h_flex().id(id).h(ROUND).flex_1().min_w(0).px(8).gap(5).items_center().justify_center().overflow_hidden().rounded_full().border_1().border_color(t.input)
+      .text_size(textPx(12)).font_medium().text_color(on ? t.foreground : t.dim)
+      .when(on, el => el.cursor_pointer().tooltip(tip).hover(s => s.bg(t.hover)).on_mouse_down("left", stop).on_click(action))
       .when(!this.narrow, el => el.child(svg(icon).size(13).flex_none()))
       .child(div().min_w(0).truncate().child(label))
       .when(menu, el => el.child(svg(ICON("chevron-down")).size(11).flex_none()));
   }
 
-  // The bar at the foot of the card view, and of a list with cards picked (⌘/Ctrl-click): one line, four buttons, nothing
-  // else. They act on the open card, else on the picked cards. Nothing here ever submits:
+  // A small dim label between two rules, as the board row sets the board's name.
+  ruleLabel(t, id, ...parts) {
+    const rule = () => div().flex_1().min_w(8).h(1).bg(t.border);
+    return h_flex().id(id).flex_none().gap(10).items_center()
+      .child(rule())
+      .child(h_flex().flex_none().gap(5).items_center().text_size(textPx(10)).font_semibold().text_color(t.dim).children(parts))
+      .child(rule());
+  }
+
+  // The bar at the foot of the card view, and of a list with cards picked (⌘/Ctrl-click): what it is for between two rules,
+  // then four round buttons. They act on the open card, else on the picked cards. Nothing here ever submits:
   //   Insert   pastes into the current chat; dragged into a terminal, it drops the cards' files there (dragCards)
   //   Send ▾   opens the running sessions; the one picked is brought to the front and gets the paste
   //   Start ▾  opens the agents to start; the one picked starts in a new tab and gets the paste once it is up
@@ -2908,12 +2920,15 @@ export default class Fizzy extends View {
     const subject = this.subject(), has = subject.length > 0;
     const act = kind => (has ? (_e, cx) => this.handOff(kind, this.subject(), cx) : null);
     const cards = this.dragged(subject.filter(c => c.kind !== "board").map(c => c.number));
-    return h_flex().id("fizzy-bar").flex_none().p(6).gap(4).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(textPx(12))
-      .child(this.dragCards(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")), cards)
-        .when(cards.length > 0, el => el.on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.writeCardFiles(cards, cx); })))
-      .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", act("send"), true))
-      .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", act("start"), true))
-      .child(this.barButton(t, "fizzy-bar-copy", ICON("copy"), "Copy", act("copy")));
+    const what = this.detail || subject.length < 2 ? "THIS CARD" : `${subject.length} CARDS`;
+    return v_flex().id("fizzy-bar").flex_none().px(12).pt(4).pb(8).gap(6)
+      .child(this.ruleLabel(t, "fizzy-bar-label", `HAND ${what} TO AN AGENT`))
+      .child(h_flex().gap(6).items_center()
+        .child(this.dragCards(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", "Paste into the chat in view, or drag into a terminal", act("insert")), cards)
+          .when(cards.length > 0, el => el.on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.writeCardFiles(cards, cx); })))
+        .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", "Paste into a running session", act("send"), true))
+        .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", "Start a new agent session with it", act("start"), true))
+        .child(this.barButton(t, "fizzy-bar-copy", ICON("copy"), "Copy", "Copy the reference", act("copy"))));
   }
 
   // GPUI gives a click to every handler on the path: stop it here, or the header the button sits in folds as well.
@@ -3125,111 +3140,165 @@ export default class Fizzy extends View {
           .child(div().id("fizzy-mentions-card").w(140).flex_none().child(Input.new(this.mentionCard).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground)))));
   }
 
-  // `open` null: the card is a notification's stub, which doesn't carry this field, so the line shows no values and does nothing.
-  pickerRow(t, id, label, items, empty, open) {
-    return h_flex().id(id).min_h(30).flex_none().px(8).py(3).gap(8).items_start().rounded(7)
-      .when(Boolean(open), el => el.cursor_pointer().hover(s => s.bg(t.hover))
-        .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => open(cx)))
-      .child(div().w(52).h(24).flex_none().flex().items_center().text_size(textPx(12)).text_color(t.dim).child(label))
-      .child(h_flex().flex_1().min_w(0).min_h(24).flex_wrap().gap(4).items_center()
-        .children(!open ? [] : items.length ? items : [div().h(24).flex().items_center().text_size(textPx(12)).text_color(t.dim).child(empty)]))
-      .child(div().w(22).h(24).flex_none().flex().items_center().justify_center().text_color(t.dim).child(svg(ICON("chevron-down")).size(12)));
-  }
-
-  sectionHead(t, id, label, count, action = null) {
-    return h_flex().id(`${id}-head`).h(30).flex_none().px(8).gap(6).items_center()
-      .child(div().flex_none().text_size(textPx(12)).font_medium().text_color(t.muted).child(label))
-      .when(Boolean(count), el => el.child(div().id(`${id}-count`).flex_none().text_size(textPx(11)).text_color(t.dim).child(count)))
-      .child(div().flex_1())
-      .when(Boolean(action), el => el.child(action));
-  }
-
   detailView(base, cx) {
     const t = { ...base, mono: cx.theme?.()?.typography?.mono }; // the code font, for richText
     const d = this.detail, c = d.card ?? d.summary, full = d.card;
     const read = Boolean(full && d.comments);
     const bare = !read && (Boolean(d.error) || (!full && !whole(d.summary)));
-    const body = v_flex().id("fizzy-detail").flex_1().min_h(0).overflow_y_scrollbar().p(6).pb(14).gap(12);
-    if (!bare) body.child(this.cardTop(t, c)).child(this.cardMeta(t, c));
+    const body = v_flex().id("fizzy-detail").flex_1().min_h(0).overflow_y_scrollbar().p(10).pb(16).gap(12);
+    if (!bare) body.child(this.cardPage(t, c, read ? full : null));
     if (!read || d.error) body.child(this.status(t, d.error ? explain(d.error) : "Loading…", cx, Boolean(d.error)));
-    if (read) body.child(this.descSection(t, full)).child(this.stepsSection(t, full)).child(this.commentsSection(t, d));
+    if (read) body.children(this.cardActions(t, full)).child(this.commentsSection(t, d));
     return body;
   }
 
-  cardTop(t, c) {
+  // The card as Fizzy draws it, framed in its lane's color: its tab (number | board) and Tags, its title, the lanes it can move
+  // to, its tags, then (once read whole, `full`) its description and steps, then who made it, when it changed and who has it.
+  // A faint gold glow when golden, as on the board.
+  cardPage(t, c, full) {
     const color = laneColor(c);
-    const editing = this.editing === "title";
-    const title = editing
-      ? h_flex().id("fizzy-title-edit").min_h(38).flex_1().min_w(0).gap(6).items_center()
-        .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
-        .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
-        .child(div().id("fizzy-title-input").flex_1().min_w(0).child(Input.new(this.titleInput).h(34).px(7).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(15)).text_color(t.foreground)))
-        .child(this.rowButton(t, "fizzy-title-cancel", ICON("x"), (_e, cx) => this.cancelEdit(cx), "Cancel"))
-      : div().id("fizzy-title").flex_1().min_w(0).px(8).py(4).rounded(7).text_size(textPx(15)).font_semibold().whitespace_normal().text_color(t.foreground).cursor_pointer()
-        .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.editTitle(cx)).child(c.title ?? "");
-    return h_flex().id("fizzy-detail-top").flex_none().gap(8).items_start()
-      .child(title)
-      .child(h_flex().id("fizzy-lane").h(26).mt(editing ? 6 : 2).mr(8).px(8).gap(6).flex_none().items_center().rounded(6).bg(t.raised).cursor_pointer().text_size(textPx(12)).hover(s => s.bg(t.hover))
-        .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
-        .on_click((_e, cx) => this.withCard(cx, (card, cx) => this.laneMenu(card, cx)))
-        .child(div().size(8).flex_none().rounded_full().bg(color ?? t.dim)).child(div().min_w(0).max_w(this.narrow ? 96 : 140).truncate().child(laneName(c)))
-        .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)));
+    return div().id("fizzy-card-frame").flex_none().p(8).rounded(12).bg(tint(color, "33"))
+      .child(v_flex().id("fizzy-card-page").relative().rounded(8).overflow_hidden().bg(t.background)
+        .when(Boolean(c.golden), el => el.child(window.paint_path(CARD_SHAPE, GOLD_GLOW).absolute().top(0).left(0).size_full()))
+        .child(this.cardTab(t, c, color))
+        .child(v_flex().px(14).pt(10).pb(14).gap(14)
+          .child(this.cardTop(t, c, color))
+          .when(Boolean(full), el => el.child(this.descSection(t, full)).child(this.stepsSection(t, full, color)))
+          .child(this.cardMeta(t, c, color))));
   }
 
-  cardMeta(t, c) {
-    const person = u => h_flex().h(24).pr(6).gap(6).items_center().child(this.avatar(t, u, 20)).child(div().min_w(0).max_w(160).truncate().child(u.name));
-    const tag = name => div().h(24).flex().items_center().child(this.chip(t, name, { max: 160 }));
-    const picker = (known, kind) => (known ? () => openMenu({ kind, card: slim(c) }) : null);
-    return v_flex().id("fizzy-detail-meta").flex_none().gap(2)
-      .child(this.pickerRow(t, "fizzy-people", "People", (c.assignees ?? []).map(person), "Nobody", picker(Array.isArray(c.assignees), "users")))
-      .child(this.pickerRow(t, "fizzy-tags", "Tags", (c.tags ?? []).map(tag), "No tags", picker(Array.isArray(c.tags), "tags")));
+  // The card's tab at its top left, in its lane's color: "No." and its number | its board (a click moves the card to another
+  // board, as in Fizzy); then a round Tags button.
+  cardTab(t, c, color) {
+    const board = c.board?.name ?? "";
+    return h_flex().gap(8).items_center()
+      .child(h_flex().id("fizzy-card-tab").min_w(0).h(28).pl(10).pr(4).gap(6).items_center().rounded_br(8).bg(color)
+        .text_size(textPx(12)).font_semibold().text_color(ON_LANE)
+        .child(h_flex().id("fizzy-detail-number").flex_none().gap(3).child(div().opacity(0.7).child("No.")).child(String(c.number)))
+        .when(Boolean(board), el => el.child(div().w(1).h(14).flex_none().bg(tint(ON_LANE, "59")))
+          .child(h_flex().id("fizzy-detail-board").min_w(0).h(22).px(4).gap(3).items_center().rounded(5).cursor_pointer().hover(s => s.bg(tint(ON_LANE, "1f")))
+            .tooltip(`${board}: move to another board`)
+            .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click(() => openMenu({ kind: "moveBoard", card: slim(c) }))
+            .child(div().min_w(0).truncate().child(board.toUpperCase()))
+            .child(svg(ICON("chevron-down")).size(11).flex_none()))))
+      .child(this.roundButton(t, "fizzy-tags", "tag", "Tags", Array.isArray(c.tags) ? () => openMenu({ kind: "tags", card: slim(c) }) : null, { size: 26 }));
+  }
+
+  // The title, big and bold in a light tint of the lane's color (a click edits it), the lanes, and the tags.
+  cardTop(t, c, color) {
+    const size = textPx(this.wide ? 20 : 17), tags = c.tags ?? [];
+    const title = this.editing === "title"
+      ? h_flex().id("fizzy-title-edit").min_w(0).gap(6).items_center()
+        .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
+        .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
+        .child(div().id("fizzy-title-input").flex_1().min_w(0).child(Input.new(this.titleInput).h(38).px(8).rounded(8).border_1().border_color(t.accent).bg(t.background).text_size(size).text_color(t.foreground)))
+        .child(this.rowButton(t, "fizzy-title-cancel", ICON("x"), (_e, cx) => this.cancelEdit(cx), "Cancel"))
+      : div().id("fizzy-title").min_w(0).rounded(6).text_size(size).font_bold().whitespace_normal().text_color(lighten(color, TITLE_LIGHT)).cursor_pointer()
+        .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.editTitle(cx)).child(c.title ?? "");
+    return v_flex().id("fizzy-detail-top").flex_none().gap(10)
+      .child(title)
+      .child(this.laneStrip(t, c, color))
+      .when(tags.length > 0, el => el.child(h_flex().id("fizzy-tag-list").flex_wrap().gap(4).children(tags.map(tag => this.chip(t, `#${tag}`, { max: 160 })))));
+  }
+
+  // The lanes of the card's board in the board's order, its own filled in its color; a click on another moves the card there.
+  // Until the board's columns are known, its own alone.
+  laneStrip(t, c, color) {
+    const here = laneOf(c), known = lanes(this.columns.get(c.board?.id ?? this.board) ?? []);
+    const all = known.some(l => l.key === here) ? known : [{ key: here, name: laneName(c) }, ...known];
+    const pill = (id, name) => div().id(id).h(24).px(10).flex_none().flex().items_center().rounded_full().text_size(textPx(11)).font_semibold().child(name.toUpperCase());
+    return h_flex().id("fizzy-lanes").flex_wrap().gap(4)
+      .children(all.map(l => (l.key === here
+        ? pill("fizzy-lane", l.name).bg(color).text_color(ON_LANE)
+        : pill(`fizzy-lane-${l.key}`, l.name).text_color(color).cursor_pointer().hover(s => s.bg(tint(color, "26"))).tooltip(`Move to ${l.name}`)
+          .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
+          .on_click((_e, cx) => this.apply({ kind: "move", number: c.number, target: l.key }, cx)))));
+  }
+
+  // Fizzy's card foot, in the lane's color: who made the card and when, when it last changed and who has it, their photos and
+  // the button that picks them (the whole of it opens the picker).
+  cardMeta(t, c, color) {
+    const who = c.assignees ?? [], upper = text => String(text ?? "").toUpperCase();
+    const added = c.created_at ? daysAgo(c.created_at, now()) : "", changed = daysAgo(c.last_active_at, now());
+    const line = (id, icon, label, value) => h_flex().id(id).min_w(0).gap(4).items_center()
+      .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(11).flex_none()))
+      .child(div().flex_none().child(label)).child(div().min_w(0).truncate().font_bold().child(upper(value)));
+    const pick = Array.isArray(c.assignees) ? () => openMenu({ kind: "users", card: slim(c) }) : null;
+    return h_flex().id("fizzy-detail-meta").flex_wrap().gap(10).items_center().text_size(textPx(11)).text_color(color)
+      .child(h_flex().min_w(0).gap(8).items_center()
+        .when(Boolean(c.creator), el => el.child(this.avatar(t, c.creator, 28)))
+        .child(v_flex().min_w(0).gap(4)
+          .child(line("fizzy-detail-added", null, "ADDED", added))
+          .child(line("fizzy-detail-creator", null, "BY", c.creator?.name ?? ""))))
+      .child(v_flex().min_w(0).gap(4).pl(10).border_l(1).border_color(t.border)
+        .child(line("fizzy-detail-changed", "refresh", "UPDATED", changed))
+        .child(line("fizzy-detail-assigned", "arrow-right", "ASSIGNED TO", who.length ? who.map(u => u.name).join(", ") : pick ? "nobody" : "")))
+      .child(h_flex().id("fizzy-people").flex_none().gap(2).items_center().rounded_full()
+        .when(Boolean(pick), el => el.cursor_pointer().tooltip("Assign").on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click(() => pick()))
+        .children(who.map(u => this.avatar(t, u, 26)))
+        .child(div().size(26).flex_none().flex().items_center().justify_center().rounded_full().border_1().border_color(tint(color, "80")).text_color(color)
+          .child(svg(ICON("user-plus")).size(13))));
   }
 
   // Description: Fizzy's own HTML, or its plain text; editing is text with people and cards as tokens, and says so when that
   // loses formatting.
   descSection(t, full) {
     const text = full.description?.trim() || htmlToText(full.description_html ?? "");
-    const editing = this.editing === "desc";
-    const shown = editing
+    const shown = this.editing === "desc"
       ? v_flex().id("fizzy-desc-editor").flex_none().gap(6)
         .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
         .child(div().id("fizzy-desc-input").w_full().on_drop((e, cx) => this.attach(this.descArea, "desc", e.paths, cx))
-          .child(Textarea.new(this.descArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
+          .child(Textarea.new(this.descArea).w_full().px(8).py(6).rounded(8).border_1().border_color(t.accent).bg(t.background).text_size(textPx(14)).text_color(t.foreground).token(this.tokenView(t))))
         .when(this.uploading.has("desc"), el => el.child(this.uploadNote(t, "desc")))
-        .when(formatted(full.description_html), el => el.child(div().id("fizzy-desc-lossy").px(8).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
+        .when(formatted(full.description_html), el => el.child(div().id("fizzy-desc-lossy").text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
         .child(h_flex().justify_end().gap(6)
           .child(this.textButton(t, "fizzy-desc-cancel", null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
           .child(this.textButton(t, "fizzy-desc-save", null, "Save", (_e, cx) => this.saveDescription(cx), true)))
-      : div().px(8).w_full().child(!text ? div().id("fizzy-desc-empty").text_size(textPx(12)).text_color(t.dim).child("No description")
-        : RICH && full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET)
-        : this.plainLines("fizzy-desc-text", text));
-    return v_flex().id("fizzy-desc").flex_none().gap(2)
-      .child(this.sectionHead(t, "fizzy-desc", "Description", "", editing ? null : this.rowButton(t, "fizzy-desc-edit", ICON("pencil"), (_e, cx) => this.editDescription(cx), "Edit")))
-      .child(shown);
+      : !text ? div().id("fizzy-desc-empty").text_size(textPx(13)).text_color(t.dim).child("No description")
+      : RICH && full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET, 14)
+      : this.plainLines("fizzy-desc-text", text, 14);
+    return v_flex().id("fizzy-desc").flex_none().w_full().child(shown);
   }
 
-  // Ticking a step shows at once; Fizzy's answer (or its refusal) follows.
-  stepsSection(t, full) {
-    const steps = full.steps ?? [], done = steps.filter(s => s.completed).length;
-    const section = v_flex().id("fizzy-steps").flex_none()
-      .child(this.sectionHead(t, "fizzy-steps", "Steps", steps.length ? `${done}/${steps.length}` : ""));
-    for (const s of steps) {
+  // Ticking a step shows at once; Fizzy's answer (or its refusal) follows. The boxes are in the lane's color, as Fizzy's.
+  stepsSection(t, full, color) {
+    const box = (done, child) => div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1().border_color(done ? color : tint(color, "99"))
+      .when(done, el => el.bg(color)).when(Boolean(child), el => el.child(child));
+    const section = v_flex().id("fizzy-steps").flex_none().gap(2);
+    for (const s of full.steps ?? []) {
       section.child(this.editing === "step" && this.editId === s.id
-        ? this.fieldRow(t, h_flex().id(`fizzy-step-edit-${s.id}`).min_h(32).flex_none().pl(34).pr(8).gap(6).items_center(),
+        ? this.fieldRow(t, h_flex().id(`fizzy-step-edit-${s.id}`).min_h(32).flex_none().pl(26).gap(6).items_center(),
           this.stepEdit, `fizzy-step-input-${s.id}`, `fizzy-step-cancel-${s.id}`, cx => this.cancelEdit(cx))
-        : h_flex().id(`fizzy-step-${s.id}`).min_h(28).flex_none().px(8).py(3).gap(8).items_start()
+        : h_flex().id(`fizzy-step-${s.id}`).min_h(28).flex_none().py(2).gap(6).items_start()
           .child(div().id(`fizzy-step-check-${s.id}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().hover(x => x.bg(t.selected))
             .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => this.toggleStep(s, cx))
-            .child(div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1().border_color(s.completed ? t.accent : t.input)
-              .when(s.completed, el => el.bg(t.accent).child(svg(ICON("check")).size(11).text_color(t.accent_foreground)))))
-          .child(div().id(`fizzy-step-text-${s.id}`).flex_1().min_w(0).px(5).py(3).rounded(5).whitespace_normal().cursor_pointer().hover(x => x.bg(t.hover))
+            .child(box(s.completed, s.completed ? svg(ICON("check")).size(11).text_color(ON_LANE) : null)))
+          .child(div().id(`fizzy-step-text-${s.id}`).flex_1().min_w(0).px(4).py(2).rounded(5).whitespace_normal().cursor_pointer().hover(x => x.bg(t.hover))
             .when(s.completed, el => el.line_through().text_color(t.dim))
             .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => this.editStep(s, cx)).child(s.content ?? ""))
           .child(this.rowButton(t, `fizzy-step-del-${s.id}`, ICON("trash"), (_e, cx) => this.dropStep(s, cx), "Delete")));
     }
-    return section.child(h_flex().id("fizzy-step-new-row").min_h(32).flex_none().pl(8).pr(8).gap(4).items_center()
-      .child(div().size(22).flex_none().flex().items_center().justify_center().text_color(t.dim).child(svg(ICON("plus")).size(13)))
-      .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))));
+    return section.child(h_flex().id("fizzy-step-new-row").min_h(30).flex_none().gap(6).items_center()
+      .child(div().size(22).flex_none().flex().items_center().justify_center().child(box(false, null)))
+      .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(4).rounded(6).border_1().border_color(CLEAR).bg(t.background).text_size(textPx(13)).text_color(color))));
+  }
+
+  // Under the card, as Fizzy's: Edit (the description) and Mark as Done (Reopen once it is done) in the lane's color, then when
+  // Fizzy moves the card to Not Now if nothing happens on it.
+  cardActions(t, full) {
+    const color = laneColor(full), n = full.number;
+    const pill = (id, label, action) => div().id(id).h(32).px(18).flex_none().flex().items_center().rounded_full().cursor_pointer().bg(color)
+      .text_size(textPx(13)).font_semibold().text_color(ON_LANE).hover(s => s.opacity(0.88))
+      .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => action(cx)).child(label);
+    const note = postponeNote(daysToPostpone(full, { period: this.boards?.find(b => b.id === (full.board?.id ?? this.board))?.period, now: now() }));
+    return [
+      h_flex().id("fizzy-card-actions").flex_none().justify_center().gap(8)
+        .when(this.editing !== "desc", el => el.child(pill("fizzy-desc-edit", "Edit", cx => this.editDescription(cx))))
+        .child(full.closed
+          ? pill("fizzy-reopen", "Reopen", cx => this.apply({ kind: "reopen", number: n }, cx))
+          : pill("fizzy-done", "Mark as Done", cx => this.apply({ kind: "move", number: n, target: "done" }, cx))),
+      ...(note ? [div().id("fizzy-postpone").flex_none().px(8).text_center().whitespace_normal().text_size(textPx(12)).text_color(color).child(note)] : []),
+    ];
   }
 
   // Comments, oldest first. Most of what the CLI lists is Fizzy's own activity (creator role "system": "Ada moved this
@@ -3237,12 +3306,12 @@ export default class Fizzy extends View {
   commentsSection(t, d) {
     const everything = [...d.comments].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     const comments = everything.filter(cm => cm.creator?.role !== "system"), activity = everything.filter(cm => cm.creator?.role === "system");
-    const section = v_flex().id("fizzy-comments").flex_none().gap(2)
-      .child(this.sectionHead(t, "fizzy-comments", "Comments", comments.length ? String(comments.length) : ""));
-    if (!comments.length) section.child(div().id("fizzy-comments-empty").h(28).flex_none().px(8).flex().items_center().text_size(textPx(12)).text_color(t.dim).child("No comments"));
+    const section = v_flex().id("fizzy-comments").flex_none().gap(10)
+      .child(this.ruleLabel(t, "fizzy-comments-head", "COMMENTS", ...(comments.length ? [div().id("fizzy-comments-count").text_color(t.muted).child(String(comments.length))] : [])));
+    if (!comments.length) section.child(div().id("fizzy-comments-empty").flex_none().text_center().text_size(textPx(12)).text_color(t.dim).child("No comments"));
     for (const cm of comments) section.child(this.commentBlock(t, cm));
     if (activity.length) {
-      section.child(h_flex().id("fizzy-activity").h(28).flex_none().px(8).gap(6).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
+      section.child(h_flex().id("fizzy-activity").h(28).flex_none().px(8).gap(6).items_center().rounded_full().cursor_pointer().text_size(textPx(12)).text_color(t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_click((_e, cx) => { this.activityOpen = !this.activityOpen; cx.notify(); })
         .child(svg(ICON(this.activityOpen ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
@@ -3252,14 +3321,18 @@ export default class Fizzy extends View {
         for (const cm of activity) section.child(div().id(`fizzy-activity-${cm.id}`).flex_none().pl(26).pr(8).py(2).text_size(textPx(11)).text_color(t.dim).whitespace_normal().child(`${cm.body?.plain_text ?? ""} · ${ago(cm.created_at, now())}`));
       }
     }
-    return section.child(v_flex().id("fizzy-comment-new").flex_none().pt(6).gap(6)
-      .child(div().id("fizzy-comment-input").w_full().on_drop((e, cx) => this.attach(this.commentArea, "comment", e.paths, cx))
-        .child(Textarea.new(this.commentArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
-      .when(this.uploading.has("comment"), el => el.child(this.uploadNote(t, "comment")))
-      .child(h_flex().justify_end().gap(6)
-        .child(this.textButton(t, "fizzy-comment-send", ICON("send"), "Comment", (_e, cx) => this.sendComment(cx), true))));
+    const me = this.me ? (people().users?.find(u => u.id === this.me) ?? { id: this.me, name: "" }) : null;
+    return section.child(h_flex().id("fizzy-comment-new").flex_none().gap(8).items_start()
+      .child(me ? this.avatar(t, me, COMMENT_AVATAR) : div().size(COMMENT_AVATAR).flex_none())
+      .child(v_flex().flex_1().min_w(0).gap(6)
+        .child(div().id("fizzy-comment-input").w_full().on_drop((e, cx) => this.attach(this.commentArea, "comment", e.paths, cx))
+          .child(Textarea.new(this.commentArea).w_full().px(10).py(8).rounded(8).border_1().border_color(t.input).bg(t.raised).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
+        .when(this.uploading.has("comment"), el => el.child(this.uploadNote(t, "comment")))
+        .child(h_flex().justify_end().gap(6)
+          .child(this.textButton(t, "fizzy-comment-send", ICON("send"), "Comment", (_e, cx) => this.sendComment(cx), true)))));
   }
 
+  // A comment as Fizzy draws it: the writer's photo beside a box holding their name, when, and what they wrote.
   commentBlock(t, cm) {
     const who = cm.creator ?? { name: "?" }, binId = `fizzy-comment-del-${cm.id}`;
     const own = Boolean(this.me) && who.id === this.me, editing = this.editing === "comment" && this.editId === cm.id;
@@ -3269,27 +3342,28 @@ export default class Fizzy extends View {
         .on_click((_e, cx) => { cx.stop_propagation(); this.dropComment(cm, cx); })
         .child("Delete?")
       : this.rowButton(t, binId, ICON("trash"), (_e, cx) => this.dropComment(cm, cx), "Delete");
-    return v_flex().id(`fizzy-comment-${cm.id}`).flex_none().px(8).py(6).gap(4)
+    return h_flex().id(`fizzy-comment-${cm.id}`).flex_none().gap(8).items_start()
       .when(editing, el => el.on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); }))
-      .child(h_flex().h(24).gap(6).items_center()
-        .child(this.avatar(t, who, 20))
-        .child(div().min_w(0).truncate().font_medium().child(who.name ?? ""))
-        .child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(ago(cm.created_at, now())))
-        .child(div().flex_1())
-        .when(own && !editing, el => el.child(this.rowButton(t, `fizzy-comment-edit-${cm.id}`, ICON("pencil"), (_e, cx) => this.editComment(cm, cx), "Edit")).child(bin)))
-      .child(editing
-        ? v_flex().id(`fizzy-comment-editor-${cm.id}`).pl(17).gap(6)
-          .child(div().id(`fizzy-comment-area-${cm.id}`).w_full().on_drop((e, cx) => this.attach(this.commentEdit, "commentEdit", e.paths, cx))
-            .child(Textarea.new(this.commentEdit).w_full().px(8).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
-          .when(this.uploading.has("commentEdit"), el => el.child(this.uploadNote(t, "commentEdit")))
-          .when(formatted(cm.body?.html), el => el.child(div().id(`fizzy-comment-lossy-${cm.id}`).px(9).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
-          .child(h_flex().justify_end().gap(6)
-            .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
-            .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
-        : div().pl(26).w_full().child(RICH && cm.body?.html
-          ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET)
-          : this.plainLines(`fizzy-comment-text-${cm.id}`, cm.body?.plain_text)))
-      .when(!editing && this.reactions.has(cm.id), el => el.child(this.reactionsRow(t, cm)));
+      .child(this.avatar(t, who, COMMENT_AVATAR))
+      .child(v_flex().flex_1().min_w(0).px(12).py(8).gap(4).rounded(8).bg(t.raised)
+        .child(h_flex().min_h(22).gap(6).items_center()
+          .child(div().min_w(0).truncate().font_bold().child(who.name ?? ""))
+          .child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(ago(cm.created_at, now())))
+          .child(div().flex_1())
+          .when(own && !editing, el => el.child(this.rowButton(t, `fizzy-comment-edit-${cm.id}`, ICON("pencil"), (_e, cx) => this.editComment(cm, cx), "Edit")).child(bin)))
+        .child(editing
+          ? v_flex().id(`fizzy-comment-editor-${cm.id}`).gap(6)
+            .child(div().id(`fizzy-comment-area-${cm.id}`).w_full().on_drop((e, cx) => this.attach(this.commentEdit, "commentEdit", e.paths, cx))
+              .child(Textarea.new(this.commentEdit).w_full().px(8).py(6).rounded(8).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
+            .when(this.uploading.has("commentEdit"), el => el.child(this.uploadNote(t, "commentEdit")))
+            .when(formatted(cm.body?.html), el => el.child(div().id(`fizzy-comment-lossy-${cm.id}`).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
+            .child(h_flex().justify_end().gap(6)
+              .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
+              .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
+          : div().w_full().child(RICH && cm.body?.html
+            ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET)
+            : this.plainLines(`fizzy-comment-text-${cm.id}`, cm.body?.plain_text)))
+        .when(!editing && this.reactions.has(cm.id), el => el.child(this.reactionsRow(t, cm))));
   }
 
   // One chip per emoji with its count, yours outlined; a click on one toggles yours. Then the button that adds one.
@@ -3305,26 +3379,26 @@ export default class Fizzy extends View {
         .on_click((_e, cx) => this.toggleReaction(this.detail.number, cm.id, content, cx))
         .child(content).child(div().text_color(t.muted).child(String(list.length)));
     };
-    return h_flex().id(`fizzy-reactions-${cm.id}`).pl(26).flex_wrap().gap(4).items_center()
+    return h_flex().id(`fizzy-reactions-${cm.id}`).flex_wrap().gap(4).items_center()
       .children([...by].map(chip))
       .child(this.rowButton(t, `fizzy-react-${cm.id}`, ICON("smile-plus"), () => this.reactMenu(cm), "Add reaction"));
   }
 
-  plainLines(id, text) {
-    return v_flex().id(id).w_full().text_size(textPx(13))
+  plainLines(id, text, size = 13) {
+    return v_flex().id(id).w_full().text_size(textPx(size))
       .children(textLines(text).map(line => (line ? div().whitespace_normal().child(line) : div().h(6).flex_none())));
   }
 
   // TextView can't color text, so the panel draws Fizzy's HTML itself; TextView only draws what that fails on.
-  // `inset`: how much narrower than the panel the text is, which no image is drawn wider than.
-  richView(t, id, html, inset) {
-    try { return this.richText(t, id, html, inset); }
+  // `inset`: how much narrower than the panel the text is, which no image is drawn wider than; `size`: the text's, in px.
+  richView(t, id, html, inset, size = 13) {
+    try { return this.richText(t, id, html, inset, size); }
     catch { return TextView.html(id, htmlForView(html)).selectable().on_link_click((url, cx) => cx.open_url(url)); }
   }
 
-  richText(t, id, html, inset) {
+  richText(t, id, html, inset, size = 13) {
     const column = Math.max(120, (this.width ?? 360) - inset);
-    return v_flex().id(id).w_full().text_size(textPx(13))
+    return v_flex().id(id).w_full().text_size(textPx(size))
       .children(richLines(html, people().users).map((line, i) => (line.file
         ? this.richFile(t, `${id}-${i}`, line.file, column, i > 0)
         : this.richLine(t, `${id}-${i}`, line, i > 0 && line.gap))));
@@ -3425,11 +3499,6 @@ export default class Fizzy extends View {
         .when(selected, el => el.bg(t.selection))
         .child(token.text);
     };
-  }
-
-  // The lanes a card can move to, for the detail view's chip.
-  laneMenu(card, cx) {
-    this.withColumns(card, cx, columns => openMenu({ kind: "lanes", card: slim(card), columns }));
   }
 
   // A popup's request is noticed here (the panel is alive whenever a popup it opened is), by a draw or by the

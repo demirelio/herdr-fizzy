@@ -1025,17 +1025,37 @@ export function ago(iso, now) {
 
 const DAY = 86400000;
 const dayStart = ms => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
-// Fizzy's warning on an open card that is not postponed, as its card bubble decides it: "Closes in N days" once fewer days
-// than a quarter of the board's auto-postpone period (`period`, in days) are left, counted in calendar days; else "Stalled"
-// when Fizzy lists the card as stalled. { kind: "closing" | "stalled", label } or null.
-export function inactivity(card, { period, stalled = false, now }) {
+// The calendar days left before Fizzy moves an open card that is not postponed to Not Now for want of activity, from the
+// board's auto-postpone period (`period`, in days); null when that is not known or does not apply.
+export function daysToPostpone(card, { period, now }) {
   if (card?.closed || card?.postponed) return null;
   const last = stamp(card?.last_active_at);
-  if (period > 0 && !Number.isNaN(last)) {
-    const left = Math.round((dayStart(last + period * DAY) - dayStart(stamp(now))) / DAY);
-    if (left < Math.round(period * 0.25)) return { kind: "closing", label: left < 1 ? "Closes today" : `Closes in ${left}d` };
-  }
-  return stalled ? { kind: "stalled", label: "Stalled" } : null;
+  if (!(period > 0) || Number.isNaN(last)) return null;
+  return Math.round((dayStart(last + period * DAY) - dayStart(stamp(now))) / DAY);
+}
+
+// Fizzy's warning on an open card that is not postponed, as its card bubble decides it: "Closes in N days" once fewer days
+// than a quarter of the board's auto-postpone period (`period`, in days) are left; else "Stalled" when Fizzy lists the card
+// as stalled. { kind: "closing" | "stalled", label } or null.
+export function inactivity(card, { period, stalled = false, now }) {
+  const left = daysToPostpone(card, { period, now });
+  if (left != null && left < Math.round(period * 0.25)) return { kind: "closing", label: left < 1 ? "Closes today" : `Closes in ${left}d` };
+  return !card?.closed && !card?.postponed && stalled ? { kind: "stalled", label: "Stalled" } : null;
+}
+
+// The line Fizzy writes under a card about it (`left`: daysToPostpone), or null.
+export function postponeNote(left) {
+  if (left == null) return null;
+  const when = left < 1 ? "today" : `in ${left} ${left === 1 ? "day" : "days"}`;
+  return `Moves to “Not Now” ${when} if there’s no activity.`;
+}
+
+// A #rrggbb color moved `amount` (0 to 1) of the way to white; anything else as it is.
+export function lighten(hex, amount) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex ?? "");
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `#${[16, 8, 0].map(s => (n >> s) & 255).map(v => Math.round(v + (255 - v) * amount).toString(16).padStart(2, "0")).join("")}`;
 }
 
 // Walks from "$1" up to / and prints the `board:` line of the first .fizzy.yaml it finds, and nothing else of the file (it may
@@ -1354,7 +1374,6 @@ export function menuRows(menu, ctx = {}) {
     case "access": return accessRows(menu, ctx);
     case "tags": return menu.card ? tagRows(menu, ctx) : [];
     case "moveBoard": return menu.card ? moveBoardRows(menu, ctx) : [];
-    case "lanes": return menu.card ? laneRows(menu.card, menu.columns) : [];
     case "react": return menu.comment ? reactRows(menu) : [];
     case "mention": return mentionRows(menu, ctx);
     case "cardref": return cardRefRows(menu, ctx);

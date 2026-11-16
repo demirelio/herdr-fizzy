@@ -36,8 +36,8 @@ straight to their list.
 
 - On Board, in the board row's round look: the filter, then **My cards**, **Golden cards** and **Pinned cards**.
 - On Mine and Pins: the filter alone.
-- Inside a card, and in a list while you have cards picked: **Insert**, **Send**, **Start** and **Copy**
-  ([Hand a card to an agent](#hand-a-card-to-an-agent)).
+- Inside a card, and in a list while you have cards picked: "Hand this card to an agent", then the round buttons
+  **Insert**, **Send**, **Start** and **Copy** ([Hand a card to an agent](#hand-a-card-to-an-agent)).
 - On a card New card has just made: **Discard** and **Done** (see **New card** below).
 - The Inbox, and the search with no card picked, have no bar.
 
@@ -119,23 +119,30 @@ ready for you to type the title and press Enter; the description, steps, people 
 bar at its foot has **Discard**, which deletes the card again, and **Done**, which keeps it and goes back to the list.
 A lane's **+** does the same in that lane, without the picker. A title you never save leaves the card as "New card".
 
-**A card.** Click one to open it. Its top bar has Back, the card's number and board, three toggles (**pin**, **watch**
-and **golden**), Open in Fizzy (left out when the panel is narrow) and `⋯`, the card's menu. Fizzy doesn't tell anyone
-whether you watch a card, so the eye stays dim until you set it from the panel; the panel remembers that for the last
-200 cards, and forgets a "not watching" when you comment on the card or take it, since Fizzy may start watching it for
-you then. Click the title to rename the card; the lane button at its right moves it. **People** and **Tags** open
-pickers: the account's people with their photos, you first, and its tags, with a field for a new one; a tick marks
-what the card has. Then come:
+**A card.** Click one to open it. It looks like a card in Fizzy: framed in its lane's color, with a tab at its top left
+holding its number and board (click the board to move the card to another board) and a round **Tags** button beside
+it. The top bar above has Back and round buttons: **golden**, **watch** (a bell), **pin**, Open in Fizzy (left out
+when the panel is narrow) and `⋯`, the card's menu. Fizzy doesn't tell anyone whether you watch a card, so the bell
+stays dim until you set it from the panel; the panel remembers that for the last 200 cards, and forgets a "not
+watching" when you comment on the card or take it, since Fizzy may start watching it for you then.
 
-- the description, drawn by the panel with its formatting, mentions, card links, images and files. The pencil edits it
+The title is big and bold, in a light tint of the lane's color; click it to rename the card. Under it are the lanes of
+the card's board, its own filled in: click another to move the card there. The foot of the card says who added it and
+when, when it was last updated, and who it is assigned to; their photos and the round add-person button open the
+people picker. The people picker lists the account's people with their photos, you first; the Tags picker lists its
+tags, with a field for a new one; a tick marks what the card has. Under the card are **Edit** and **Mark as Done**
+(**Reopen** once it is done), and, on a board that moves idle cards to Not Now, Fizzy's line saying when that happens.
+Then come:
+
+- the description, drawn by the panel with its formatting, mentions, card links, images and files. **Edit** edits it
   as text. Line breaks are kept, and so are lists of lines that start with `- `, `* ` or `• ` (the mark, then a space),
   and mentions, card links and files stay what they are. A numbered list comes back as a bulleted one; other formatting
   is lost on save, and the editor says so when there is some;
 - the steps: tick the box, click the text to change it, the bin removes one, and the field at the bottom adds one.
   Steps are plain text: `@` and `#` open no picker there, and a file can't go in one;
-- the comments, oldest first, each with its reactions: write one at the bottom; edit your own as text, as the
-  description is, and delete your own (deleting takes two clicks). Fizzy's own lines, such as "… moved this to Not
-  Now", are folded under **Activity** after the comments.
+- under the card, the comments, oldest first, each in a box beside its writer's photo with its reactions: write one at
+  the bottom; edit your own as text, as the description is, and delete your own (deleting takes two clicks). Fizzy's
+  own lines, such as "… moved this to Not Now", are folded under **Activity** after the comments.
 
 **Reactions.** Under each comment: one chip per emoji, with how many people put it there (point at it for their names),
 yours outlined. Click a chip to add yours or take it back; the smiley with a plus offers 👍 👎 😄 🎉 ❤️ 👀 🚀 🙏 ✅,
@@ -220,8 +227,9 @@ place). Open in Fizzy is there for those.
 
 ### Hand a card to an agent
 
-Inside a card, and in a list while you have cards picked, the bar at the foot of the panel has four buttons:
-**Insert**, **Send**, **Start** and **Copy**. They act on the open card, else on the cards you picked. The `insert`,
+Inside a card, and in a list while you have cards picked, the bar at the foot of the panel says "Hand this card to an
+agent" ("Hand 3 cards…" with several picked) over four buttons: **Insert**, **Send**, **Start** and **Copy**; point at
+one for what it does. They act on the open card, else on the cards you picked. The `insert`,
 `send`, `start` and `copy` keys ([Keys](#keys)) do the same, and in the Board view, with no card open or picked, act on
 the board shown.
 

@@ -16,7 +16,7 @@ import {
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
   FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, reorderColumns, lanes, sections, filterCards, colorOf, meFrom,
-  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, daysAgo, inactivity,
+  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, daysAgo, inactivity, daysToPostpone, postponeNote, lighten,
   mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown, cardFile,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
@@ -1184,6 +1184,28 @@ test("inactivity: an open card says it closes in N days once fewer than a quarte
   assert.equal(inactivity(null, { period: 30, now }), null);
 });
 
+test("daysToPostpone and postponeNote: the calendar days an open card has before Fizzy moves it to Not Now, as Fizzy says it under the card", () => {
+  const now = new Date(2026, 4, 20, 12, 0).getTime(), daysAgo = d => new Date(2026, 4, 20 - d, 12, 0).toISOString();
+  const left = (d, opts = {}) => daysToPostpone(card(1, { last_active_at: daysAgo(d), ...opts }), { period: 30, now });
+  assert.deepEqual([left(0), left(29), left(30), left(45)], [30, 1, 0, -15]);
+  for (const done of [{ closed: true }, { postponed: true }]) assert.equal(left(3, done), null, JSON.stringify(done));
+  assert.equal(daysToPostpone(card(1, { last_active_at: daysAgo(3) }), { period: undefined, now }), null, "no period known");
+  assert.equal(daysToPostpone(card(1, { last_active_at: "garbage" }), { period: 30, now }), null);
+  assert.equal(postponeNote(26), "Moves to “Not Now” in 26 days if there’s no activity.");
+  assert.equal(postponeNote(1), "Moves to “Not Now” in 1 day if there’s no activity.");
+  assert.equal(postponeNote(0), "Moves to “Not Now” today if there’s no activity.");
+  assert.equal(postponeNote(-3), "Moves to “Not Now” today if there’s no activity.", "overdue: today");
+  assert.equal(postponeNote(null), null);
+});
+
+test("lighten: a #rrggbb color moved part of the way to white; anything else as it is", () => {
+  assert.equal(lighten("#000000", 0.5), "#808080");
+  assert.equal(lighten("#4f8ef7", 0), "#4f8ef7");
+  assert.equal(lighten("#4F8EF7", 1), "#ffffff");
+  assert.equal(lighten("#102030", 0.55), "#939ba2");
+  for (const odd of ["accent", "#fff", null, undefined]) assert.equal(lighten(odd, 0.5), odd);
+});
+
 test("parseYaml reads the top-level board and account, nothing else", () => {
   assert.deepEqual(parseYaml("account: 111\nboard: 00000000000000000000000b1\n"), { account: "111", board: "00000000000000000000000b1" });
   assert.deepEqual(parseYaml(""), {});
@@ -2047,9 +2069,9 @@ test("card menu: delete is two steps — the armed row says so, is danger, and r
   assert.equal(byId(menuRows({ kind: "card", card: c, columns: COLUMNS }, {}), "delete").act.arm, "delete");
 });
 
-test("lanes menu: just the lanes, as moves", () => {
+test("the card menu's Move to rows: just the lanes, as moves", () => {
   const c = card(77, { column: C1 });
-  const rows = menuRows({ kind: "lanes", card: c, columns: COLUMNS }, {});
+  const rows = menuRows({ kind: "card", card: c, columns: COLUMNS }, {}).filter(r => r.id?.startsWith("lane-"));
   assert.deepEqual(ids(rows), ["lane-not-now", "lane-maybe", "lane-c1", "lane-c2", "lane-done"]);
   assert.ok(rows.every(r => r.type === "row" && r.icon === null));
   assert.deepEqual(rows.map(r => r.checked), [false, false, true, false, false]);
@@ -2265,9 +2287,9 @@ test("menuRows: an unknown or empty menu has no rows, and no menu needs a ctx", 
   assert.deepEqual(menuRows({}, {}), []);
   assert.deepEqual(menuRows(null, {}), []);
   assert.deepEqual(menuRows(undefined), []);
-  for (const kind of ["card", "users", "tags", "moveBoard", "lanes"]) assert.deepEqual(menuRows({ kind }, {}), [], `${kind} without a card`);
+  for (const kind of ["card", "users", "tags", "moveBoard"]) assert.deepEqual(menuRows({ kind }, {}), [], `${kind} without a card`);
   assert.deepEqual(menuRows({ kind: "react" }, {}), [], "react without a comment");
-  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) }, { kind: "lanes", card: card(1) },
+  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) },
     { kind: "mention" }, { kind: "cardref" }]) {
     assert.doesNotThrow(() => menuRows(m), JSON.stringify(m));
   }
@@ -2282,7 +2304,7 @@ test("every row is well formed, and every icon the menus use is in mods/fizzy", 
   };
   const menus = [
     { kind: "boards", current: "b1", follow: false, spaceBoard: "b1" }, { kind: "newCard", current: "b1" },
-    { kind: "card", card: c, columns: COLUMNS, pinned: true }, { kind: "lanes", card: c, columns: COLUMNS },
+    { kind: "card", card: c, columns: COLUMNS, pinned: true },
     { kind: "agents", cards: [c] }, { kind: "start", cards: [c] },
     { kind: "users", card: c }, { kind: "tags", card: c }, { kind: "moveBoard", card: c },
     { kind: "react", number: 4242, comment: "c9", mine: ["👍"] }, { kind: "mention", target: "comment" },

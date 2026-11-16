@@ -151,7 +151,7 @@ async function panelPaths() {
   const menus = [{ kind: "card", card, columns }, { kind: "card", card, columns, pinned: true }, { kind: "card", card: { ...card, closed: true, golden: true }, columns, pinned: true, watching: true },
     { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "newCard", current: "b1" }, { kind: "agents", cards: [card] },
     { kind: "start", cards: [card] },
-    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }, { kind: "lanes", card, columns },
+    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card },
     { kind: "react", number: 101, comment: "cm1", mine: ["👍"] }, { kind: "mention", target: "comment" }, { kind: "cardref", target: "comment", cards: [{ number: 101, title: "T", board: "Roadmap" }] }];
   for (const menu of menus) {
     state.props = { menu, overlay: "o" };

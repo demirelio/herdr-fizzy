@@ -97,29 +97,54 @@ theme names.
   - **My cards** (user icon), **Golden cards** (star) and **Pinned cards** (pin): the board row's round buttons, 30 px,
     a 1 px `input` border, the 14 px icon in `muted`, the name as the tooltip, `hover` behind it on hover. On, the
     border and icon take the filter's color (`accent`; Golden cards Fizzy's gold `#e5b422`) and `selected` is behind it.
-  - The hand-off buttons, gap 4: four buttons sharing the width, each 28 px, rounded 7, `raised`, 12 px medium:
+  - The hand-off bar is in the list bar's look too (padding 12 across, 4 above, 8 below, gap 6): first
+    `HAND THIS CARD TO AN AGENT` (`HAND N CARDS…` with several picked) in 10 px semibold `dim` between two `border`
+    rules, then four round buttons sharing the width, gap 6, each 30 px, a 1 px `input` border, 12 px medium:
     **Insert**, **Send** ▾, **Start** ▾, **Copy**, each with a 13 px icon before its label and an 11 px chevron after
-    Send and Start. Below 340 px the icons go and the labels and chevrons stay, on one line at 280.
-  - **Discard** at the left and **Done** at the right: 30 px text buttons, padding 10, gap 6, rounded 7, 12 px medium,
-    a 13 px icon (trash, check), `opacity` 0.88 on hover; Discard `raised` behind `foreground`, Done in the
-    primary-button colors.
+    Send and Start, and a tooltip saying what it does ("Paste into the chat in view, or drag into a terminal", "Paste
+    into a running session", "Start a new agent session with it", "Copy the reference"). Below 340 px the icons go and
+    the labels and chevrons stay, on one line at 280.
+  - **Discard** at the left and **Done** at the right (padding 12 across, 8 down): round 30 px text buttons, padding
+    14, gap 6, 12 px medium, a 13 px icon (trash, check), `opacity` 0.88 on hover; Discard `raised` behind
+    `foreground`, Done in the primary-button colors. Every text button in the panel (Save, Cancel, Comment) is round.
 
-**A card**, in place of the board row and list: a 42 px top bar (Back, `#number` and the board in 12 px `dim`, then
-three 26 px toggles: pin and watch lit in `accent` on `selected`, golden lit in `ansi3`; Open in Fizzy, left out when
-narrow; More). Then the title (15 px semibold, wrapping; edited, a 34 px field in 15 px, `accent` border, placeholder
-"Card title", and an x) with a 26 px lane chip at its right (an 8 px dot in the lane's color, the lane's name at most
-140 px, 96 when narrow, a chevron); **People** (20 px avatars and names) and **Tags** (chips), each with a 52 px label;
-**Description** (rich text; `No description`); **Steps** with `done/total` (16 px boxes, `accent` when ticked, ticked
-text struck through and `dim`; a field "Add a step" at the end); **Comments** with a count (20 px avatar, name in
-medium, time; the rich text indented 26 px, the reactions under it; an **Activity** row, folded, with Fizzy's own
-lines at 11 px), and at the end a three-line box "Write a comment… (@ mention, # card, drop or paste images)" with a
-**Comment** button. The description's editor is eight lines, "Add a description… (@ mention, # card, drop or paste
-images)"; a comment's own, four lines. While a file uploads into a box, `Uploading <name>…` (11 px `muted`, cut) shows
-under it.
+**A card**, in place of the board row and list, drawn as Fizzy draws one. A 46 px top bar of round 30 px buttons:
+Back at the left; at the right the toggles golden (lit in Fizzy's gold `#e5b422`), watch (a bell, lit in `accent`;
+a crossed bell once set to not watching) and pin (lit in `accent`), each lit with its color as border and icon on
+`selected`; Open in Fizzy, left out when narrow; More. Under it, padding 10 (16 below), gap 12:
 
-**Rich text** (a description, a comment) is drawn by the panel, 13 px. A block (paragraph, list, heading, quote, `pre`,
-image, file) starts 8 px under the one before; a line break starts a line; a line wraps between its words. Bold and
-headings are bold, italic italic, `code` and `pre` in the theme's mono font (`pre` keeps its white space). A list item
+- **The card**, framed: an 8 px frame in the lane's color at `33`, rounded 12, around the card itself (`background`,
+  rounded 8; the gold glow of a golden card, as on the board). At its top left the tab, 28 px in the lane's color,
+  bottom-right corner rounded 8, 12 px semibold in `#15171c`: `No.` (at 70 % opacity) and the number | the board's
+  name in capitals with a chevron (a click opens `moveBoard`); beside it a round 26 px **Tags** button (tag icon).
+  Then, padding 14 across, 10 above and 14 below, gap 14: the title, bold, 20 px from 440 px wide and 17 px below,
+  wrapping, in the lane's color 55 % of the way to white (edited, a 38 px field of the same size, `accent` border,
+  placeholder "Card title", and an x); the lanes of the card's board in the board's order as 24 px round 11 px
+  semibold capitals, the card's own filled in its color with `#15171c` text, the others in its color (tooltip
+  `Move to <lane>`, a click moves the card); its tags as chips; the description (rich text at 14 px;
+  `No description`); the steps (16 px boxes outlined in the lane's color, filled with a `#15171c` check when ticked,
+  ticked text struck through and `dim`; at the end an empty box and a borderless field "Add a step…" in the lane's
+  color); and the foot, 11 px in the lane's color: who made it (28 px photo), `ADDED <when>` and `BY <name>`, a
+  `border` line, `UPDATED <when>` (refresh icon) and `ASSIGNED TO <names>` (arrow icon; `nobody`), the values bold,
+  then the people's 26 px photos and a round 26 px add-person button (the whole of it opens `users`, tooltip
+  "Assign"). Before the card is read whole only what the list knew is there; a field the card does not carry
+  (a notification's stub) leaves its button dim and does nothing.
+- **Edit** (the description's editor) and **Mark as Done** (`Reopen` on a done card) centered under it: round 32 px
+  buttons in the lane's color, 13 px semibold `#15171c`. Then, on an open card of a board with an auto-postpone
+  period, Fizzy's line in the lane's color, centered: `Moves to “Not Now” in N days if there’s no activity.`
+- **Comments**: `COMMENTS` and the count between two rules, as the hand-off bar's label; `No comments` when there are
+  none. Each comment is the writer's 28 px photo beside a `raised` box (rounded 8, padding 12 across and 8 down):
+  the name in bold, the time, Edit and Delete for your own, the rich text, the reactions. An **Activity** row, folded,
+  holds Fizzy's own lines at 11 px. At the end your photo beside a three-line box (`raised`, rounded 8, padding 10)
+  "Write a comment… (@ mention, # card, drop or paste images)" and a round **Comment** button under it at the right.
+
+The description's editor is eight lines, "Add a description… (@ mention, # card, drop or paste images)"; a comment's
+own, four lines. While a file uploads into a box, `Uploading <name>…` (11 px `muted`, cut) shows under it.
+
+**Rich text** (a description at 14 px, a comment at 13 px) is drawn by the panel. A block (paragraph, list, heading,
+quote, `pre`, image, file) starts 8 px under the one before; a line break starts a line; a line wraps between its
+words. Bold and headings are bold, italic italic, `code` and `pre` in the theme's mono font (`pre` keeps its white
+space). A list item
 has its `•` or `N.` in a 20 px column in `dim`, a nested list 20 px further in; a quote has a 2 px `border` line at its
 left, 8 px of padding, and `muted` text. A link is `accent` and underlined; a mention is `@Full Name` in bold `ansi4`;
 a card link is `#N Title` in bold `ansi3`.
@@ -261,8 +286,11 @@ dot after the label while `fizzy.unread` is above zero.
   the field emptied: pasted (more than one character arriving at once), at once; typed, on Enter, so `#4` on the way
   to `#42` opens nothing. Back, Escape, and the `back` and `view` keys close the search; the x empties the field and
   closes it.
-- **Card.** Click the title to rename (Enter saves, Escape or the x cancels); the lane chip opens the lanes popup;
-  People and Tags open their pickers (people: you first, with `you` as the hint; tags: a "New tag…" field at the top).
+- **Card.** Click the title to rename (Enter saves, Escape or the x cancels); a lane moves the card there at once
+  (Done closes it, Not Now postpones it), as Mark as Done does; the board on the tab moves it to another board. The
+  lanes are the card's own board's: when that board's columns are not known yet, they are read once with the card,
+  and a failure leaves only its own lane. The people in the foot and Tags open their pickers (people: you first,
+  with `you` as the hint; tags: a "New tag…" field at the top).
   The description and comments are edited as text with tokens (see Mentions and Images): blank lines split
   paragraphs, a single line break stays, and lines starting `- `, `* ` or `• ` (the mark, then a space) become a
   bulleted list, so a numbered list comes back as a bulleted one; a note says "Saving keeps only the text: formatting
@@ -384,7 +412,7 @@ dot after the label while `fizzy.unread` is above zero.
   `content.mod` pointed at the patched tab bar (`fizzy-tabs`). `layout/add-fizzy.jq` makes both changes.
 - **Mods.** `fizzy` (`mod.json`: `{ "place": "none", "title": "Fizzy" }`): one class that is the panel, and also every
   popup, opened as `openOverlay({ mod: "fizzy", kind: "popup", props: { menu } })` with `menu.kind` one of `boards`,
-  `newCard`, `card`, `agents`, `start`, `users`, `tags`, `moveBoard`, `lanes`, `react` (a comment's emoji), `mention`
+  `newCard`, `card`, `agents`, `start`, `users`, `tags`, `moveBoard`, `react` (a comment's emoji), `mention`
   (the `@` picker) and `cardref` (the `#` picker). `lib.js` holds the pure parts (no imports).
   `fizzy-tabs` is Herdr's `tabs` cloned, plus `tabs/fizzy-button.patch`: a Fizzy button when `panel-body` has a `fizzy`
   child, its dot from `fizzy.unread`, and a `nextCommand()` loop taking `panel:<page>`.
