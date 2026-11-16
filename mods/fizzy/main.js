@@ -72,9 +72,10 @@ const ON_LANE = "#15171c";
 const WATCH_KEPT = 200;
 // Fizzy's side-by-side columns from SIDE_BY_SIDE px of panel width (narrower, the lanes stack), two of them open at once from
 // TWO_OPEN px (each then gets about 300 px). A folded column is FOLDED px wide; its pill is FOLDED px tall and PILL_STEP px
-// taller for each one the lane holds, at most PILL_MAX, its color fading from PILL_TOP to PILL_FOOT (alpha) down its length
-// (Not Now's and Done's PILL_GRAY).
-const SIDE_BY_SIDE = 480, TWO_OPEN = 760, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_TOP = "b3", PILL_FOOT = "1a", PILL_GRAY = "#8a8f98";
+// taller for each one the lane holds, at most PILL_MAX, its color (Not Now's and Done's PILL_GRAY) fading from `top` to
+// `foot` down its length, over a line at `line` (alphas): PILL, or PILL_LIT, brighter, under the pointer.
+const SIDE_BY_SIDE = 480, TWO_OPEN = 760, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_GRAY = "#8a8f98";
+const PILL = { top: "b3", foot: "1a", line: "4d" }, PILL_LIT = { top: "e6", foot: "33", line: "80" };
 // The pill's outline, FOLDED px wide and `height` tall, round at both ends (a circle at its smallest).
 const pillShape = height => {
   const r = FOLDED / 2;
@@ -375,6 +376,7 @@ export default class Fizzy extends View {
     // Side by side, the open columns of each board (board id -> lane keys, the last opened last); Maybe? when none is kept.
     const opened = read("openColumns", {});
     this.openCols = opened && typeof opened === "object" && !Array.isArray(opened) ? opened : {};
+    this.hoverCol = null; // the folded column under the pointer (see hoverColumn)
     // A card's step progress and comment count: card number -> { at: the last_active_at they were read for, done, total, comments }
     // (null where the read failed). Kept between runs; read again only for a card that changed (see wantCounts).
     this.counts = new Map(countEntries(read("counts", [])));
@@ -2738,17 +2740,27 @@ export default class Fizzy extends View {
     const base = section.kind === "not-now" || section.kind === "done" ? PILL_GRAY : sectionColor(section);
     const text = section.name.toUpperCase(), label = this.label(text), [w, h] = labelBox(text);
     const height = count == null ? PILL_MAX : Math.min(FOLDED + count * PILL_STEP, PILL_MAX);
-    const lineTop = Math.round(10 + textPx(13) * 1.4 + 8 + textPx(h) + 6);
+    const lineTop = Math.round(10 + textPx(13) * 1.4 + 8 + textPx(h) + 6), look = this.hoverCol === section.key ? PILL_LIT : PILL;
     return v_flex().id(`fizzy-col-${section.key}`).relative().w(FOLDED).flex_none().items_center().gap(8).pt(10).overflow_hidden()
       .cursor_pointer().tooltip(section.name)
+      .on_hover((hovered, cx) => this.hoverColumn(section.key, hovered, cx))
       .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
       .on_click((_e, cx) => this.toggleColumn(section, cx))
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
-      .child(div().id(`fizzy-col-line-${section.key}`).absolute().top(lineTop).bottom(0).left(FOLDED / 2).w(1).bg(tint(base, "4d")))
-      .child(window.paint_path(pillShape(height), Background.linear_gradient(180, tint(base, PILL_TOP), tint(base, PILL_FOOT)))
+      .child(div().id(`fizzy-col-line-${section.key}`).absolute().top(lineTop).bottom(0).left(FOLDED / 2).w(1).bg(tint(base, look.line)))
+      .child(window.paint_path(pillShape(height), Background.linear_gradient(180, tint(base, look.top), tint(base, look.foot)))
         .absolute().top(0).left(0).w(FOLDED).h(height))
       .child(div().id(`fizzy-col-count-${section.key}`).text_size(textPx(13)).font_semibold().child(count == null ? "" : String(count)))
       .when(Boolean(label), el => el.child(svg(label).w(textPx(w)).h(textPx(h)).flex_none().text_color(t.foreground)));
+  }
+
+  // The folded column under the pointer, drawn brighter. Leaving a column that is not the lit one changes nothing, so
+  // entering the next before leaving the last never ends with none lit.
+  hoverColumn(key, hovered, cx) {
+    const next = hovered ? key : this.hoverCol === key ? null : this.hoverCol;
+    if (next === this.hoverCol) return;
+    this.hoverCol = next;
+    cx.notify();
   }
 
   // The head of Maybe?, as Fizzy's: Add a card, then who watches the board for new cards, and a button to watch it or stop.

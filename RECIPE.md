@@ -210,9 +210,10 @@ dot after the label while `fizzy.unread` is above zero.
   as tall as the board, clipped: its count (13 px semibold, 10 from the top) and its name in capitals read top to bottom,
   over a pill (`window.paint_path`: round at both ends, radius 18) filled with a 180° gradient from the lane's color at
   `b3` (`#8a8f98` for Not Now and Done) to the same at `1a`, 36 px tall and 28 more per card, at most 480 (480
-  while Not Now or Done is not read), over a 1 px line in the color at `4d` from below the name to the foot. The name is
-  an SVG file (`data/fizzy/labels/<shortHash>.svg`, its text turned 90°), written by the request
-  timer once per run; until it is there the pill shows its count alone. A pill's click opens its lane; an open lane's
+  while Not Now or Done is not read), over a 1 px line in the color at `4d` from below the name to the foot. Under the
+  pointer (`on_hover`) the pill goes from `e6` to `33` and the line to `80`. The name is an SVG file
+  (`data/fizzy/labels/<shortHash>.svg`, its text turned 90°), written by the request timer once per run; until it is
+  there the pill shows its count alone. A pill's click opens its lane; an open lane's
   head folds it unless it is the only one open. Not Now and Done are read when they open.
 - **Board, stacked** (narrower): lanes in the order of `fizzy column list`; Maybe? first and Not Now and Done last when
   missing. Not Now and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show

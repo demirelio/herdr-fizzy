@@ -2061,6 +2061,23 @@ test("a folded column is Fizzy's pill: its color fading downwards to a tenth of 
   assert.deepEqual(pillOf("c2").path.steps.slice(1, 4), [["arc_to", 18, 18, 0, false, true, 36, 18], ["line_to", 36, 18], ["arc_to", 18, 18, 0, false, true, 0, 18]], "at its smallest, a circle");
 });
 
+test("the folded column under the pointer is drawn brighter, its pill and its line; moving from one to the next never leaves none lit", async () => {
+  const m = await mount();
+  let tree = await atWidth(m, 600);
+  const lookOf = key => { const col = must(tree, `fizzy-col-${key}`), pill = all(col, n => n.kind === "path")[0]; return [pill.background.from.slice(-2), pill.background.to.slice(-2), must(tree, `fizzy-col-line-${key}`).style.bg.slice(-2)]; };
+  assert.deepEqual(lookOf("c1"), ["b3", "1a", "4d"]);
+  fire(must(tree, "fizzy-col-c1"), "on_hover", true, m.cx);
+  tree = await m.draw();
+  assert.deepEqual([lookOf("c1"), lookOf("c2")], [["e6", "33", "80"], ["b3", "1a", "4d"]], "lit: brighter");
+  fire(must(tree, "fizzy-col-c2"), "on_hover", true, m.cx);
+  fire(must(tree, "fizzy-col-c1"), "on_hover", false, m.cx);
+  tree = await m.draw();
+  assert.deepEqual([lookOf("c1"), lookOf("c2")], [["b3", "1a", "4d"], ["e6", "33", "80"]], "into the next before out of the last");
+  fire(must(tree, "fizzy-col-c2"), "on_hover", false, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lookOf("c2"), ["b3", "1a", "4d"], "out of all: none lit");
+});
+
 test("a folded column's name is drawn sideways from an SVG file the request timer writes once; until then the pill shows its count alone", async () => {
   const m = await mount();
   let tree = await atWidth(m, 600);
