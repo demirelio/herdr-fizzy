@@ -208,8 +208,8 @@ dot after the label while `fizzy.unread` is above zero.
   folding first) share the width: a 30 px head (a 10 px dot in the lane's color but on Done, the name in capitals,
   13 px semibold, + on Maybe? and the columns) over their cards, which scroll on their own. A folded lane is 36 px wide,
   as tall as the board, clipped: its count (13 px semibold, 10 from the top) and its name in capitals read top to bottom,
-  over a pill (`window.paint_path`: a round top of radius 18, then straight down) filled with a 180° gradient from the
-  lane's color at `b3` (`#8a8f98` for Not Now and Done) to nothing, 36 px tall and 28 more per card, at most 480 (480
+  over a pill (`window.paint_path`: round at both ends, radius 18) filled with a 180° gradient from the lane's color at
+  `b3` (`#8a8f98` for Not Now and Done) to the same at `1a`, 36 px tall and 28 more per card, at most 480 (480
   while Not Now or Done is not read), over a 1 px line in the color at `4d` from below the name to the foot. The name is
   an SVG file (`data/fizzy/labels/<shortHash>.svg`, its text turned 90°), written by the request
   timer once per run; until it is there the pill shows its count alone. A pill's click opens its lane; an open lane's

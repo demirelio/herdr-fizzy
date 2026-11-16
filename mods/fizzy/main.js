@@ -72,11 +72,15 @@ const ON_LANE = "#15171c";
 const WATCH_KEPT = 200;
 // Fizzy's side-by-side columns from SIDE_BY_SIDE px of panel width (narrower, the lanes stack), two of them open at once from
 // TWO_OPEN px (each then gets about 300 px). A folded column is FOLDED px wide; its pill is FOLDED px tall and PILL_STEP px
-// taller for each one the lane holds, at most PILL_MAX, its color at PILL_ALPHA at the top (Not Now's and Done's PILL_GRAY).
-const SIDE_BY_SIDE = 480, TWO_OPEN = 760, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_ALPHA = "b3", PILL_GRAY = "#8a8f98";
-// The pill's outline, FOLDED px wide: a round top, then straight down to its foot, where it has faded out.
-const PILL_SHAPE = PathBuilder.fill().move_to(0, FOLDED / 2).arc_to(FOLDED / 2, FOLDED / 2, 0, false, true, FOLDED, FOLDED / 2)
-  .line_to(FOLDED, "100%").line_to(0, "100%").close().build();
+// taller for each one the lane holds, at most PILL_MAX, its color fading from PILL_TOP to PILL_FOOT (alpha) down its length
+// (Not Now's and Done's PILL_GRAY).
+const SIDE_BY_SIDE = 480, TWO_OPEN = 760, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_TOP = "b3", PILL_FOOT = "1a", PILL_GRAY = "#8a8f98";
+// The pill's outline, FOLDED px wide and `height` tall, round at both ends (a circle at its smallest).
+const pillShape = height => {
+  const r = FOLDED / 2;
+  return PathBuilder.fill().move_to(0, r).arc_to(r, r, 0, false, true, FOLDED, r)
+    .line_to(FOLDED, height - r).arc_to(r, r, 0, false, true, 0, height - r).close().build();
+};
 // Step progress and comment counts are read COUNT_PARALLEL cards at a time (two commands each), and kept for COUNTS_KEPT cards.
 const COUNT_PARALLEL = 3, COUNTS_KEPT = 400;
 
@@ -2727,7 +2731,7 @@ export default class Fizzy extends View {
       .child(v_flex().id(`fizzy-col-cards-${section.key}`).flex_1().min_h(0).overflow_y_scrollbar().gap(8).pr(4).children(body));
   }
 
-  // A folded lane as Fizzy draws it: a pill in its color (Not Now's and Done's gray) fading out downwards, taller the more
+  // A folded lane as Fizzy draws it: a pill in its color (Not Now's and Done's gray) fading downwards, taller the more
   // cards it holds (a circle when it holds none; as tall as it gets while Not Now or Done is not read), with its count at
   // the top and its name read top to bottom; under it all, a faint line from below the name to the board's foot.
   foldedColumn(t, section, count) {
@@ -2741,7 +2745,7 @@ export default class Fizzy extends View {
       .on_click((_e, cx) => this.toggleColumn(section, cx))
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
       .child(div().id(`fizzy-col-line-${section.key}`).absolute().top(lineTop).bottom(0).left(FOLDED / 2).w(1).bg(tint(base, "4d")))
-      .child(window.paint_path(PILL_SHAPE, Background.linear_gradient(180, tint(base, PILL_ALPHA), tint(base, "00")))
+      .child(window.paint_path(pillShape(height), Background.linear_gradient(180, tint(base, PILL_TOP), tint(base, PILL_FOOT)))
         .absolute().top(0).left(0).w(FOLDED).h(height))
       .child(div().id(`fizzy-col-count-${section.key}`).text_size(textPx(13)).font_semibold().child(count == null ? "" : String(count)))
       .when(Boolean(label), el => el.child(svg(label).w(textPx(w)).h(textPx(h)).flex_none().text_color(t.foreground)));

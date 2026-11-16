@@ -2038,7 +2038,7 @@ test("from 480 px the board is Fizzy's: columns side by side in the board's orde
   assert.deepEqual(ids(must(tree, "fizzy-col-cards-maybe")).filter(id => /^fizzy-(watch|card-\d+)$/.test(id)), ["fizzy-watch", "fizzy-card-103"], "Add a card and the watchers first, then its cards");
 });
 
-test("a folded column is Fizzy's pill: its color fading out downwards, as tall as its cards make it (a circle with none), over a faint line to the board's foot; Not Now and Done are gray, and as tall as it gets until read", async () => {
+test("a folded column is Fizzy's pill: its color fading downwards to a tenth of it (never to nothing), round at both ends, as tall as its cards make it (a circle with none), over a faint line to the board's foot; Not Now and Done are gray, and as tall as it gets until read", async () => {
   acct.cards = acct.cards.filter(c => c.number !== 102);
   for (const n of [111, 112, 113]) acct.cards.push({ ...acct.card(101), id: `id-${n}`, number: n });
   const m = await mount();
@@ -2047,14 +2047,18 @@ test("a folded column is Fizzy's pill: its color fading out downwards, as tall a
   const look = key => { const p = pillOf(key); return [p.style.h, p.background.angle, p.background.from, p.background.to]; };
   const [c1, c2] = ["c1", "c2"].map(id => colorOf(acct.columns.b1.find(c => c.id === id)));
   assert.deepEqual(["c1", "c2"].map(k => textOf(must(tree, `fizzy-col-count-${k}`))), ["4", "0"]);
-  assert.deepEqual(look("c1"), [36 + 4 * 28, 180, `${c1}b3`, `${c1}00`], "four cards: taller, in its color, fading downwards");
-  assert.deepEqual(look("c2"), [36, 180, `${c2}b3`, `${c2}00`], "none: a circle");
-  assert.deepEqual(look("done"), [480, 180, "#8a8f98b3", "#8a8f9800"], "Done, not read: gray, as tall as it gets");
+  assert.deepEqual(look("c1"), [36 + 4 * 28, 180, `${c1}b3`, `${c1}1a`], "four cards: taller, in its color, fading downwards to 10 %");
+  assert.deepEqual(look("c2"), [36, 180, `${c2}b3`, `${c2}1a`], "none: a circle");
+  assert.deepEqual(look("done"), [480, 180, "#8a8f98b3", "#8a8f981a"], "Done, not read: gray, as tall as it gets");
   const col = must(tree, "fizzy-col-c1"), line = must(tree, "fizzy-col-line-c1");
   assert.deepEqual([col.kids[0], col.kids[1]], [line, pillOf("c1")], "the line, then the pill over it, then the count and the name");
   assert.deepEqual([line.style.absolute, line.style.bottom, line.style.w, line.style.bg], [true, 0, 1, `${c1}4d`]);
   assert.ok(line.style.top > 36, "the line starts below the name");
-  assert.deepEqual(pillOf("c1").path.steps[1], ["arc_to", 18, 18, 0, false, true, 36, 18], "a round top");
+  const h = 36 + 4 * 28;
+  assert.deepEqual(pillOf("c1").path.steps, [
+    ["move_to", 0, 18], ["arc_to", 18, 18, 0, false, true, 36, 18], ["line_to", 36, h - 18], ["arc_to", 18, 18, 0, false, true, 0, h - 18], ["close"],
+  ], "a round top and a round foot, at its own height");
+  assert.deepEqual(pillOf("c2").path.steps.slice(1, 4), [["arc_to", 18, 18, 0, false, true, 36, 18], ["line_to", 36, 18], ["arc_to", 18, 18, 0, false, true, 0, 18]], "at its smallest, a circle");
 });
 
 test("a folded column's name is drawn sideways from an SVG file the request timer writes once; until then the pill shows its count alone", async () => {
