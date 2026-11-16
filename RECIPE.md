@@ -1,12 +1,14 @@
 # Fizzy
 
 A **Fizzy** page in the right panel, next to Files and Changes, opened from a Fizzy button in the tab bar. It shows a
-Fizzy board as tinted lane blocks of card tiles, your cards on every board, your unread notifications and your pinned
-cards, and searches every board; a card is made at once and opens in the panel to be renamed, moved, assigned, tagged,
-ticked off and commented on, with @-mentions, card links, reactions, images and files. A bar at a card's foot hands it
-to a coding agent running in Herdr by pasting a one-line reference into the agent's input, never submitted. Unread
-notifications pop up as toasts even while the panel is hidden, and a dot on the button shows while there are any.
-Everything goes through the `fizzy` CLI.
+Fizzy board as tinted lane blocks of card tiles (on a wider panel, its lanes side by side as in Fizzy), your cards on
+every board, your unread notifications and your pinned cards, and searches every board; a card is made at once and
+opens in the panel to be renamed, moved, assigned, tagged, ticked off and commented on, with @-mentions, card links,
+reactions, images and files. A bar at a card's foot hands it to a coding agent running in Herdr by pasting a one-line
+reference into the agent's input, never submitted. Unread notifications pop up as toasts even while the panel is
+hidden, and a dot on the button shows while there are any. Everything goes through the `fizzy` CLI.
+
+![Fizzy](preview.png)
 
 ## What you see
 
