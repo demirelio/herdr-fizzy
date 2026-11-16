@@ -49,7 +49,6 @@ export const CLOSED_FROM = 4500;
 export const ACTIVITY_PAGE = 15;
 
 // opts.closed: how many extra closed cards board b1 has (to page through), numbered from CLOSED_FROM;
-// opts.pageSize: this fake's own page size, small so that a few cards make several pages;
 // opts.morePages: every page of closed cards says another follows, the last one too.
 export function makeAccount(opts = {}) {
   const a = {
@@ -95,8 +94,8 @@ export function makeAccount(opts = {}) {
     watching: { b1: [TEAMMATE.id] }, // board id -> the ids of who watches it for new cards
     access: { b1: { all: false, ids: [ME.id, TEAMMATE.id] } }, // board id -> every member can see it (all), else who can (ids)
     webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
-    pageSize: opts.pageSize ?? 15,
-    searchCap: opts.searchCap ?? SEARCH_CAP,
+    pageSize: 15,            // small, so that a few cards make several pages
+    searchCap: SEARCH_CAP,
     morePages: opts.morePages ?? false,
     createReturnsNumber: true,
     fail: null,        // (argv) => a failure result, or undefined: made-up trouble
@@ -209,9 +208,7 @@ export function makeAccount(opts = {}) {
       const c = find(n);
       switch (a2) {
         case "create": {
-          const made = card(300 + ++sequence, flag(args, "--title"), a.boards.find(b => b.id === flag(args, "--board")), {
-            description: (flag(args, "--description") ?? "").replace(/<[^>]*>/g, ""), description_html: flag(args, "--description") ?? "",
-          });
+          const made = card(300 + ++sequence, flag(args, "--title"), a.boards.find(b => b.id === flag(args, "--board")));
           a.cards.push(made);
           return ok(a.createReturnsNumber ? { number: made.number, title: made.title } : null);
         }

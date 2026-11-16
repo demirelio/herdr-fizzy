@@ -12,7 +12,7 @@ The repo holds:
 
 | Path | What it is |
 |---|---|
-| `mods/fizzy/` | The mod: the panel and its popups. Plain JavaScript (`main.js`, `lib.js`), no build step, and its icons. `text.js`'s `TEXT_SCALE` sizes all its text (Herdr's settings size only the terminals') |
+| `mods/fizzy/` | The mod: the panel and its popups. Plain JavaScript (`main.js`, `lib.js`), no build step, and its icons. `text.js`'s `TEXT_SCALE` sizes its text, all but the avatar initials (Herdr's settings size only the terminals') |
 | `tabs/` | `fizzy-button.patch`, the Fizzy button for a copy of Herdr's tab bar, and `keys.json`, the key it suggests on macOS and on Linux ([tabs/README.md](tabs/README.md)) |
 | `layout/` | `add-fizzy.jq`, which adds the Fizzy page to a layout ([layout/README.md](layout/README.md)) |
 | `install.sh` | Puts it all in place on Herdr's own setup, and takes it out again |
@@ -227,9 +227,9 @@ nothing remembered (a new install, cleared storage) only learns what is already 
 toast and its card opens in the panel, which brings the Fizzy page up first when it is hidden or another page is in
 front, and the notification is marked read.
 
-**Photos.** People show with their Fizzy profile photo, round, wherever they appear: a card's assignees, People, the
-comments, the Assign list, the `@` picker and the Inbox. Without a photo, or until it is fetched, you see their
-initials on a color of their own. How the photos are fetched and kept is under
+**Photos.** People show with their Fizzy profile photo, round, wherever they appear: a card's creator and assignees,
+a board's watchers, the comments, the Assign list, the `@` picker and the Inbox. Without a photo, or until it is
+fetched, you see their initials on a color of their own. How the photos are fetched and kept is under
 [What it runs, reads and stores](#what-it-runs-reads-and-stores).
 
 **Not in the panel:** reactions on the card itself, and making or changing boards and columns (beyond a column's
@@ -516,7 +516,7 @@ and open cards, each description cut to 300 characters) so it shows at once next
 folded and which columns are open side by side, the step progress and comment count of the last 400 cards it counted
 (with when each card last changed), the photos' and the images' file names, the ids of the last 300 notifications
 already announced, what you set for watching on the last 200 cards, the mention id it learned for each person, when it
-last looked through Fizzy's activity for them, and whether it may do so by itself.
+last looked through Fizzy's activity for them, whether it may do so by itself, and whether cards are compact.
 
 The mention ids stay on this computer, in that local storage only: the shared `fizzy.people` says only who can be
 tagged, and an id goes nowhere but back to Fizzy, inside a comment or description you save.

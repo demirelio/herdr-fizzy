@@ -87,8 +87,8 @@ theme names.
   - States as one dim 12 px line: `Loading…`, `Press Enter to search every board, comments included.` (the search,
     before Enter), `Searching…`, `No cards`, `No cards match`, `No cards found` (the search), `No boards`,
     `No pinned cards`, `You're all caught up`; an error adds a 28 px **Retry** row.
-- **The bars**, at the foot: one line each. The list bar is in the board row's look: no background or line of its
-  own, padding 12 across and 6 down, gap 8. The others have `chrome` behind them, a 1 px line above, padding 6.
+- **The bars**, at the foot, in the board row's look: no background or line of their own. The list bar is one line,
+  padding 12 across and 6 down, gap 8.
 
   | Where | Bar |
   |---|---|
@@ -162,7 +162,7 @@ has its `•` or `N.` in a 20 px column in `dim`, a nested list 20 px further in
 left, 8 px of padding, and `muted` text. A link is `accent` and underlined; a mention is `@Full Name` in bold `ansi4`;
 a card link is `#N Title` in bold `ansi3`.
 
-- An image is as wide as it is, at most the text's width (the panel's width less 40 px in the description, 66 in a
+- An image is as wide as it is, at most the text's width (the panel's width less 70 px in the description, 86 in a
   comment, never under 120), at its own aspect ratio (0.6 when not known; at least 24 px high), rounded 6, with a 1 px
   `border`. Until it is on disk, that box is `raised`, with its file name and `Loading image…` (12 px `dim`) in the
   middle. A caption goes under it in 12 px `muted`.
@@ -432,8 +432,9 @@ dot after the label while `fizzy.unread` is above zero.
   `content.mod` pointed at the patched tab bar (`fizzy-tabs`). `layout/add-fizzy.jq` makes both changes.
 - **Mods.** `fizzy` (`mod.json`: `{ "place": "none", "title": "Fizzy" }`): one class that is the panel, and also every
   popup, opened as `openOverlay({ mod: "fizzy", kind: "popup", props: { menu } })` with `menu.kind` one of `boards`,
-  `newCard`, `card`, `agents`, `start`, `users`, `tags`, `moveBoard`, `react` (a comment's emoji), `mention`
-  (the `@` picker) and `cardref` (the `#` picker). `lib.js` holds the pure parts (no imports).
+  `newCard`, `card`, `agents`, `start`, `users`, `access` (who can see the board), `tags`, `moveBoard`, `react` (a
+  comment's emoji), `mention` (the `@` picker) and `cardref` (the `#` picker). `lib.js` holds the pure parts (no
+  imports).
   `fizzy-tabs` is Herdr's `tabs` cloned, plus `tabs/fizzy-button.patch`: a Fizzy button when `panel-body` has a `fizzy`
   child, its dot from `fizzy.unread`, and a `nextCommand()` loop taking `panel:<page>`.
 - **Shipped mods it relies on.** `tabs` (cloned), `toast` (draws `notify`), `new-menu` (its `new-menu.agents` cache is
@@ -456,7 +457,8 @@ dot after the label while `fizzy.unread` is above zero.
   `{ kind: "cardref", target, number, title }`, `target` naming the editor (`comment`, `commentEdit`, `desc`); a
   picker's choice goes into that editor only while it is still open.
 - **Local storage** (the panel's, never shared), as JSON: `view`, `follow`, `board`, `boards` (each with `period`, its
-  `auto_postpone_period_in_days`), `config`, `me`, `data:<board>`, `collapsed:<board>`, `folds`, `avatars`,
+  `auto_postpone_period_in_days`), `config`, `me`, `data:<board>`, `collapsed:<board>`, `folds`, `openColumns`
+  (the columns open side by side, per board), `counts` (step progress and comment count per card), `avatars`,
   `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, `compactCards`, and
   `files` (image key -> its file in `data/fizzy/files`).
 - **Programs.** `fizzy` 4 or newer, always run from the home folder, every command ending with `--json`. It reads with
@@ -465,7 +467,9 @@ dot after the label while `fizzy.unread` is above zero.
   (words after `--`, so a leading `-` stays a word; `--json` goes before the `--`), `card show`,
   `comment list --card <n> --all`, `reaction list --card <n> --comment <id>`, `user list --all`, `tag list --all`,
   `pin list`, `notification tray`, `activity list --page <n>`, `card attachments show <n> --include-comments`,
-  `identity show` and `config show`; the stalled cards with `card list --board <id> --indexed-by stalled --all`.
+  `identity show` and `config show`; the stalled cards with `card list --board <id> --indexed-by stalled --all`; who
+  can see and watch a board with `board accesses --board <id>`; a card's comment count with `comment list --card <n>
+  --all --jq` (the count alone).
   `card list`, `search`, `pin list`, `notification tray`, `reaction list`, `activity list`, `card attachments show`
   and `config show` carry a `--jq` projection: only the envelope's `ok` and the fields the panel uses come back (the
   stalled list, the numbers alone; `activity list`, only the comment bodies and descriptions that hold a mention, and
@@ -474,20 +478,22 @@ dot after the label while `fizzy.unread` is above zero.
   `postpone`, `untriage`, `close`, `reopen`, `golden`, `ungolden`, `pin`, `unpin`, `watch`, `unwatch`, `self-assign`,
   `assign`, `tag`, `move` and `delete`; `step create`, `update` and `delete`; `comment create`, `update` and `delete`;
   `reaction create --card <n> --comment <id> --content <emoji>` and `reaction delete <id> --card <n> --comment <id>`;
-  `upload file <path>`; `notification read` and `read-all`. Then `sh -c` with a script that walks up for
-  `.fizzy.yaml` and prints its `board:` line only (`[` and `grep` only), run with `exec(…, { on: space.machine })`;
-  and on this computer `sh -c` with a script that fetches a photo with `curl` into
-  `<appHome>/data/fizzy/avatars/<user id>-<YYYYMMDD>.<ext>`, one that fetches a web image with `curl` (http and https
+  `upload file <path>`; `notification read` and `read-all`; `board involvement <id> --involvement
+  watching|access_only` and `board update <id> --all_access true|false`; `column move-left` and `move-right`. Then
+  `sh -c` with a script that walks up for `.fizzy.yaml` and prints its `board:` line only (`[` and `grep` only), run
+  with `exec(…, { on: space.machine })`; and on this computer `sh -c` with a script that fetches a photo with `curl`
+  into `<appHome>/data/fizzy/avatars/<user id>-<YYYYMMDD>.<ext>`, one that fetches a web image with `curl` (http and https
   only, following redirects, at most 15 MiB and 25 s, its type by the answer's content type) into
   `<appHome>/data/fizzy/files/<key>.<ext>`, one that writes the clipboard's image as a PNG (`osascript` reading
   `«class PNGf»` on macOS, else `wl-paste --type image/png` or `xclip -selection clipboard -t image/png -o`), one that
   opens a file or reveals it (`open` or `open -R` on macOS, `xdg-open` on the file or its folder on Linux), and one
   that prints a free path in `~/Downloads` (`<name>`, `<name> (2)`, …); and `mkdir -p`, `mv -f` and `rm -f` on the
   images folder.
-- **Art.** Lucide icons in `mods/fizzy/` (24×24, `stroke="currentColor"`): arrow-left, bot, check, chevron-down,
-  chevron-right, copy, external-link, eye, eye-off, insert (Lucide's corner-down-left), kanban (square-kanban), link,
-  more (ellipsis), paperclip, pencil, pin, pin-off, plus, refresh (refresh-cw), rotate-ccw, search, send, settings,
-  smile-plus, star, star-off, tag, trash, user, user-plus, x.
+- **Art.** Lucide icons in `mods/fizzy/` (24×24, `stroke="currentColor"`): arrow-left, arrow-right, bell, bell-off,
+  bot, check, chevron-down, chevron-right, circle-check, copy, external-link, eye, eye-off, insert (Lucide's
+  corner-down-left), kanban (square-kanban), link, message-square-text, more (ellipsis), paperclip, pencil, pin,
+  pin-off, plus, refresh (refresh-cw), rotate-ccw, rows-3, search, send, settings, smile-plus, star, star-off, tag,
+  trash, user, user-plus, users, x.
 
 ## Watch out
 
@@ -561,7 +567,7 @@ dot after the label while `fizzy.unread` is above zero.
 - New card opens the board picker; choosing a board shows the Board view on it and opens a card made in Maybe? there,
   its empty title field focused; typing a title and Enter saves it (`fizzy card show` agrees), and Discard deletes the
   card.
-- A golden card heads its lane with an `ansi3` border, a pinned one shows a pin, and a card past three quarters of the
+- A golden card heads its lane with a faint gold glow, a pinned one shows a pin, and a card past three quarters of the
   board's auto-postpone period shows `Closes in Nd`.
 - On Board, a filter's words open every lane with a match; My cards keeps the signed-in user's cards, Golden cards the
   golden ones and Pinned cards the pinned ones.

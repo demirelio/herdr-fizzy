@@ -9105,6 +9105,17 @@ test("an image from the web in a comment is fetched by its address into the pane
   assert.deepEqual([box.kids[0].kind, box.kids[0].path, box.style.tooltip], ["image", `${FILE_DIR}/${key}.png`, "Cat"]);
 });
 
+test("a web image that won't download is a file chip that opens its address in the browser", async () => {
+  acct.webImageFails = () => true;
+  acct.comments[101][1].body.html = '<div><p><img src="https://example.com/cat.png" alt="Cat"></p></div>';
+  const { cx, draw } = await openDetail();
+  const tree = await draw();
+  const chip = must(tree, "fizzy-comment-html-cm2-0");
+  assert.deepEqual([all(chip, n => n.kind === "svg")[0]?.path, chip.style.tooltip], ["mods/fizzy/paperclip.svg", "Open in the browser"]);
+  click(tree, "fizzy-comment-html-cm2-0", cx);
+  assert.deepEqual(cx.opened, ["https://example.com/cat.png"]);
+});
+
 test("a file that is not an image is a chip with a paperclip, its name and size; a click saves it in Downloads under a name that is free there, and shows it in its folder", async () => {
   acct.card(101).description_html = '<div><action-text-attachment sgid="sgid-doc" content-type="application/pdf" filename="spec.pdf" filesize="3145728"></action-text-attachment>'
     + '<action-text-attachment sgid="sgid-gone" content-type="application/zip" filename="old.zip"></action-text-attachment></div>';

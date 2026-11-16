@@ -59,8 +59,6 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.me(), ["identity", "show"]);
   assert.deepEqual(cmd.config(), ["config", "show", "--jq", JQ.config], "the CLI's own account and board, nothing else of its settings");
   assert.deepEqual(cmd.create("b1", "Fix it"), ["card", "create", "--board", "b1", "--title", "Fix it"]);
-  assert.deepEqual(cmd.create("b1", "Fix it", ""), ["card", "create", "--board", "b1", "--title", "Fix it"]);
-  assert.deepEqual(cmd.create("b1", "Fix it", "<p>why</p>"), ["card", "create", "--board", "b1", "--title", "Fix it", "--description", "<p>why</p>"]);
   assert.deepEqual(cmd.update(7, { title: "New" }), ["card", "update", "7", "--title", "New"]);
   assert.deepEqual(cmd.update(7, { html: "<p>x</p>" }), ["card", "update", "7", "--description", "<p>x</p>"]);
   assert.deepEqual(cmd.update(7, { title: "New", html: "<p>x</p>" }), ["card", "update", "7", "--title", "New", "--description", "<p>x</p>"]);
@@ -114,7 +112,7 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
 test("every argv a builder makes is all strings, and the fake fizzy CLI the panel's tests run on answers each one", async () => {
   const argvs = [
     cmd.boards(), cmd.columns("b1"), cmd.open("b1"), cmd.notNow("b1"), cmd.done("b1", 2), cmd.mine("b1", "u-me"), cmd.mineAll("u-me"), cmd.search("login"), cmd.card(101),
-    cmd.comments(101), cmd.users(), cmd.tags(), cmd.pins(), cmd.inbox(), cmd.me(), cmd.config(), cmd.create("b1", "t", "<p>d</p>"),
+    cmd.comments(101), cmd.users(), cmd.tags(), cmd.pins(), cmd.inbox(), cmd.me(), cmd.config(), cmd.create("b1", "t"),
     cmd.update(101, { title: "t", html: "<p>d</p>" }), cmd.column(101, "c1"), cmd.postpone(101), cmd.untriage(101), cmd.close(101), cmd.reopen(101),
     cmd.golden(101, true), cmd.golden(101, false), cmd.pin(101, true), cmd.pin(101, false), cmd.watch(101, true), cmd.watch(101, false),
     cmd.selfAssign(101), cmd.assign(101, "u-bob"), cmd.tag(101, "bug"), cmd.moveBoard(101, "b2"), cmd.remove(101), cmd.addStep(101, "s"),

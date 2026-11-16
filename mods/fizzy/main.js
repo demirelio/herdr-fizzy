@@ -1,68 +1,51 @@
-// Your Fizzy board in the side panel: look at it, work it, and hand cards to your coding agents without leaving
-// Herdr. It talks to the local `fizzy` CLI. Right-clicks, the "…" buttons and the pickers open this same mod as a
-// popup (props().menu), so the exported class is both the panel and its menus. A popup never writes to Fizzy
-// itself: it leaves a request in shared state and the panel, which stays alive, does it.
+// The exported class is both the panel and its popups (props().menu). A popup never writes to Fizzy itself: it closes at once,
+// so it leaves a request in shared state for the panel.
 import { View, div, svg, image, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import { textPx } from "./text.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
-  columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, LABEL_FONT, labelFile, labelBox, labelSvg,
+  columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, labelFile, labelBox, labelSvg,
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
   FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, FILE_TIMEOUT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
   WRITE_SCRIPT, cardFile, cardMarkdown,
-  targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, activePeople,
+  targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, ROW, activePeople,
   groupsConfig, groupOf, boardGroups, ownHidden, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, placeBoard, placeBoardAt, listedBoards, moveGroup, setBoardHidden,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
 } from "./lib.js";
 
-// Descriptions and comments are HTML, drawn by richText; with this off the plain text is shown instead.
-const RICH = true;
-// Every hand-off to an agent borrows the clipboard (the terminal pastes from it). Put the old text back a moment later.
-const RESTORE_CLIPBOARD = true;
 // new-menu's cache of the agents each machine reported last, shown at once while knownAgents asks again.
 const KNOWN = "new-menu.agents";
 const VIEWS = [["board", "Board"], ["mine", "Mine"], ["inbox", "Inbox"], ["pins", "Pins"]];
 const HEADER_VIEWS = VIEWS.filter(([id]) => id !== "board");
 // The theme color each avatar hue index draws with.
 const AVATARS = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6", "ansi9", "ansi12"];
-// A popup is only as tall as its rows, and never taller than this (the rows scroll).
 const MAX_MENU = 560, INPUT_ROW = 40;
-// The popups with a field over their rows: Tags (a new tag's name), and the pickers, whose field narrows their rows and takes
-// Enter itself: Mention (the people by name) and Card reference (the cards by number or title).
+// Pickers' fields filter their rows and take Enter themselves.
 const PICKERS = new Set(["mention", "cardref"]);
 const FIELD_MENUS = new Set(["tags", ...PICKERS]);
 // The most cards a "#" popup is handed, and how long (ms) after the typing stops it looks up a number it was not handed.
 const CARD_REFS = 300, LOOKUP_DELAY = 300;
-// The bottom bars: one line of controls, each as high as BAR_BUTTON. Below NARROW px of panel width (its narrowest is
-// 280) the hand-off buttons drop their icons and keep their labels, and the header drops Refresh and tightens its views
-// and gaps (an Inbox badge leaves no room otherwise), so each still fits in one line. Below WIDE px the header's views
-// are tighter too and it drops its "Fizzy" word, which at 340 would not fit beside a three-digit badge.
-const BAR_BUTTON = 28, NARROW = 340, WIDE = 440;
-// The board row's round buttons, and the list bar's round filters and field, are ROUND px high.
+// Panel widths (px; the narrowest is 280) below which the header and bars shed icons, Refresh and the "Fizzy" word:
+// beside a three-digit Inbox badge they would not fit on one line otherwise.
+const NARROW = 340, WIDE = 440;
 const ROUND = 30;
-// From SEARCH_WIDE px of panel width the header holds the search field itself (the centered views leave it about 130 px
-// there); narrower, a round button opens it in the header's place.
+// At SEARCH_WIDE the centered views leave the inline search field about 130 px.
 const SEARCH_WIDE = 560;
-// The Board view's filters beside its field: each keeps only the cards it names; together, the cards all of them name.
 const BOARD_FILTERS = [{ key: "mine", icon: "user", tip: "My cards" }, { key: "golden", icon: "star", tip: "Golden cards" }, { key: "pinned", icon: "pin", tip: "Pinned cards" }];
 // Transparent, not the background color: a background-colored border would show as a frame inside a highlighted block.
 const CLEAR = "#00000000";
 // The Done lane is read at most this many pages deep in one go (the CLI's pages are short).
 const DONE_PAGES = 40;
-// Find mentions reads at most this many activity pages (15 events each). On its own the panel runs it while someone can't be
-// tagged yet, at most once per MENTION_SCAN_EVERY ms.
+// Activity pages hold 15 events each.
 const MENTION_SCAN_PAGES = 40, MENTION_SCAN_EVERY = 7 * 86400000;
-// Settings opens on this list; each entry opens a page of its own.
 const SETTINGS = [{ id: "mentions", title: "Mentions", icon: "user" }, { id: "groups", title: "Board groups", icon: "kanban" }, { id: "cards", title: "Cards", icon: "rows-3" }];
-// The lanes Fizzy gives no column color: Maybe? in Fizzy's own blue, Not Now gray, Done a muted gray (as Fizzy's); a
-// column whose color is not known is gray too.
+// Fizzy gives Maybe?, Not Now and Done no column color; these match its web UI.
 const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#9aa0aa" }, NO_COLOR = "#8a8f98";
-// A golden card's glow, as Fizzy's: a faint gold from nothing at the bottom left to the top right. Elements take a
-// gradient only through window.paint_path, so it is a layer under the card's content.
+// Elements take a gradient only through window.paint_path, so the golden glow is a layer under the card's content.
 const GOLD = "#e5b422";
 const CARD_SHAPE = PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
 const GOLD_GLOW = Background.linear_gradient(45, `${GOLD}00`, `${GOLD}38`);
@@ -73,30 +56,23 @@ const EDITOR_HINT = "(@ mention, # card, drop or paste images)";
 const DESC_INSET = 70, COMMENT_INSET = 86, COMMENT_AVATAR = 28;
 // A card page's title is its lane's color this much of the way to white, as Fizzy's.
 const TITLE_LIGHT = 0.55;
-// A lane's color at a given opacity (two hex digits): the tints behind its header and its cards, and their borders.
+// `alpha`: two hex digits.
 const tint = (color, alpha) => `${color}${alpha}`;
 // Text on a lane's color (a card's tab): dark, as Fizzy's, which reads on every lane color in a light theme and a dark one.
 const ON_LANE = "#15171c";
 const WATCH_KEPT = 200;
-// Fizzy's side-by-side columns from SIDE_BY_SIDE px of panel width (narrower, the lanes stack), two of them open at once from
-// TWO_OPEN px (each then gets about 300 px). An open column is at most OPEN_MAX px wide: with room to spare the columns stay
-// together in the middle, as Fizzy's. A folded column is FOLDED px wide; its pill is FOLDED px tall and PILL_STEP px
-// taller for each one the lane holds, at most PILL_MAX, its color (Not Now's and Done's PILL_GRAY) fading from `top` to
-// `foot` down its length, over a line at `line` (alphas): PILL, or PILL_LIT, brighter, under the pointer.
+// TWO_OPEN leaves each of two open columns about 300 px. PILL/PILL_LIT: two-hex-digit alphas for the pill's top, foot and line.
 const SIDE_BY_SIDE = 480, TWO_OPEN = 760, OPEN_MAX = 380, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_GRAY = "#8a8f98";
 const PILL = { top: "b3", foot: "1a", line: "4d" }, PILL_LIT = { top: "e6", foot: "33", line: "80" };
-// The pill's outline, FOLDED px wide and `height` tall, round at both ends (a circle at its smallest).
 const pillShape = height => {
   const r = FOLDED / 2;
   return PathBuilder.fill().move_to(0, r).arc_to(r, r, 0, false, true, FOLDED, r)
     .line_to(FOLDED, height - r).arc_to(r, r, 0, false, true, 0, height - r).close().build();
 };
-// Step progress and comment counts are read COUNT_PARALLEL cards at a time (two commands each), and kept for COUNTS_KEPT cards.
 const COUNT_PARALLEL = 3, COUNTS_KEPT = 400;
 
 const why = e => String(e?.message ?? e);
 const stop = (_e, cx) => cx.stop_propagation();
-// ⌘/Ctrl held with a click or a press.
 const cmdHeld = e => Boolean(e?.modifiers?.platform || e?.modifiers?.control);
 const unique = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const read = (key, fallback) => {
@@ -105,17 +81,20 @@ const read = (key, fallback) => {
     return raw == null ? fallback : JSON.parse(raw);
   } catch { return fallback; }
 };
+// Herdr rewrites its whole store on each setItem, so an unchanged value is not written again.
 const keep = (key, value) => {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* a full or missing store only costs the cache */ }
+  try {
+    const text = JSON.stringify(value);
+    if (localStorage.getItem(key) !== text) localStorage.setItem(key, text);
+  } catch { /* a full or missing store only costs the cache */ }
 };
-// The signed-in user as an earlier run read them: { account, id }, or null.
 const keptMe = () => {
   const kept = read("me", null);
   return typeof kept?.id === "string" && kept.id ? { account: kept.account ?? null, id: kept.id } : null;
 };
 const watchEntries = raw => (Array.isArray(raw) ? raw.filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "boolean").map(([n, on]) => [n, on]) : []);
-// Kept counts, [[number, at, done, total, comments]] -> Map entries (see `counts` in init).
 const orNull = v => (Number.isInteger(v) && v >= 0 ? v : null);
+// Kept counts, [[number, at, done, total, comments]] -> Map entries (see `counts` in init).
 const countEntries = raw => (Array.isArray(raw) ? raw : []).filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "string")
   .slice(-COUNTS_KEPT).map(([n, at, done, total, comments]) => [n, { at, done: orNull(done), total: orNull(total), comments: orNull(comments) }]);
 
@@ -141,22 +120,19 @@ function slim(card) {
     last_active_at: card.last_active_at, description: String(card.description ?? "").slice(0, 300),
   };
 }
-// A card whose title and link are known. The stub a card opened by its number shows (openCard) has neither: a
-// card is only handed to an agent once it is whole. A board (what the bar hands over when no card is) always is.
+// A stub (a card opened by its number) has no title or link yet: hand-offs read it whole first. A board always is whole.
 const whole = card => card?.kind === "board" || Boolean(card?.url);
 const slimColumn = c => ({ id: c.id, name: c.name, kind: c.kind, pseudo: c.pseudo, color: c.color });
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-// Shared with the popups, which only see shared state and their props: boards, people (users, tags, me, mentionable: the ids of
-// the users the panel can mention; their mention ids stay in the panel).
+// fizzy.people for the popups: users, tags, me, and `mentionable` (user ids only; the mention ids stay in the panel).
+// Every setShared redraws every mod, so shared state is only ever set when it changed.
 function sharePeople(patch) {
   const was = shared("fizzy.people") ?? {}, next = { ...was, ...patch };
   if (!sameJson(was, next)) setShared("fizzy.people", next);
 }
 const people = () => shared("fizzy.people") ?? {};
 
-// The people, shared as the menus use them, and handed back as the CLI listed them (with their photos' addresses). One read
-// at a time: whoever asks while it is out gets the same answer.
 const usersRead = { pending: null };
 function readUsers() {
   usersRead.pending ??= fizzy(cmd.users()).then(raw => {
@@ -167,9 +143,7 @@ function readUsers() {
   return usersRead.pending;
 }
 
-// Users and tags are read the first time a card or a menu needs them (tags again, `fresh`, after a card is tagged).
-// Answers the user list when this call read it (with their photos' addresses), else null: the panel hands it to `meet`, so
-// that photos missed by the read at start are fetched now. A popup ignores it (only the panel fetches photos).
+// Answers the user list only when this call read it (the panel `meet`s it to fetch photos the start-up read missed), else null.
 async function loadPeople(fresh = false) {
   const have = people(), patch = {};
   let read = null;
@@ -181,7 +155,6 @@ async function loadPeople(fresh = false) {
   return read;
 }
 
-// The place the person is working: the shown space's machine and its first terminal's folder (else where it was made).
 function whereNow() {
   const space = spaces().find(s => s.active);
   if (!space) return null;
@@ -190,7 +163,6 @@ function whereNow() {
   return { machine: space.machine ?? "", folder };
 }
 
-// Nothing to copy (no card): the clipboard is left alone, never emptied.
 function copyText(text, cx) {
   if (!text) return false;
   cx.write_to_clipboard(text);
@@ -204,10 +176,8 @@ function copyText(text, cx) {
 const clip = { saved: undefined, pending: 0, at: 0 };
 const CLIP_WINDOW = 500, CLIP_STALE = 3000;
 
-// Into an agent's input, never submitted (the person presses Enter): Herdr's paste reads the clipboard, so the text goes
-// there for a moment. The agent's pane is focused first; `bring`: its space and tab are brought to the front before that
-// (Send picks a session that may be anywhere). With no agent to paste into the text is only copied, and `none` says so.
-// The hand-offs (copyText, pasteInto, insertText) take the cx of the click, or of the panel.
+// Herdr's paste reads the clipboard, so the text goes there for a moment; it is never submitted. `bring`: the agent's
+// space and tab come to the front first (Send's session may be anywhere).
 function pasteInto(text, cx, agent, { bring = false, none = "Copied — no agent here" } = {}) {
   if (!text) return false;
   if (!agent) {
@@ -228,12 +198,11 @@ function pasteInto(text, cx, agent, { bring = false, none = "Copied — no agent
   clip.pending++;
   cx.timer.after(CLIP_WINDOW, cx2 => {
     clip.pending = Math.max(0, clip.pending - 1);
-    if (!clip.pending && RESTORE_CLIPBOARD && typeof clip.saved === "string") cx2.write_to_clipboard(clip.saved);
+    if (!clip.pending && typeof clip.saved === "string") cx2.write_to_clipboard(clip.saved);
   });
   return true;
 }
 
-// Insert: the current chat, the agent in view (the focused pane's, else the focused agent block's, else the newest in the tab).
 const insertText = (text, cx) => pasteInto(text, cx, targetAgent({ agents: agents(), focused: focused() }));
 
 const MARKDOWN_MOD = "herdr-inline-markdown";
@@ -249,14 +218,12 @@ function showMarkdown(file) {
   else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
 }
 
-// Everything the menu rows depend on, read live (the caller adds what it looks up itself).
 function live(extra) {
   const p = people();
   return { agents: agents(), focused: focused(), boards: shared("fizzy.boards") ?? [], groups: shared("fizzy.boardGroups"), users: p.users, tags: p.tags, me: p.me, mentionable: p.mentionable, ...extra };
 }
 
-// The height a popup asks for, which is the most it can be. Rows that arrive after it opens (agents being asked,
-// people being read) need room, and past MAX_MENU the rows scroll. The popup works this out again to know its most.
+// A popup cannot grow after it opens: room is reserved for rows that arrive later (agents, people), capped at MAX_MENU.
 function menuSize(menu) {
   const rows = menuRows(menu, live({ known: [], checking: true }));
   const spare = menu.kind === "start" ? AGENTS - 1 : ["users", "tags", "mention", "cardref"].includes(menu.kind) ? 8 : 0;
@@ -283,9 +250,9 @@ function perform(act, cx) {
   else if (act.menu) openMenu(act.menu);
 }
 
-// The color of a card's lane: a real column's; Maybe?, Not Now and Done have none.
 const laneColor = card => LANE_COLORS[laneOf(card)] ?? colorOf(card.column) ?? NO_COLOR;
 const sectionColor = section => section.color ?? LANE_COLORS[section.key] ?? NO_COLOR;
+const takesCards = section => section.kind === "column" || section.kind === "maybe";
 const now = () => Date.now();
 
 // Moves a local copy of a card where `target` puts it, before Fizzy has said so.
@@ -316,7 +283,7 @@ export default class Fizzy extends View {
     const config = read("config", null);
     this.fallback = config?.board ?? null; this.configKnown = config != null;
     this.account = undefined; this.me = null; this.meAccount = undefined;
-    this.yamls = new Map(); // "machine\0folder" -> { at, board }: the board a folder's .fizzy.yaml names
+    this.yamls = new Map(); // "machine\0folder" -> { at, board, loading, answered }: the board a folder's .fizzy.yaml names
     this.board = null;
     this.columns = new Map(); this.cards = new Map(); this.lazy = new Map(); this.collapsed = {};
     this.stalled = new Map(); // board id -> the numbers of the cards Fizzy lists as stalled
@@ -337,7 +304,7 @@ export default class Fizzy extends View {
     this.detail = null; this.editing = null; this.armedComment = null;
     // Fizzy tells no one whether a card is watched: this is only what the panel set itself (card number -> on), newest last.
     this.watching = new Map(watchEntries(read("watching", [])).slice(-WATCH_KEPT));
-    this.activityOpen = false; // the card's Activity group (Fizzy's own lines): folded until opened, kept for the session
+    this.activityOpen = false; // stays as set across cards, for the session
     // What is being edited in the detail view (`editing`: "title", "desc", "step" or "comment"): the step's or comment's id.
     this.editId = null;
     // `fresh`: the number of the card New card just made, while it is open (its foot offers Discard); `creating`: its create is on its way.
@@ -353,8 +320,8 @@ export default class Fizzy extends View {
     // The session Start is waiting for: { name, text, agent, before (the addresses that ran before it), at, found: { address, at } }.
     // One at a time: a newer Start replaces it. Looked at by the request timer (see takeStart), never by a draw.
     this.starting = null;
-    this.narrow = false; this.wide = false; // the panel is narrower than NARROW px, or at least WIDE px (the default width is neither)
-    this.inlineSearch = false; // the panel is at least SEARCH_WIDE px: the search field is in the header
+    this.narrow = false; this.wide = false;
+    this.inlineSearch = false;
     // Profile photos: { [user id]: { file, at } } is kept between runs, `paths` is what is drawn from it ({ [user id]: image path }),
     // `wanted` the users still to fetch (id -> photo address), `fetching` the ones being fetched, `failedAt` when a failed one may
     // be tried again. Only this panel fetches (see takeAvatars); popups read the paths from shared state.
@@ -390,13 +357,12 @@ export default class Fizzy extends View {
     // A card's step progress and comment count: card number -> { at: the last_active_at they were read for, done, total, comments }
     // (null where the read failed). Kept between runs; read again only for a card that changed (see wantCounts).
     this.counts = new Map(countEntries(read("counts", [])));
-    this.countWanted = new Map(); this.countBusy = new Set();
+    this.countWanted = new Map(); this.countBusy = new Set(); this.countsLanded = false;
     this.access = new Map(); // board id -> who can see it: { all, ids, watching } (see JQ.accesses)
     // The folded columns' names as SVG files (see labelSvg): the ones written this run, wanted by a draw, being written.
     this.labels = new Set(); this.labelWanted = new Set(); this.labelBusy = new Set();
 
     // Input states are made here and in handlers, never in render.
-    // The Board view's filter, and the one Mine and Pins share: each list filters as it is typed into.
     this.boardFilter = InputState.new({ placeholder: "Filter this board…" });
     this.filter = InputState.new({ placeholder: "Filter cards…" });
     for (const field of [this.boardFilter, this.filter]) field.on("change", (_e, cx) => cx.notify());
@@ -419,10 +385,10 @@ export default class Fizzy extends View {
     // Settings: shown or not, the new-group field open, the one name or rule being changed in place ({ id, field: "name" | "match" }),
     // and the group whose delete has been asked for once. The groups themselves are shared state (`fizzy.boardGroups`).
     // `drag`: a row picked up with ⌘/Ctrl held, { kind: "group" | "board", id, over: the block under the pointer that takes it ({ to }: a group's id,
-    // null for No group) or null }. `folds`: the ids of the folded groups; `foldNone`: No group is folded. Both are kept.
+    // null for No group) or null, row: the board row a dragged board is over }. `folds`: the ids of the folded groups; `foldNone`: No group is folded. Both are kept.
     this.settingsOpen = false; this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
     this.mentionAuto = read("mentionAuto", true) !== false; // Settings > Mentions: the background scan for people who can't be tagged yet
-    this.compactCards = read("compactCards", false) === true; // Settings > Cards: the lists draw their cards compact
+    this.compactCards = read("compactCards", false) === true;
     const folded = read("folds", null);
     this.folds = new Set(Array.isArray(folded?.ids) ? folded.ids.filter(id => typeof id === "string") : []);
     this.foldNone = folded?.none === true;
@@ -432,28 +398,27 @@ export default class Fizzy extends View {
     if (checking()) return;
 
     if (this.boards) this.shareBoards();
-    this.loadConfig(cx); // and with the account, the person
+    this.loadConfig(cx);
     this.fetchBoards(cx);
     this.pollUnread(cx);
-    this.loadUsers(cx); // the people's photos are fetched once their list is in (and again, once a day: see below)
+    this.loadUsers(cx);
     this.loadPins(cx); // the lists mark pinned cards, and it is the Pins view's own read
     this.pruneFiles(cx);
     this.spaceBoard(cx); // the space's board is asked now, so it is likely known by the first draw
-    // The board's own read follows once its board is known (syncBoard); Mine reads now, the Inbox's read being the unread poll above.
+    // Board reads once syncBoard knows its board; Inbox and Pins are read above.
     if (this.view === "mine") this.refreshList(cx);
-    // Every view but the Inbox is read again now and then, only while it shows and nothing is being typed into a card.
     cx.timer.every(POLL_VIEW, cx => { if (fizzyVisible(layout())) this.poll(cx); });
     // The unread notifications are asked even while the panel is hidden (the Inbox's list, the toasts, and fizzy.unread for other mods).
     cx.timer.every(POLL_INBOX, cx => this.pollUnread(cx));
     // A hidden copy is never drawn, so render cannot see the panel go away. Note it here, so the first draw
     // after it shows again knows it is back and reads again.
     cx.timer.every(1000, () => { if (!fizzyVisible(layout())) this.shown = false; });
-    // A popup's request is also looked for on a timer: a popup that was left open when the panel was hidden (a hidden
-    // copy is not drawn) has no draw to hand its request to, and must not wait until the panel shows again.
-    // The same timer looks for a toast's click that had to bring the panel up first, for the new session that Start
-    // is waiting for, and for photos, card counts and column labels to fetch or write (never a draw's work).
-    cx.timer.every(REQUEST_EVERY, cx => { this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); this.takeLabels(cx); this.takeCounts(cx); });
-    // The people are read again every day: new people, and photos older than a week are fetched again.
+    // A popup's request is also polled here: a popup left open while the panel is hidden has no draw to hand it to.
+    // The other take* calls do work a draw must not start.
+    cx.timer.every(REQUEST_EVERY, cx => {
+      this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); this.takeLabels(cx); this.takeCounts(cx);
+      if (this.countsLanded) { this.countsLanded = false; cx.notify(); }
+    });
     cx.timer.every(AVATAR_EVERY, cx => this.loadUsers(cx));
     // Key commands ("<key>": "fizzy.<command>" in keys.json) and Herdr's `fizzy.<command>` run: panel copies only.
     // Herdr delivers a command to shown copies only, so none comes while the panel is hidden.
@@ -528,11 +493,13 @@ export default class Fizzy extends View {
   fetchBoards(cx) {
     this.load("boards", cx, async cx => {
       try {
+        const had = this.boards?.map(b => b.id).join();
         this.boards = ((await fizzy(cmd.boards())) ?? []).map(b => ({ id: b.id, name: b.name, url: b.url, period: b.auto_postpone_period_in_days }));
         this.errors.boards = null;
         keep("boards", this.boards);
         this.shareBoards();
-        if (this.view === "mine") this.loadMine(cx); // Mine needs the boards: it waited for them
+        // Mine reads every board: again only when the list changed (the kept list may have started it already).
+        if (this.view === "mine" && had !== this.boards.map(b => b.id).join()) this.loadMine(cx);
       } catch (e) { this.errors.boards = e; }
     });
   }
@@ -542,7 +509,6 @@ export default class Fizzy extends View {
     if (!sameJson(shared("fizzy.boards"), boards)) setShared("fizzy.boards", boards);
   }
 
-  // `identity show`'s own id is the login's: assignees and authors carry the account's user, which meFrom finds.
   fetchMe(cx) {
     if (this.account === undefined) return; // the config's arrival asks
     this.load("me", cx, async cx => {
@@ -557,8 +523,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The people list, read (once at start, then daily) so that their photos are known, and whom the panel can't tag yet.
-  // A failure costs nothing: the initials stay.
   loadUsers(cx) {
     this.load("users", cx, async cx => {
       try { this.meet(await readUsers()); } catch { return; /* the next menu or card reads them again (and meets them), else tomorrow */ }
@@ -572,22 +536,20 @@ export default class Fizzy extends View {
     for (const { id, url } of photosIn(data)) if (this.photoDue(id)) this.wanted.set(id, url);
   }
 
-  // Does this user's photo need fetching now? Not while one is being fetched for them, nor within AVATAR_BACKOFF of a failure.
   photoDue(id) {
     if (this.fetching.has(id) || (this.failedAt.get(id) ?? 0) > now()) return false;
     const have = this.photos[id];
     return !have || now() - have.at > AVATAR_TTL;
   }
 
-  // Called by the request timer (and when a fetch ends): starts the photos that are wanted, AVATAR_PARALLEL at a time, each user
-  // once. When the last of a batch is done the shared map is brought up to date, once for all of them.
+  // The photos are kept and the shared map set once per batch, not per photo.
   takeAvatars(cx) {
     for (const [id, url] of this.wanted) {
       if (this.fetching.size >= AVATAR_PARALLEL) break;
       this.wanted.delete(id);
       if (this.photoDue(id)) this.fetchPhoto(id, url, cx);
     }
-    if (this.unshared && !this.fetching.size && !this.wanted.size) { this.unshared = false; this.shareAvatars(); }
+    if (this.unshared && !this.fetching.size && !this.wanted.size) { this.unshared = false; keep("avatars", this.photos); this.shareAvatars(); }
   }
 
   // One photo, by AVATAR_SCRIPT: it prints the new file's name, and deletes the user's older files.
@@ -605,26 +567,22 @@ export default class Fizzy extends View {
       if (file) {
         this.photos[id] = { file, at: now() };
         this.failedAt.delete(id);
-        keep("avatars", this.photos);
         this.syncPaths();
-        this.unshared = true; // the popups hear of it when the batch ends (takeAvatars)
+        this.unshared = true; // kept and shared with the popups when the batch ends (takeAvatars)
       } else this.failedAt.set(id, now() + AVATAR_BACKOFF);
       this.takeAvatars(cx);
       cx.notify();
     });
   }
 
-  // What the panel draws from (`paths`), as the photos on disk are now.
   syncPaths() {
     this.paths = Object.fromEntries(Object.entries(this.photos).map(([id, p]) => [id, `${AVATAR_DIR}/${p.file}`]));
   }
 
-  // What the popups draw from: set only when it changed (every mod redraws on a change).
   shareAvatars() {
     if (!sameJson(shared("fizzy.avatars") ?? {}, this.paths)) setShared("fizzy.avatars", this.paths);
   }
 
-  // The unread count, shared as fizzy.unread for other mods; set only when it changed (every mod redraws on a change).
   noteUnread(list) {
     const n = list.filter(x => !x.read).length;
     this.unread = n;
@@ -645,8 +603,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // A toast for each unread notification not seen before (oldest first, three at most: more than that, the three
-  // newest and one "N more"). The first poll of a copy with nothing seen only learns what is there.
   announce(unread) {
     const seen = new Set(this.seen), fresh = oldestFirst(unread.filter(n => !n.read && n.id != null && !seen.has(n.id)));
     const seeding = !this.seeded;
@@ -658,8 +614,7 @@ export default class Fizzy extends View {
     if (fresh.length > TOASTS) notify({ title: "Fizzy", body: `${fresh.length - TOASTS} more in Fizzy`, level: "info", timeout: TOAST_FOR });
   }
 
-  // Notifications that are not news: announced, or touched in the panel (marked read or unread), so a toast
-  // never announces one the person has handled. Kept at SEEN_CAP, the newest last, and persisted.
+  // Notifications announced or handled in the panel, so a toast never announces one the person has handled.
   markSeen(ids) {
     const have = new Set(this.seen), add = [...new Set(ids)].filter(id => id != null && !have.has(id));
     if (!add.length) return;
@@ -667,7 +622,6 @@ export default class Fizzy extends View {
     keep("seenNotes", this.seen);
   }
 
-  // Posts one notification's toast; its click opens the card in the panel (see noteAction).
   toastNote(note) {
     const { action, before } = noteAction(layout(), note);
     // Only a toast that has to bring the panel up leaves a wait, and the newest such toast wins. One that opens at once
@@ -692,8 +646,6 @@ export default class Fizzy extends View {
     } catch (e) { notify({ title: "Fizzy", body: why(e), level: "error" }); }
   }
 
-  // Marks a notification read because its card was opened from its toast. The Inbox's own copy of it, when it is
-  // there, goes through markRead (a refusal puts it back); either way the unread count is read again afterwards.
   readNote(id, cx) {
     const note = this.inbox?.find(n => n.id === id);
     if (note) { this.markRead(note, cx); return; }
@@ -725,7 +677,6 @@ export default class Fizzy extends View {
     return hit?.answered ? hit.board : undefined;
   }
 
-  // The board shown follows the space (when asked to), else the pick, else the CLI's own default.
   syncBoard(cx) {
     const choice = shared("fizzy.board");
     if (choice?.id && choice.id !== this.choiceSeen) {
@@ -743,10 +694,11 @@ export default class Fizzy extends View {
         else if (this.view !== "board" || this.search) this.setView("board", cx);
       });
     }
-    const space = this.spaceBoard(cx);
+    // Not following, the space is not asked: each ask copies Herdr's spaces and panes, and subscribes the panel to them.
+    const space = this.follow ? this.spaceBoard(cx) : null;
     // Following, the space's own answer is waited for: reading the default board meanwhile would be wasted
     // (and the panel would flash it).
-    if (space === undefined && this.follow) return;
+    if (space === undefined) return;
     if (!this.configKnown) return;
     const next = chooseBoard({ boards: this.boards ?? [], follow: this.follow, spaceBoard: space ?? null, picked: this.picked, fallback: this.fallback });
     if (next !== this.board) this.switchBoard(next, cx);
@@ -787,10 +739,8 @@ export default class Fizzy extends View {
     return this.sideBySide() ? this.openKeys(this.board).includes(kind) : !this.collapsedNow({ key: kind, kind });
   }
 
-  // The board's open cards. The columns are read when they were not read yet this session (cached ones only stand in for the
-  // first draw) or `columns` asks (Refresh), and when an open card names one that is not among them. An unfolded Not Now or
-  // Done lane is read when it has no data yet or is stale (Refresh or a write came since it was read, see refreshAll); a folded
-  // lane never is.
+  // Cached columns only stand in for the first draw. Not Now and Done are read only while unfolded, and again once stale
+  // (see refreshAll).
   loadBoard(cx, { columns = false } = {}) {
     const board = this.board;
     if (!board) return;
@@ -823,7 +773,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // Not Now and Done are read each time they are unfolded.
   loadLane(kind, cx) {
     const board = this.board;
     if (!board) return;
@@ -844,7 +793,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // "Show more": another page's worth of Done cards, read after the ones already here.
   moreDone(cx) {
     const board = this.board, lazy = this.lazyOf(board);
     lazy.shown += CARD_PAGE;
@@ -912,8 +860,7 @@ export default class Fizzy extends View {
     } catch (e) { this.errors.mine = e; }
   }
 
-  // The search field's words on every board and in comments: one `fizzy search`, its cards grouped by board. It runs on
-  // Enter only, as the CLI allows 300 searches an hour, shared with the agents. A newer search, or closing it, drops what it found.
+  // Enter only: the CLI allows 300 searches an hour, shared with the agents.
   searchAll(cx) {
     const q = this.searchField.value().trim();
     if (!q || !(this.boards ?? []).length) return;
@@ -932,7 +879,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The search field holding only `#<number>`: the search closes and that card opens, from any board. False when it holds anything else.
   jumpToCard(cx) {
     const n = Number(/^\s*#(\d+)\s*$/.exec(this.searchField.value())?.[1]);
     if (!n) return false;
@@ -943,8 +889,6 @@ export default class Fizzy extends View {
     return true;
   }
 
-  // The search field takes the focus (narrow, the header turns into it); its results replace the list of any view. The field
-  // keeps its words.
   openSearch(cx) {
     this.goBack(cx);
     if (!this.inlineSearch) this.search ??= { q: null, found: new Map(), count: 0, error: null, waiting: false };
@@ -969,8 +913,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // A card read whole. One `card show` per card at a time: the detail's read and a hand-off that needs the same
-  // card meanwhile (`open:<n>` then `copy`) share it.
   readCard(number) {
     let read = this.reading.get(number);
     if (!read) {
@@ -985,8 +927,7 @@ export default class Fizzy extends View {
     return read;
   }
 
-  // The open card and its comments, asked together, then the reactions of the comments not read yet (`reactions`: all of them
-  // again), and (`pins`) the pin list, which is where its pin state comes from: the poll leaves it alone.
+  // `pins`: the card's pin state comes only from the pin list, which the poll leaves alone.
   loadCard(cx, pins = true, reactions = false) {
     const d = this.detail;
     if (!d) return;
@@ -1000,7 +941,7 @@ export default class Fizzy extends View {
         if (board && !this.columns.has(board)) await this.columnsFor(board).catch(() => null);
         if (this.detail !== d) return;
         d.card = card; d.comments = comments ?? []; d.error = null;
-        if (card?.last_active_at) this.setCounts(d.number, card.last_active_at, card.steps, d.comments.length);
+        if (card?.last_active_at) { this.setCounts(d.number, card.last_active_at, card.steps, d.comments.length); this.keepCounts(); }
         this.loadReactions(d.number, d.comments, reactions, cx);
         this.wantImages(d.number, [card?.description_html, ...d.comments.map(cm => cm.body?.html)], cx);
       } catch (e) { if (this.detail === d) d.error = e; }
@@ -1008,8 +949,6 @@ export default class Fizzy extends View {
     if (pins) this.loadPins(cx);
   }
 
-  // The images in a card's description and comments that are not on disk yet are downloaded, FILE_PARALLEL at a time. One that
-  // failed, or is over IMAGE_MAX, is left alone: it is drawn as a file.
   wantImages(number, htmls, cx) {
     for (const html of htmls) {
       for (const { file } of richLines(html)) {
@@ -1020,8 +959,8 @@ export default class Fizzy extends View {
     this.takeFiles(cx);
   }
 
-  // Fizzy's card lists have no step progress or comment count: each card's are read with `card show` and `comment list`, only
-  // when none are kept for the card as it is now (its last_active_at). The request timer starts them, COUNT_PARALLEL cards at a time.
+  // Fizzy's card lists carry no step progress or comment count: each card costs a `card show` and a `comment list`, so
+  // they are read only when its last_active_at changed.
   wantCounts(cards) {
     for (const c of cards ?? []) {
       if (c?.last_active_at && this.counts.get(c.number)?.at !== c.last_active_at && !this.countBusy.has(c.number)) this.countWanted.set(c.number, c.last_active_at);
@@ -1040,7 +979,9 @@ export default class Fizzy extends View {
         } catch { this.setCounts(n, at, null, null); } // not read again until the card changes
         this.countBusy.delete(n);
         this.takeCounts(cx);
-        cx.notify();
+        // A board's first view reads every card's counts: one redraw per request tick, one store write per batch.
+        this.countsLanded = true;
+        if (!this.countBusy.size) this.keepCounts();
       });
     }
   }
@@ -1050,6 +991,9 @@ export default class Fizzy extends View {
     this.counts.delete(n);
     this.counts.set(n, { at, done, total: Array.isArray(steps) ? steps.length : null, comments: orNull(comments) });
     while (this.counts.size > COUNTS_KEPT) this.counts.delete(this.counts.keys().next().value);
+  }
+
+  keepCounts() {
     keep("counts", [...this.counts].map(([k, v]) => [k, v.at, v.done, v.total, v.comments]));
   }
 
@@ -1057,7 +1001,6 @@ export default class Fizzy extends View {
     return (this.width ?? 0) >= SIDE_BY_SIDE;
   }
 
-  // A board's open columns side by side, the last opened last: as many as fit (two from TWO_OPEN px, else one).
   openKeys(board) {
     const kept = this.openCols[board];
     const keys = Array.isArray(kept) && kept.length ? kept : ["maybe"];
@@ -1087,7 +1030,6 @@ export default class Fizzy extends View {
     if (open.includes("done") && !lazy.done) this.loadLane("done", cx);
   }
 
-  // Watching a board for new cards, or not: shown at once, then who can see and watch it is read again.
   toggleWatching(cx) {
     const board = this.board, me = this.me, access = this.access.get(board), ids = access?.watching ?? [];
     if (!board || !me || !access) return null;
@@ -1101,7 +1043,6 @@ export default class Fizzy extends View {
     return access ? this.changeAccess(board, { ...access, all: on }, cmd.boardForAll(board, on), cx) : null;
   }
 
-  // Who can see and watch a board, changed: shown at once, then written, then read again (which undoes what did not happen).
   changeAccess(board, shown, argv, cx) {
     this.access.set(board, shown);
     cx.notify();
@@ -1114,7 +1055,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // Who can see the board shown, in a popup (accessRows).
   accessMenu() {
     const board = this.boards?.find(b => b.id === this.board), access = this.access.get(this.board);
     if (board && access) openMenu({ kind: "access", board: board.id, url: board.url, all: access.all, ids: access.ids });
@@ -1142,8 +1082,6 @@ export default class Fizzy extends View {
     }
   }
 
-  // Everything in FILE_DIR saved over FILE_DAYS days ago is deleted at start, and its images forgotten: a card shown again
-  // downloads them again.
   pruneFiles(cx) {
     cx.spawn(async () => {
       let r;
@@ -1202,7 +1140,6 @@ export default class Fizzy extends View {
     return at(await this.attachmentList(number));
   }
 
-  // Read once and shared by whoever asks while it is out; a failed read is forgotten.
   attachmentList(number) {
     let list = this.attachmentLists.get(number);
     if (!list) {
@@ -1213,9 +1150,6 @@ export default class Fizzy extends View {
     return list;
   }
 
-  // A file's click: it is saved in Downloads under its own name (" (2)" and so on when that is taken), and shown in its folder;
-  // a markdown file opens beside the focused pane instead, and its copy there opens again on the next click while it exists.
-  // A file with no sgid (an image from the web that would not load) opens in the browser.
   saveFile(file, cx) {
     const number = this.detail?.number;
     if (!file.sgid) return file.url ? this.openLink(file.url, cx) : null;
@@ -1243,15 +1177,12 @@ export default class Fizzy extends View {
     return this.job(cx, async () => { await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", "open", path]); });
   }
 
-  // Files dropped on an editor are uploaded one after another, each put in at the cursor as a token.
   attach(field, target, paths, cx) {
     const files = (paths ?? []).filter(p => typeof p === "string" && p);
     if (!files.length) return null;
     return this.job(cx, async cx => { for (const path of files) await this.upload(field, target, path, cx); });
   }
 
-  // Uploads one file and puts its token in `field` while that editor is still open; answers the attachment's sgid. `target`
-  // names the editor, as in watchRefs.
   async upload(field, target, path, cx) {
     const name = path.split("/").pop();
     this.uploading.set(target, name);
@@ -1271,7 +1202,6 @@ export default class Fizzy extends View {
     return field === this.commentArea || (field === this.descArea && this.editing === "desc") || (field === this.commentEdit && this.editing === "comment");
   }
 
-  // A paste with no text: the clipboard's image is saved as a PNG in FILE_DIR and uploaded, and stays there as that image's copy.
   pasteImage(field, target, cx) {
     return this.job(cx, async cx => {
       const dir = `${appHome()}/${FILE_DIR}`, at = new Date(), two = n => String(n).padStart(2, "0");
@@ -1293,8 +1223,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The reactions of the people's comments (not Fizzy's own lines), CONCURRENCY at a time. A read that fails leaves that comment
-  // with none, and it is not asked again until Refresh.
   loadReactions(number, comments, fresh, cx) {
     this.load(`reactions:${number}`, cx, async cx => {
       const todo = comments.filter(cm => cm.creator?.role !== "system" && (fresh || !this.reactions.has(cm.id)));
@@ -1302,7 +1230,7 @@ export default class Fizzy extends View {
       const worker = async () => {
         for (let cm = todo[next++]; cm; cm = todo[next++]) {
           try { this.reactions.set(cm.id, (await fizzy(cmd.reactions(number, cm.id))) ?? []); }
-          catch { this.reactions.set(cm.id, this.reactions.get(cm.id) ?? []); }
+          catch { this.reactions.set(cm.id, this.reactions.get(cm.id) ?? []); } // not retried until Refresh
           cx.notify();
         }
       };
@@ -1310,7 +1238,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The mention ids in Fizzy's HTML (a description, comments) that the panel has not learned yet.
   learnMentions(htmls) {
     let learned = false;
     for (const html of htmls) {
@@ -1321,12 +1248,10 @@ export default class Fizzy extends View {
     sharePeople({ mentionable: Object.keys(this.mentionIds) });
   }
 
-  // The active people the panel has no mention id for (nobody while the people are not known).
   untaggable() {
     return activePeople(people().users ?? [], this.me).filter(u => !this.mentionIds[u.id]);
   }
 
-  // One look for mention ids at a time; a second ask while one runs does nothing. `body` learns from what it reads.
   scanMentions(cx, scan, body) {
     if (this.mentionScan?.busy) return;
     const s = this.mentionScan = { page: 0, card: null, note: null, error: null, ...scan };
@@ -1342,7 +1267,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // The activity feed, newest first, until everyone can be tagged, the feed ends, or MENTION_SCAN_PAGES pages were read.
   findMentions(cx) {
     if (this.mentionScan?.busy) return;
     keep("mentionScanAt", now());
@@ -1357,7 +1281,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // A card's description and comments: "#12" or "12" from the Settings field, or the number Retry asks again.
   learnFromCard(cx, number = Number(this.mentionCard.value().trim().replace(/^#/, ""))) {
     if (!Number.isInteger(number) || number <= 0) return;
     this.scanMentions(cx, { busy: "card", card: number, retry: cx => this.learnFromCard(cx, number) }, async () => {
@@ -1382,16 +1305,13 @@ export default class Fizzy extends View {
     if (this.detail) this.loadCard(cx, this.view !== "pins", Boolean(fresh?.reactions));
   }
 
-  // The poll: the card when one is open, else the list; nothing while a title, description, step or comment is edited.
-  // Mine is read every other time on the timer; `force`: at once. The Inbox is not read here: the unread poll fills it.
   poll(cx, force = false) {
     if (this.editing) return;
     if (this.detail) this.loadCard(cx, false);
     else if (this.view !== "inbox" && (this.view !== "mine" || force || ++this.ticks % 2 === 0)) this.refreshList(cx);
   }
 
-  // Refresh and Retry: the boards too (a new one may have been made), the config and the person (the account may have
-  // changed), then whatever shows, columns, unfolded lanes and reactions included, and the images that would not download.
+  // Also reads the boards (one may be new) and the config (the account may have changed).
   retry(cx) {
     this.fileFailed.clear();
     this.fetchBoards(cx);
@@ -1400,7 +1320,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // Selected cards that left the lists (moved, closed elsewhere, deleted) leave the selection.
   prune() {
     for (const n of [...this.selected]) if (!this.find(n)) this.selected.delete(n);
   }
@@ -1441,7 +1360,6 @@ export default class Fizzy extends View {
     if (this.watching.get(number) === false) this.rememberWatch(number, undefined);
   }
 
-  // A card that left (deleted, or moved to another board): gone from every list and from the picked cards.
   forget(number) {
     const cut = list => list?.filter(c => c.number !== number) ?? list;
     for (const [b, list] of this.cards) this.cards.set(b, cut(list));
@@ -1452,15 +1370,12 @@ export default class Fizzy extends View {
     this.selected.delete(number);
   }
 
-  // A card's columns, read when a card of another board (Mine, Pins) needs its menu.
   async columnsFor(board) {
     if (!this.columns.has(board)) this.columns.set(board, ((await fizzy(cmd.columns(board))) ?? []).map(slimColumn));
     return this.columns.get(board);
   }
 
-  // Runs the commands in order, tells the person when one fails, and always reads again afterwards (that is also
-  // how an optimistic change that did not happen goes away). A promise: `cx` is the one of a task (see job), and
-  // an event handler starts it there, with `this.job(cx, cx => this.write(...))`.
+  // Always reads again afterwards: that is how an optimistic change that failed goes away. `cx` must be a task's (see job).
   async write(lists, cx, refresh = true) {
     try { for (const argv of lists) await fizzy(argv); }
     catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
@@ -1477,14 +1392,12 @@ export default class Fizzy extends View {
       // A tab bar's `search:fizzy` (⌘K): it shows the page, and the search opens here, whether the panel was shown or not.
       case "search": this.openSearch(cx); cx.notify(); return null;
       case "boardForAll": return this.setBoardForAll(op.board, Boolean(op.on), cx);
-      // The Send popup's choice: that session comes to the front, and the text is pasted into it.
       case "paste": {
         const to = agents().find(a => a.address === op.address);
         if (!to) { notify({ title: "Fizzy", body: "That session is gone", level: "info", timeout: 3000 }); return null; }
         return pasteInto(op.text, cx, to, { bring: true });
       }
-      // The Start popup's choice: a new tab with that agent (no first message), then the text goes in once it is up.
-      case "start": return this.beginStart(op, cx);
+      case "start": return this.beginStart(op);
       case "move": {
         // A card that no list holds (it just left them) is looked at first: where it is decides what has to be done.
         if (!card) return this.job(cx, async cx => { this.apply(op, cx, slim(await fizzy(cmd.card(n)))); });
@@ -1563,7 +1476,6 @@ export default class Fizzy extends View {
         return later(cmd.remove(n));
       }
       case "react": return this.toggleReaction(n, op.comment, op.content, cx);
-      // The Mention or Card popup's choice goes into the editor it was opened from, while that editor is still open.
       case "mention": case "cardref": {
         const field = { comment: this.detail && this.commentArea, commentEdit: this.editing === "comment" && this.commentEdit, desc: this.editing === "desc" && this.descArea }[op.target];
         if (!field) return null;
@@ -1596,8 +1508,6 @@ export default class Fizzy extends View {
     else this.openCard(card.number, card, cx);
   }
 
-  // Mouse released over a lane (its header, or one of its cards): the card that was pressed goes there, or the column whose
-  // header was pressed takes that column's place.
   drop(lane, cx) {
     const from = this.pressed;
     this.pressed = null;
@@ -1630,10 +1540,8 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // New card, in lane `key` of the board shown: Fizzy's API publishes a card the moment it is made (it has no drafts), so
-  // the card is made at once under a stand-in title and opens in the card page with its title being written, for
-  // everything else at once; Discard, at its foot, deletes it again. In a real column it is made in Maybe? and moved:
-  // the CLI cannot say where a new card goes.
+  // Fizzy has no drafts: a card is published the moment it is made, so it gets a stand-in title and Discard deletes it.
+  // The CLI cannot create into a column: the card is made in Maybe? and moved.
   newCard(key, cx) {
     const board = this.board;
     if (!board || this.creating) return null;
@@ -1661,7 +1569,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The fresh card's Discard: it goes from Fizzy, and the page closes.
   discardFresh(cx) {
     const n = this.fresh;
     if (n == null) return;
@@ -1669,8 +1576,6 @@ export default class Fizzy extends View {
     this.apply({ kind: "remove", number: n }, cx);
   }
 
-  // Runs `open` with the card's board's columns: at once when they are known, else once they are read (a card
-  // of another board, from Mine or Pins).
   withColumns(card, cx, open) {
     const board = card.board?.id ?? this.board, known = this.columns.get(board);
     if (known) { open(known); return; }
@@ -1685,9 +1590,6 @@ export default class Fizzy extends View {
     return Promise.all(list.map(async c => (whole(c) ? c : slim(await this.readCard(c.number)))));
   }
 
-  // What the hand-offs act on: the open card (a stub until it is read), else the picked cards (in number order), else, in the
-  // Board view, the board being shown (one item, { kind: "board", id, name, url }: its reference is a board's, see boardRef).
-  // In Mine, Inbox and Pins with nothing open or picked there is nothing.
   subject() {
     const d = this.detail;
     if (d) return [slim(d.card ?? d.summary)];
@@ -1697,13 +1599,6 @@ export default class Fizzy extends View {
     return board ? [{ kind: "board", id: board.id, name: board.name, url: board.url }] : [];
   }
 
-  // Hands cards (or the board, see subject) to an agent, as the bar's buttons do. Nothing is ever submitted: the person presses Enter. kind is
-  //   "insert"  pasted into the current chat (copied, with a word, when there is no agent here)
-  //   "send"    opens the popup of the running sessions: the one picked is brought to the front and gets the paste
-  //   "start"   opens the popup of the agents to start: the one picked starts in a new tab (named after the card or board) and gets the paste once it is up
-  //   "copy"    the reference to the clipboard
-  // With nothing to hand over nothing happens. A card that is not whole yet (a stub: `open:<n>`, a notification) is read first, in a
-  // task; if that fails the error is told and nothing is handed over.
   handOff(kind, list, cx) {
     if (!list.length) return null;
     const go = (cards, cx) => {
@@ -1719,9 +1614,8 @@ export default class Fizzy extends View {
     return this.job(cx, async cx => go(await this.loaded(list), cx));
   }
 
-  // Start's choice: a new tab with that agent, named after the card, with no first message. The session it makes is not
-  // known yet: the addresses that run now are remembered, and takeStart looks for the one that is new.
-  beginStart(op, cx) {
+  // tab.new does not return the session it makes: the addresses running now are kept, and takeStart looks for the new one.
+  beginStart(op) {
     if (!op.text || !Array.isArray(op.argv)) return null;
     const before = new Set(agents().map(a => a.address));
     run("tab.new", { name: op.name, argv: op.argv });
@@ -1785,7 +1679,6 @@ export default class Fizzy extends View {
     openMenu({ kind: "newCard", current: this.board });
   }
 
-  // The picked cards (⌘/Ctrl-click), by number.
   picks() {
     return this.pickedNumbers().map(n => this.find(n)).filter(Boolean).map(slim);
   }
@@ -1799,7 +1692,6 @@ export default class Fizzy extends View {
     return numbers.map(n => (this.detail?.number === n && this.detail.card) || this.find(n)).filter(Boolean);
   }
 
-  // A drag source for terminals: the cards' files, dropped as their paths. They are written at the press (see writeCardFiles).
   dragCards(el, cards) {
     return cards.length ? el.drag_paths(cards.map(c => `${appHome()}/${cardFile(c)}`)) : el;
   }
@@ -1825,8 +1717,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // A card's board in the Board view, the card closed. Another board than the one shown is picked, as in the dropdown
-  // (following the space stops); the one shown stays as it is.
   showBoardOf(board, cx) {
     if (board !== this.board) {
       this.follow = false; this.picked = board;
@@ -1847,7 +1737,6 @@ export default class Fizzy extends View {
     return groupsConfig(shared("fizzy.boardGroups"));
   }
 
-  // Every change is kept at once, and only when it changed (every mod redraws on a change).
   saveGroups(next, cx) {
     if (!sameJson(this.groups(), next)) setShared("fizzy.boardGroups", next);
     cx.notify();
@@ -1866,7 +1755,6 @@ export default class Fizzy extends View {
     this.settingsOpen = false; this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
   }
 
-  // Back in Settings: from a setting's own page to the list of settings, from the list out of Settings.
   settingsBack(cx) {
     if (!this.settingsPage) return this.goBack(cx);
     this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
@@ -1912,8 +1800,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // A group's name or rule: click it, change it in place, Enter saves, the x (or Escape) leaves it as it was. An empty rule is no rule;
-  // an empty name is not taken.
   editGroup(id, field, cx) {
     const group = this.groups().groups.find(g => g.id === id);
     if (!group) return;
@@ -1948,7 +1834,7 @@ export default class Fizzy extends View {
     this.saveGroups(next, cx);
   }
 
-  // Two clicks: the first only asks. A deleted group's id can be given to the next new group, so its fold goes with it.
+  // A deleted group's id can go to the next new group, so its fold is dropped with it.
   dropGroup(id, cx) {
     if (this.groupArmed !== id) { this.groupArmed = id; cx.notify(); return; }
     this.groupArmed = null;
@@ -1969,9 +1855,7 @@ export default class Fizzy extends View {
     this.saveGroups(setBoardHidden(config, id, !ownHidden(id, config)), cx);
   }
 
-  // ⌘/Ctrl-drag in Settings: a left press with ⌘/Ctrl held on a group's header or a board's row picks it up; letting go over a block
-  // drops it there (see dropOn), letting go anywhere else, pressing outside the panel or leaving Settings ends it with nothing changed.
-  // Without ⌘/Ctrl a press is only a press (and ends a drag that was left behind).
+  // A press with ⌘/Ctrl picks the row up (see dropOn); any other press ends a drag left behind.
   pickRow(kind, id, e, cx) {
     this.disarm(cx);
     if (!cmdHeld(e)) { this.endDrag(cx); return; }
@@ -2028,7 +1912,6 @@ export default class Fizzy extends View {
     return from > at ? "top" : "bottom";
   }
 
-  // The board row a dragged board is over (not its own): letting go there puts the board beside it (see rowLine).
   hoverRow(id, hovered, cx) {
     const d = this.drag;
     if (d?.kind !== "board") return;
@@ -2112,13 +1995,10 @@ export default class Fizzy extends View {
     return this.job(cx, cx => this.write([cmd.update(d.number, { html })], cx));
   }
 
-  // The people as textToHtml takes them, each with the mention id the panel has learned for them, if any.
   mentionPeople() {
     return (people().users ?? []).filter(u => u.role !== "system").map(u => ({ id: u.id, name: u.name, sgid: this.mentionIds[u.id] }));
   }
 
-  // An editor's content as the HTML to save: a person's token (or "@<name>" typed) is their mention, a card's token a link to
-  // it. A person whose mention id is not learned yet stays text, and says so.
   toHtml({ text, tokens }) {
     const all = this.mentionPeople(), named = new Set(tokens.map(s => /^user:(.+)$/.exec(s.token.id)?.[1]));
     const missing = [...mentionsOf(text, all), ...all.filter(p => named.has(p.id))].filter(p => !p.sgid).map(p => p.name);
@@ -2126,8 +2006,7 @@ export default class Fizzy extends View {
     return textToHtml(text, all, tokens, n => cardUrl(this.detail?.card?.url, n));
   }
 
-  // An "@" or "#" typed where a mention or a card reference starts opens the people or the cards picker for this editor
-  // (`target`: "comment", "commentEdit" or "desc", see apply); a paste with no text puts in the clipboard's image.
+  // `target`: "comment", "commentEdit" or "desc" (see apply).
   watchRefs(field, target) {
     field.on("paste_other", (_e, cx) => this.pasteImage(field, target, cx));
     let was = field.content().text;
@@ -2140,8 +2019,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The token takes the place of the "@" or "#" (`mark`) that opened the popup, when it is still there, else goes in at the
-  // cursor; a space follows it.
   putToken(field, token, mark) {
     const at = this.typing?.field === field ? this.typing.index : -1;
     this.typing = null;
@@ -2153,7 +2030,6 @@ export default class Fizzy extends View {
     field.replace(" ");
   }
 
-  // The cards a "#" popup offers: the board shown (its Not Now and Done lanes as far as read), Mine, Pins and the search's.
   knownCards() {
     const lazy = this.lazy.get(this.board), out = new Map();
     for (const list of [this.cards.get(this.board), lazy?.notNow, lazy?.done, ...this.mine.values(), this.pins, ...(this.search?.found.values() ?? [])]) {
@@ -2183,7 +2059,6 @@ export default class Fizzy extends View {
     return this.job(cx, cx => this.write([cmd.addStep(d.number, text)], cx));
   }
 
-  // A step's text: click it, change it in place, Enter saves, the x (or Escape) leaves it as it was.
   editStep(step, cx) {
     this.stepEdit = InputState.new({ value: step.content ?? "" });
     this.stepEdit.on("submit", (_e, cx) => this.saveStep(cx));
@@ -2220,7 +2095,6 @@ export default class Fizzy extends View {
     return htmlToText(comment.body?.html ?? "", people().users) || comment.body?.plain_text || "";
   }
 
-  // The person's own comment, as text in a box (people and cards as tokens): Save sends it back as HTML.
   editComment(comment, cx) {
     const content = htmlToContent(comment.body?.html ?? "", people().users);
     this.commentEdit = TextareaState.new({ rows: 4, placeholder: `Write a comment… ${EDITOR_HINT}` });
@@ -2242,7 +2116,6 @@ export default class Fizzy extends View {
     return this.job(cx, cx => this.write([cmd.editComment(d.number, id, html)], cx));
   }
 
-  // Your reaction with that emoji on a comment: shown (or taken away) at once, put back when Fizzy refuses.
   toggleReaction(number, comment, content, cx) {
     const was = this.reactions.get(comment) ?? [], own = was.find(r => r.content === content && this.ownReaction(r));
     const added = own ? null : { id: null, content, reacter: { id: this.me, name: people().users?.find(u => u.id === this.me)?.name ?? "" } };
@@ -2274,7 +2147,6 @@ export default class Fizzy extends View {
   }
 
   dropComment(comment, cx) {
-    // Two clicks: the first only asks.
     if (this.armedComment !== comment.id) { this.armedComment = comment.id; cx.notify(); return null; }
     this.armedComment = null;
     this.detail.comments = this.detail.comments.filter(c => c.id !== comment.id);
@@ -2289,8 +2161,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // Marks one note read: it leaves the Inbox at once, Fizzy's answer follows. A refusal puts it back, and either way
-  // the inbox and the unread count are read again.
   markRead(note, cx) {
     this.inbox = (this.inbox ?? []).filter(n => n !== note);
     this.markSeen([note.id]); // touched here: the next poll must not announce it as new
@@ -2368,7 +2238,6 @@ export default class Fizzy extends View {
       }
       case "back": if (this.settingsOpen) this.settingsBack(cx); else if (d) this.goBack(cx); else this.search = null; break;
       case "settings": this.openSettings(cx); break;
-      // As the bar's buttons: the open card, else the selection, else (Board view) the board. send and start open their popups of sessions and agents.
       case "insert": case "copy": case "send": case "start": this.handOff(name, this.subject(), cx); break;
       case "new": if (this.board) this.newCardMenu(); break;
       case "search": this.openSearch(cx); break;
@@ -2411,13 +2280,11 @@ export default class Fizzy extends View {
       .child(label);
   }
 
-  // The photo a user has in the cache (a path as image() takes it), else null. The panel knows its own; a popup reads the shared map.
   photoPath(user) {
     const id = user?.id ?? people().users?.find(u => u.name === user?.name)?.id; // a creator that comes with no id: found by name
-    return (id != null && (this.paths ?? shared("fizzy.avatars"))?.[id]) || null;
+    return (id != null && this.paths?.[id]) || null;
   }
 
-  // A person: their photo, round, when it is cached; else a circle with their initials (the color is steady per person).
   avatar(t, user, size = 16) {
     const path = this.photoPath(user);
     if (path) return image(path).size(size).flex_none().rounded_full();
@@ -2429,7 +2296,6 @@ export default class Fizzy extends View {
     return div().flex_none().max_w(extra.max ?? 110).truncate().px(6).py(1).rounded(5).bg(extra.bg ?? t.raised).text_size(textPx(11)).text_color(t.muted).child(text);
   }
 
-  // A dim line of text, with Retry under an error.
   // `again`: what Retry does (else everything is read again); `id`: its id, when there can be several.
   status(t, text, cx, error = false, again = null, id = "fizzy-retry") {
     return v_flex().flex_none()
@@ -2439,7 +2305,6 @@ export default class Fizzy extends View {
         .child(svg(ICON("refresh")).size(14).flex_none().text_color(t.muted)).child("Retry")));
   }
 
-  // An agent's icon as the agents popup draws it: a tinted one follows the text color, the others are images.
   agentIcon(t, program, size = 14) {
     const path = program?.icon ?? "icons/agent.svg";
     return program?.tint ? svg(path).size(size).flex_none().text_color(t.muted) : image(path).size(size).flex_none();
@@ -2452,7 +2317,6 @@ export default class Fizzy extends View {
         .child(this.roundButton(t, "fizzy-back", "arrow-left", page ? "Settings" : "Back", cx => this.settingsBack(cx)))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(page?.title ?? "Settings"));
     }
-    // A card's page: Back, and the card's toggles and actions, all round, as Fizzy has them beside a card.
     if (this.detail) {
       const d = this.detail, c = d.card ?? d.summary, n = d.number;
       const pinned = this.pinOf(n), watching = this.watchOf(n), golden = c.golden;
@@ -2474,14 +2338,12 @@ export default class Fizzy extends View {
         .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-act-open", "external-link", "Open in Fizzy", c.url ? cx => cx.open_url(c.url) : null)))
         .child(this.roundButton(t, "fizzy-card-menu", "more", "More", cx => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx))));
     }
-    // Narrow, the search takes the header's place: Back and the field.
     if (this.search && !this.inlineSearch) {
       return h_flex().h(46).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
         .child(this.roundButton(t, "fizzy-search-back", "arrow-left", "Back", cx => this.closeSearch(cx)))
         .child(this.searchBox(t));
     }
-    // The search at the left, Fizzy and the views as one group in the middle, Refresh and Settings at the right: both sides
-    // share the room left over equally, so the group stays centered while they fit.
+    // Both sides flex equally, so the view group stays centered while they fit.
     return h_flex().h(46).flex_none().px(this.narrow ? 10 : 12).gap(this.narrow ? 4 : 8).items_center().border_b(1).border_color(t.border)
       .child(h_flex().flex_1().items_center()
         .child(this.inlineSearch ? this.searchBox(t) : this.roundButton(t, "fizzy-search-open", "search", "Search all boards", cx => this.openSearch(cx))))
@@ -2493,8 +2355,6 @@ export default class Fizzy extends View {
         .child(this.roundButton(t, "fizzy-open-settings", "settings", "Settings", cx => this.openSettings(cx))));
   }
 
-  // The search field, round like the list bar's: Enter searches every board (or opens `#number`), the x or Escape closes the
-  // search; its border is the accent while a search is open.
   searchBox(t) {
     const field = this.searchField, words = field.value() !== "";
     return div().id("fizzy-search").relative().flex_1().min_w(0)
@@ -2504,7 +2364,6 @@ export default class Fizzy extends View {
       .when(words, el => el.child(this.clearButton(t, "fizzy-search-clear", ROUND, cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); })));
   }
 
-  // A pill of the header's view group: a click shows `view`; lit while it shows (none is while search results show).
   viewPill(t, id, view) {
     const shown = this.view === view && !this.search;
     return h_flex().id(id).h(ROUND - 6).px(this.narrow ? 6 : this.wide ? 12 : 8).gap(5).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12))
@@ -2513,7 +2372,6 @@ export default class Fizzy extends View {
       .on_click((_e, cx) => this.setView(view, cx));
   }
 
-  // Fizzy, the group's first pill, shows the Board view: its icon, and its word only when wide.
   homeButton(t) {
     return this.viewPill(t, "fizzy-home", "board")
       .when(!this.wide, el => el.tooltip("Board"))
@@ -2521,8 +2379,7 @@ export default class Fizzy extends View {
       .when(this.wide, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
   }
 
-  // A round button of the board row, the list bar and a card's page: `action(cx)` on a click (none: dim, and no click); `on`: a
-  // filter that is on, in `color`.
+  // `action` null: dim, no click. `on`: a filter that is on, drawn in `color`.
   roundButton(t, id, icon, tip, action, { on = false, color = t.accent, size = ROUND } = {}) {
     return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded_full().border_1()
       .border_color(on ? color : t.input).text_color(on ? color : action ? t.muted : t.dim).tooltip(tip).on_mouse_down("left", stop)
@@ -2537,7 +2394,6 @@ export default class Fizzy extends View {
       { on, color: key === "golden" ? GOLD : t.accent });
   }
 
-  // What the Board view's filters keep, for filterCards; `filtering`: they or its field's words narrow the lanes.
   boardFilters() {
     const pinned = this.only.has("pinned") ? new Set((this.pins ?? []).map(p => p.number)) : null;
     return { mine: this.only.has("mine"), me: this.me, golden: this.only.has("golden"), pinned };
@@ -2547,15 +2403,12 @@ export default class Fizzy extends View {
     return Boolean(this.boardFilter.value().trim()) || this.only.size > 0;
   }
 
-  // Mine, Inbox (with the unread count) or Pins in the header's view group.
   viewButton(t, id, label) {
     return this.viewPill(t, `fizzy-view-${id}`, id)
       .child(label)
       .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(textPx(10)).text_color(t.accent_foreground).child(String(this.unread))));
   }
 
-  // The board row, as Fizzy's head: the board's name in the middle between two rules (a click picks another board; "following
-  // space" under it while the space's own board is followed), who can see the board at the left, Open in Fizzy at the right.
   boardBar(t, cx) {
     const current = this.boards?.find(b => b.id === this.board);
     const following = Boolean(this.follow && this.board && this.spaceBoard(cx) === this.board);
@@ -2578,7 +2431,6 @@ export default class Fizzy extends View {
     return view === "board" ? this.boardFilter : this.filter;
   }
 
-  // The x at the right end inside a field `height` px high with words: one click empties it.
   clearButton(t, id, height, clear) {
     const inset = (height - 20) / 2;
     return div().id(id).absolute().right(inset).top(inset).size(20).flex().items_center().justify_center().rounded_full().cursor_pointer().text_color(t.dim)
@@ -2587,8 +2439,6 @@ export default class Fizzy extends View {
       .child(svg(ICON("x")).size(12));
   }
 
-  // The foot of the Board, Mine and Pins lists while nothing is picked, in the board row's look: a round field that filters the
-  // list, and in the Board view the round filters (BOARD_FILTERS).
   listBar(t) {
     const field = this.filterOf(this.view), words = field.value() !== "";
     return h_flex().id("fizzy-list-bar").flex_none().px(12).py(6).gap(8).items_center()
@@ -2599,14 +2449,6 @@ export default class Fizzy extends View {
       .when(this.view === "board", el => el.children(BOARD_FILTERS.map(f => this.boardFilterButton(t, f))));
   }
 
-  // A card as Fizzy draws it. A head line: its number | its board on a tab in its lane's `color` at the card's top left (in a
-  // list that mixes lanes, its lane named too), then its step progress, Fizzy's inactivity warning, ↵ and ⋯. Its title in
-  // bold (a pin before it when pinned), its tags, then, in the lane's color, who made it and when, when it last changed and
-  // who it is assigned to, with their photos, and its comment count. A faint gold glow when golden, an accent border when picked.
-  // Compact (Settings > Cards): a smaller tab, without the board's name in a board's own lane; no tags; and one line under
-  // the title: the photos of who has it, when it last changed, and its comment count.
-  // Dragged, it is the card (every picked card, when it is one of them): onto another lane it moves there, into a terminal
-  // it drops its file.
   cardRow(t, card, lane, color) {
     const n = card.number, picked = this.selected.has(n), dragged = picked ? this.dragged(this.pickedNumbers()) : [card];
     const compact = this.compactCards;
@@ -2680,13 +2522,19 @@ export default class Fizzy extends View {
         .child(meta));
   }
 
-  // A lane's header: its color as a dot and a tint behind the row; its name, its count in a pill, and + for a new card.
+  // A lane's +: a new card there at once.
+  addButton(t, section) {
+    return div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
+      .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
+      .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.newCard(section.key, cx); })
+      .child(svg(ICON("plus")).size(13));
+  }
+
   sectionHeader(t, section, count, closed) {
-    const addable = section.kind === "column" || section.kind === "maybe", color = sectionColor(section);
+    const color = sectionColor(section);
     return h_flex().id(`fizzy-section-${section.key}`).h(34).flex_none().pl(10).pr(6).gap(8).items_center().cursor_pointer()
       .bg(tint(color, "26")).hover(s => s.bg(tint(color, "40")))
-      // A press on a column's header picks the column up (let go over another column, it moves there); any press here ends a
-      // stale drag (a card pressed earlier and released away from the panel).
+      // Any press here also clears a stale `pressed` (a card released away from the panel).
       .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
       .on_click((_e, cx) => this.toggleSection(section, cx))
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
@@ -2696,13 +2544,9 @@ export default class Fizzy extends View {
       .when(count != null, el => el.child(div().h(18).min_w(18).px(6).flex_none().flex().items_center().justify_center().rounded_full()
         .bg(t.raised).text_size(textPx(11)).text_color(t.muted).child(String(count))))
       .child(div().flex_1())
-      .when(addable, el => el.child(div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
-        .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
-        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.newCard(section.key, cx); })
-        .child(svg(ICON("plus")).size(13))));
+      .when(takesCards(section), el => el.child(this.addButton(t, section)));
   }
 
-  // The foot of a card New card just made: Discard deletes it, Done keeps it and goes back to the list.
   freshBar(t) {
     return h_flex().id("fizzy-fresh-bar").flex_none().px(12).py(8).gap(6).items_center()
       .child(this.textButton(t, "fizzy-fresh-discard", ICON("trash"), "Discard", (_e, cx) => this.discardFresh(cx)))
@@ -2716,16 +2560,14 @@ export default class Fizzy extends View {
     if (!columns) return [this.status(t, this.errors.board ? explain(this.errors.board) : "Loading…", cx, Boolean(this.errors.board))];
     const lazy = this.lazyOf(board), query = this.boardFilter.value(), out = [];
     const filtering = this.boardFiltering();
-    // A failed read keeps what was read before on screen, under the message.
     if (this.errors.board) out.push(this.status(t, explain(this.errors.board), cx, true));
     let total = 0;
     for (const section of this.boardSections(board)) {
       const { loaded, cards, shown } = this.laneCards(section, lazy, query);
-      // A filter shows every lane that holds a match, folded or not; the fold kept for the lane is left as it is.
       const closed = this.collapsedNow(section) && !(filtering && cards.length);
-      // Each lane is a block: a press let go anywhere in it, between its cards too, moves the card pressed there.
       const color = sectionColor(section);
       const lane = v_flex().id(`fizzy-lane-${section.key}`).flex_none().rounded(10).overflow_hidden().border_1().border_color(tint(color, "33"))
+        // Mouse-up anywhere in the lane, between cards too, drops the pressed card here.
         .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
         .child(this.sectionHeader(t, section, loaded ? cards.length : null, closed));
       out.push(lane);
@@ -2747,15 +2589,13 @@ export default class Fizzy extends View {
     return sections(this.columns.get(board) ?? [], this.cards.get(board) ?? [], { notNow: lazy.notNow ?? undefined, done: lazy.done ?? undefined });
   }
 
-  // A lane's cards as the filter leaves them, golden first, the rest in Fizzy's order (the sort is stable); `shown`: Done's first
-  // pages only. `loaded`: Not Now and Done are read only when they show.
+  // Golden first; the stable sort keeps Fizzy's order otherwise. `shown`: Done's first pages only.
   laneCards(section, lazy, query) {
     const loaded = section.kind === "not-now" ? Boolean(lazy.notNow) : section.kind === "done" ? Boolean(lazy.done) : true;
     const cards = filterCards(section.cards, query, this.boardFilters()).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
     return { loaded, cards, shown: section.kind === "done" ? cards.slice(0, lazy.shown) : cards };
   }
 
-  // Under a lane's cards: Not Now's or Done's read failing (with Retry) or under way, and Done's Show more.
   laneFoot(t, section, cards, loaded, lazy, cx) {
     const out = [], onDemand = section.kind === "done" || section.kind === "not-now";
     if (onDemand && lazy.errors[section.kind]) out.push(this.status(t, explain(lazy.errors[section.kind]), cx, true, cx => this.loadLane(section.kind, cx), `fizzy-retry-${section.key}`));
@@ -2767,9 +2607,6 @@ export default class Fizzy extends View {
     return out;
   }
 
-  // Fizzy's board: the columns side by side in the board's order, Not Now first and Done last. A folded column is a narrow pill
-  // (its count, its name read top to bottom); a click opens it, as many open at once as fit (openKeys), each scrolling on its
-  // own. A card let go anywhere over a column moves there; a column's head or pill let go over another column moves that column.
   boardColumns(t, cx) {
     const board = this.board;
     if (!board || !this.columns.get(board)) return v_flex().id("fizzy-list").flex_1().min_h(0).p(8).gap(8).children(this.boardList(t, cx));
@@ -2787,7 +2624,7 @@ export default class Fizzy extends View {
   }
 
   openColumn(t, section, { cards, shown, loaded, lazy }, cx) {
-    const color = sectionColor(section), addable = section.kind === "column" || section.kind === "maybe";
+    const color = sectionColor(section);
     const body = [
       ...(section.kind === "maybe" ? [this.watchBox(t)] : []),
       ...shown.map(card => this.cardRow(t, card, section.key, color)),
@@ -2803,16 +2640,10 @@ export default class Fizzy extends View {
         .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
         .when(section.kind !== "done", el => el.child(div().size(10).flex_none().rounded_full().bg(color)))
         .child(div().min_w(0).truncate().text_size(textPx(13)).font_semibold().child(section.name.toUpperCase()))
-        .when(addable, el => el.child(div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
-          .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
-          .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.newCard(section.key, cx); })
-          .child(svg(ICON("plus")).size(13)))))
+        .when(takesCards(section), el => el.child(this.addButton(t, section))))
       .child(v_flex().id(`fizzy-col-cards-${section.key}`).flex_1().min_h(0).overflow_y_scrollbar().gap(8).pr(4).children(body));
   }
 
-  // A folded lane as Fizzy draws it: a pill in its color (Not Now's and Done's gray) fading downwards, taller the more
-  // cards it holds (a circle when it holds none; as tall as it gets while Not Now or Done is not read), with its count at
-  // the top and its name read top to bottom; under it all, a faint line from below the name to the board's foot.
   foldedColumn(t, section, count) {
     const base = section.kind === "not-now" || section.kind === "done" ? PILL_GRAY : sectionColor(section);
     const text = section.name.toUpperCase(), label = this.label(text), [w, h] = labelBox(text);
@@ -2831,9 +2662,8 @@ export default class Fizzy extends View {
       .when(Boolean(label), el => el.child(svg(label).w(textPx(w)).h(textPx(h)).flex_none().text_color(t.foreground)));
   }
 
-  // The folded column under the pointer, drawn brighter. Leaving a column that is not the lit one changes nothing, so
-  // entering the next before leaving the last never ends with none lit.
-  // What of a kind is under the pointer (`field`: hoverCol, hoverStep): set as the pointer enters it, cleared as it leaves.
+  // Leaving an element that is not the current one changes nothing, so entering the next before leaving the last never
+  // ends with none set.
   setHover(field, key, hovered, cx) {
     const next = hovered ? key : this[field] === key ? null : this[field];
     if (next === this[field]) return;
@@ -2841,7 +2671,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // The head of Maybe?, as Fizzy's: Add a card, then who watches the board for new cards, and a button to watch it or stop.
   watchBox(t) {
     const ids = this.access.get(this.board)?.watching, me = this.me, watching = Boolean(me && ids?.includes(me));
     const users = people().users ?? [], watchers = (ids ?? []).map(id => users.find(u => u.id === id)).filter(Boolean);
@@ -2881,7 +2710,6 @@ export default class Fizzy extends View {
     return out;
   }
 
-  // What the search of every board found: a section per board, the cards as everywhere else.
   searchList(t, cx) {
     const hunt = this.search, out = [];
     if (hunt.q == null) return [this.status(t, "Press Enter to search every board, comments included.", cx)];
@@ -2918,7 +2746,6 @@ export default class Fizzy extends View {
       .child(h_flex().id("fizzy-read-all").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer().text_size(textPx(12)).text_color(t.muted).hover(s => s.bg(t.hover))
         .on_click((_e, cx) => this.readAll(cx)).child(svg(ICON("check")).size(13).flex_none()).child("Mark all read")));
     if (!this.inbox) { if (!this.errors.inbox) out.push(this.status(t, "Loading…", cx)); return out; }
-    // Only what's new: the unread notifications, newest first. A note marked read leaves the list.
     if (!this.inbox.length) out.push(this.status(t, "You're all caught up", cx));
     for (const note of this.inbox) {
       const meta = [noteCard(note) ? `#${note.card.number}` : null, note.card?.board_name, note.creator?.name, ago(note.created_at, now())].filter(Boolean).join(" · ");
@@ -2934,9 +2761,6 @@ export default class Fizzy extends View {
     return out;
   }
 
-  // One of the bar's four buttons, round like the list bar's: an icon (left out when the panel is narrow), a label, and, for
-  // the two that open a menu, a small chevron after the label; `tip` says what it does. `action` null: the button is dim and
-  // inert (no hover, no tooltip). The label is what gives way when the room runs out.
   barButton(t, id, icon, label, tip, action, menu = false) {
     const on = Boolean(action);
     return h_flex().id(id).h(ROUND).flex_1().min_w(0).px(8).gap(5).items_center().justify_center().overflow_hidden().rounded_full().border_1().border_color(t.input)
@@ -2947,7 +2771,6 @@ export default class Fizzy extends View {
       .when(menu, el => el.child(svg(ICON("chevron-down")).size(11).flex_none()));
   }
 
-  // A small dim label between two rules, as the board row sets the board's name.
   ruleLabel(t, id, ...parts) {
     const rule = () => div().flex_1().min_w(8).h(1).bg(t.border);
     return h_flex().id(id).flex_none().gap(10).items_center()
@@ -2956,12 +2779,6 @@ export default class Fizzy extends View {
       .child(rule());
   }
 
-  // The bar at the foot of the card view, and of a list with cards picked (⌘/Ctrl-click): what it is for between two rules,
-  // then four round buttons. They act on the open card, else on the picked cards. Nothing here ever submits:
-  //   Insert   pastes into the current chat; dragged into a terminal, it drops the cards' files there (dragCards)
-  //   Send ▾   opens the running sessions; the one picked is brought to the front and gets the paste
-  //   Start ▾  opens the agents to start; the one picked starts in a new tab and gets the paste once it is up
-  //   Copy     copies the reference
   handBar(t) {
     const subject = this.subject(), has = subject.length > 0;
     const act = kind => (has ? (_e, cx) => this.handOff(kind, this.subject(), cx) : null);
@@ -3103,7 +2920,6 @@ export default class Fizzy extends View {
         : [this.emptyRow(t, "fizzy-nogroup-empty")]));
   }
 
-  // Settings: the list of settings, each with what it is set to now; a click opens that setting's page.
   settingsView(t, cx) {
     const body = v_flex().id("fizzy-settings").flex_1().min_h(0).overflow_y_scrollbar().p(10).pb(14).gap(8)
       .when(Boolean(this.drag), el => el.cursor_grabbing());
@@ -3120,7 +2936,6 @@ export default class Fizzy extends View {
       .child(svg(ICON("chevron-right")).size(14).flex_none().text_color(t.dim))));
   }
 
-  // What a setting is set to, for its line in the list.
   settingSummary(id) {
     if (id === "cards") return this.compactCards ? "Compact" : "Full";
     if (id === "groups") {
@@ -3156,7 +2971,6 @@ export default class Fizzy extends View {
           .child(div().text_size(textPx(12)).text_color(t.muted).child(this.compactCards ? "On" : "Off"))));
   }
 
-  // A block of a setting's page: a title, what it says, and its controls.
   settingBlock(t, id, title, note, ...controls) {
     return v_flex().id(id).flex_none().p(12).gap(8).rounded(9).border_1().border_color(t.border).bg(t.surface)
       .child(div().font_medium().child(title))
@@ -3164,7 +2978,6 @@ export default class Fizzy extends View {
       .children(controls.filter(Boolean));
   }
 
-  // An on/off switch: `solid` and its knob at the right when on.
   switchView(t, id, on, toggle) {
     return h_flex().id(id).w(34).h(20).flex_none().px(2).items_center().rounded_full().cursor_pointer()
       .bg(on ? t.solid : t.raised).when(on, el => el.justify_end())
@@ -3198,20 +3011,18 @@ export default class Fizzy extends View {
   }
 
   detailView(base, cx) {
-    const t = { ...base, mono: cx.theme?.()?.typography?.mono }; // the code font, for richText
+    // For richText: the code font, and the people read once per draw (each shared() read copies the whole list).
+    const t = { ...base, mono: cx.theme?.()?.typography?.mono, users: people().users };
     const d = this.detail, c = d.card ?? d.summary, full = d.card;
     const read = Boolean(full && d.comments);
     const bare = !read && (Boolean(d.error) || (!full && !whole(d.summary)));
     const body = v_flex().id("fizzy-detail").flex_1().min_h(0).overflow_y_scrollbar().p(10).pb(16).gap(12);
     if (!bare) body.child(this.cardPage(t, c, read ? full : null));
     if (!read || d.error) body.child(this.status(t, d.error ? explain(d.error) : "Loading…", cx, Boolean(d.error)));
-    if (read) body.children(this.cardActions(t, full)).child(this.commentsSection(t, d));
+    if (read) body.children(this.cardActions(full)).child(this.commentsSection(t, d));
     return body;
   }
 
-  // The card as Fizzy draws it, framed in its lane's color: its tab (number | board) and Tags, its title, the lanes it can move
-  // to, its tags, then (once read whole, `full`) its description and steps, then who made it, when it changed and who has it.
-  // A faint gold glow when golden, as on the board.
   cardPage(t, c, full) {
     const color = laneColor(c);
     return div().id("fizzy-card-frame").flex_none().p(8).rounded(12).bg(tint(color, "33"))
@@ -3224,8 +3035,6 @@ export default class Fizzy extends View {
           .child(this.cardMeta(t, c, color))));
   }
 
-  // The card's tab at its top left, in its lane's color: "No." and its number | its board (a click moves the card to another
-  // board, as in Fizzy); then a round Tags button.
   cardTab(t, c, color) {
     const board = c.board?.name ?? "";
     return h_flex().gap(8).items_center()
@@ -3241,7 +3050,6 @@ export default class Fizzy extends View {
       .child(this.roundButton(t, "fizzy-tags", "tag", "Tags", Array.isArray(c.tags) ? () => openMenu({ kind: "tags", card: slim(c) }) : null, { size: 26 }));
   }
 
-  // The title, big and bold in a light tint of the lane's color (a click edits it), the lanes, and the tags.
   cardTop(t, c, color) {
     const size = textPx(this.wide ? 20 : 17), tags = c.tags ?? [];
     const title = this.editing === "title"
@@ -3254,13 +3062,11 @@ export default class Fizzy extends View {
         .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.editTitle(cx)).child(c.title ?? "");
     return v_flex().id("fizzy-detail-top").flex_none().gap(10)
       .child(title)
-      .child(this.laneStrip(t, c, color))
+      .child(this.laneStrip(c, color))
       .when(tags.length > 0, el => el.child(h_flex().id("fizzy-tag-list").flex_wrap().gap(4).children(tags.map(tag => this.chip(t, `#${tag}`, { max: 160 })))));
   }
 
-  // The lanes of the card's board in the board's order, its own filled in its color; a click on another moves the card there.
-  // Until the board's columns are known, its own alone.
-  laneStrip(t, c, color) {
+  laneStrip(c, color) {
     const here = laneOf(c), known = lanes(this.columns.get(c.board?.id ?? this.board) ?? []);
     const all = known.some(l => l.key === here) ? known : [{ key: here, name: laneName(c) }, ...known];
     const pill = (id, name) => div().id(id).h(24).px(10).flex_none().flex().items_center().rounded_full().text_size(textPx(11)).font_semibold().child(name.toUpperCase());
@@ -3272,8 +3078,6 @@ export default class Fizzy extends View {
           .on_click((_e, cx) => this.apply({ kind: "move", number: c.number, target: l.key }, cx)))));
   }
 
-  // Fizzy's card foot, in the lane's color: who made the card and when, when it last changed and who has it, their photos and
-  // the button that picks them (the whole of it opens the picker).
   cardMeta(t, c, color) {
     const who = c.assignees ?? [], upper = text => String(text ?? "").toUpperCase();
     const added = c.created_at ? daysAgo(c.created_at, now()) : "", changed = daysAgo(c.last_active_at, now());
@@ -3297,8 +3101,6 @@ export default class Fizzy extends View {
           .child(svg(ICON("user-plus")).size(13))));
   }
 
-  // Description: Fizzy's own HTML, or its plain text; editing is text with people and cards as tokens, and says so when that
-  // loses formatting.
   descSection(t, full) {
     const text = full.description?.trim() || htmlToText(full.description_html ?? "");
     const shown = this.editing === "desc"
@@ -3312,13 +3114,12 @@ export default class Fizzy extends View {
           .child(this.textButton(t, "fizzy-desc-cancel", null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
           .child(this.textButton(t, "fizzy-desc-save", null, "Save", (_e, cx) => this.saveDescription(cx), true)))
       : !text ? div().id("fizzy-desc-empty").text_size(textPx(13)).text_color(t.dim).child("No description")
-      : RICH && full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET, 14)
+      : full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET, 14)
       : this.plainLines("fizzy-desc-text", text, 14);
     return v_flex().id("fizzy-desc").flex_none().w_full().child(shown);
   }
 
-  // Ticking a step shows at once; Fizzy's answer (or its refusal) follows. The boxes are in the lane's color, as Fizzy's;
-  // a step's bin shows while the pointer is on the step, and an empty space of its size keeps the text's width meanwhile.
+  // An empty box holds the bin's place while it is hidden, so the step's text keeps its width.
   stepsSection(t, full, color) {
     const box = (done, child) => div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1().border_color(done ? color : tint(color, "99"))
       .when(done, el => el.bg(color)).when(Boolean(child), el => el.child(child));
@@ -3344,9 +3145,7 @@ export default class Fizzy extends View {
       .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(4).rounded(6).border_1().border_color(CLEAR).bg(t.background).text_size(textPx(13)).text_color(color))));
   }
 
-  // Under the card, as Fizzy's: Edit (the description) and Mark as Done (Reopen once it is done) in the lane's color, then when
-  // Fizzy moves the card to Not Now if nothing happens on it.
-  cardActions(t, full) {
+  cardActions(full) {
     const color = laneColor(full), n = full.number;
     const pill = (id, label, action) => div().id(id).h(32).px(18).flex_none().flex().items_center().rounded_full().cursor_pointer().bg(color)
       .text_size(textPx(13)).font_semibold().text_color(ON_LANE).hover(s => s.opacity(0.88))
@@ -3393,7 +3192,6 @@ export default class Fizzy extends View {
           .child(this.textButton(t, "fizzy-comment-send", ICON("send"), "Comment", (_e, cx) => this.sendComment(cx), true)))));
   }
 
-  // A comment as Fizzy draws it: the writer's photo beside a box holding their name, when, and what they wrote.
   commentBlock(t, cm) {
     const who = cm.creator ?? { name: "?" }, binId = `fizzy-comment-del-${cm.id}`;
     const own = Boolean(this.me) && who.id === this.me, editing = this.editing === "comment" && this.editId === cm.id;
@@ -3421,13 +3219,12 @@ export default class Fizzy extends View {
             .child(h_flex().justify_end().gap(6)
               .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
               .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
-          : div().w_full().child(RICH && cm.body?.html
+          : div().w_full().child(cm.body?.html
             ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET)
             : this.plainLines(`fizzy-comment-text-${cm.id}`, cm.body?.plain_text)))
         .when(!editing && this.reactions.has(cm.id), el => el.child(this.reactionsRow(t, cm))));
   }
 
-  // One chip per emoji with its count, yours outlined; a click on one toggles yours. Then the button that adds one.
   reactionsRow(t, cm) {
     const by = new Map();
     for (const r of this.reactions.get(cm.id)) by.set(r.content, [...(by.get(r.content) ?? []), r]);
@@ -3460,13 +3257,11 @@ export default class Fizzy extends View {
   richText(t, id, html, inset, size = 13) {
     const column = Math.max(120, (this.width ?? 360) - inset);
     return v_flex().id(id).w_full().text_size(textPx(size))
-      .children(richLines(html, people().users).map((line, i) => (line.file
+      .children(richLines(html, t.users).map((line, i) => (line.file
         ? this.richFile(t, `${id}-${i}`, line.file, column, i > 0)
         : this.richLine(t, `${id}-${i}`, line, i > 0 && line.gap))));
   }
 
-  // An image at its own aspect ratio, as wide as it is but no wider than `column`, with its caption; until it is on disk, a box of
-  // its size. Any other file, an image over IMAGE_MAX and one that would not download is a file.
   richFile(t, id, f, column, gap) {
     const file = !f.image || f.size > IMAGE_MAX || this.fileFailed.has(f.key);
     return v_flex().w_full().gap(4).items_start().when(gap, el => el.mt(8))
@@ -3490,7 +3285,6 @@ export default class Fizzy extends View {
       .child(image(path).size_full().rounded(6));
   }
 
-  // A paperclip, the file's name and size; a click saves it in Downloads (see saveFile).
   fileChip(t, id, f, column) {
     const size = fileSize(f.size);
     const tip = !f.sgid ? "Open in the browser" : isMarkdownName(f.filename) ? "Save to Downloads and open beside" : "Save to Downloads";
@@ -3526,7 +3320,6 @@ export default class Fizzy extends View {
       .child(h_flex().flex_1().min_w(0).flex_wrap().children(pieces.map((p, k) => this.richPiece(t, `${id}-${k}`, p))));
   }
 
-  // A mention bold in blue, a card reference bold in yellow (a click opens the card here), a link underlined (a click opens the browser).
   richPiece(t, id, p) {
     const color = { mention: t.ansi4, card: t.ansi3, link: t.accent }[p.kind];
     return div().min_w(0)
@@ -3547,8 +3340,7 @@ export default class Fizzy extends View {
     if (/^https?:\/\//i.test(url)) cx.open_url(url);
   }
 
-  // How an editor draws its tokens: a person bold in blue, a card bold in yellow, a file a small muted chip.
-  // A person whose mention id the panel has not learned is dim: saving keeps them as plain text, and nobody is told.
+  // Dim: a person with no learned mention id, saved as plain text without notifying them.
   tokenView(t) {
     const tagged = id => Boolean(this.mentionIds[id.slice("user:".length)]);
     return ({ token, selected, line_height }) => {
@@ -3655,7 +3447,6 @@ export default class Fizzy extends View {
       this.tagInput = InputState.new({ placeholder: "New tag…" });
       this.tagInput.on("submit", (_e, cx) => this.newTag(cx));
     }
-    // Typing goes on in the popup: the words narrow the people or the cards, Enter takes the one highlighted.
     if (PICKERS.has(menu.kind)) {
       this.looked = null; this.lookups = 0;
       this.tagInput = InputState.new({ placeholder: menu.kind === "mention" ? "Search people…" : "Card number or title…" });
@@ -3666,8 +3457,6 @@ export default class Fizzy extends View {
     }
   }
 
-  // A number typed in the Card popup that no card it was handed has is looked up once (`looked`, see cardRefRows), LOOKUP_DELAY ms
-  // after the typing stops.
   lookUpLater(cx) {
     const n = Number(/^\s*#?(\d+)\s*$/.exec(this.tagInput.value())?.[1]), asked = ++this.lookups;
     if (!n || this.looked?.number === n || this.menu.cards?.some(c => c.number === n)) return;
@@ -3705,15 +3494,14 @@ export default class Fizzy extends View {
   item(t, r, pick) {
     if (r.type === "sep") return div().h(1).mx(7).my(4).bg(t.border);
     if (r.type === "label") return div().px(9).pt(8).pb(4).text_size(textPx(11)).text_color(t.dim).child(r.label);
-    if (r.type === "note") return div().h(31).px(9).items_center().flex().text_color(t.dim).child(r.label);
+    if (r.type === "note") return div().h(ROW).px(9).items_center().flex().text_color(t.dim).child(r.label);
     const i = pick.indexOf(r), a = r.agent, tone = r.danger ? t.blocked : t.foreground;
-    // A person's row leads with their photo; the tick that says they are assigned follows the label.
     const icon = r.user ? this.avatar(t, r.user, 16)
       : r.checked ? svg(ICON("check")).size(14).flex_none().text_color(tone)
       : a ? this.agentIcon(t, a)
       : r.color ? div().w(14).flex_none().flex().items_center().justify_center().child(div().size(8).rounded_full().bg(r.color))
       : r.icon ? svg(r.icon).size(14).flex_none().text_color(r.danger ? t.blocked : t.muted) : div().w(14).flex_none();
-    return h_flex().id(`fizzy-menu-${r.id}`).h(31).flex_none().px(8).gap(9).rounded(7).items_center().text_color(tone)
+    return h_flex().id(`fizzy-menu-${r.id}`).h(ROW).flex_none().px(8).gap(9).rounded(7).items_center().text_color(tone)
       .when(i === this.at, el => el.bg(t.selected)).hover(s => s.bg(t.selected))
       .on_click((_e, cx) => this.choose(pick, i, cx))
       .child(icon).child(div().flex_1().min_w(0).truncate().child(r.label))
@@ -3723,6 +3511,7 @@ export default class Fizzy extends View {
 
   renderMenu() {
     const picker = PICKERS.has(this.menu.kind), query = picker ? this.tagInput.value() : "";
+    this.paths = shared("fizzy.avatars") ?? {}; // once per draw, not per person row: each read copies the whole map
     const t = theme(), rows = menuRows(this.menu, live({ known: this.known, checking: this.checking, failed: this.failed, armed: this.armed, query, looked: this.looked }));
     const pick = rows.filter(r => r.type === "row");
     this.pick = pick;
@@ -3730,9 +3519,7 @@ export default class Fizzy extends View {
     const kept = pick.findIndex(r => r.id === this.atId);
     this.at = kept >= 0 ? kept : Math.max(0, Math.min(this.at, pick.length - 1));
     this.atId = pick[this.at]?.id;
-    // A popup is as tall as its content, up to the height it asked for. The list scrolls, and a scroll area has
-    // no height of its own: left to its content the column is just its padding, an empty strip. So the column is
-    // as tall as its rows (at most the popup's inside) and the list fills it, scrolling if the rows outgrow it.
+    // A scroll area has no height of its own: the column gets one (its rows, at most the popup's inside) for the list to fill.
     const tags = FIELD_MENUS.has(this.menu.kind);
     return v_flex().id("fizzy-menu").track_focus(this.handle).w_full().h(Math.min(menuHeight(rows) + (tags ? INPUT_ROW : 0) - FRAME, this.most)).min_h(0).p(5).bg(t.popover).text_size(textPx(12.8))
       .on_key_down((e, cx) => {

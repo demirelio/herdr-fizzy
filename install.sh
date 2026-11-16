@@ -228,7 +228,6 @@ by_platform() {
 platform_key() { by_platform cmd-shift-j ctrl-shift-j; }
 # The key Herdr's default keymap binds to layout.switch.
 layout_key() { by_platform cmd-shift-l ctrl-shift-l; }
-# $1: the layout.
 switch_hint() {
   local key
   key="$(layout_key)"
@@ -535,7 +534,6 @@ install() {
     suggest_key
   fi
 
-  # fizzy-core is not offered without its tab bar, nor while a part is not in place.
   if [ "$tabs_plan" != none ] && [ "$put_failed" = 0 ]; then
     case "$layout_plan" in
       new|same)
