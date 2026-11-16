@@ -3,7 +3,7 @@
 // out only while it still has our action. The file is edited where it changes, never written again from its parsed
 // value, so every other byte stays as the person left it.
 //
-//   node merge-keys.mjs add|remove <our keys.json> <their keys.json> <backup folder> [--only <key>] [--dry-run]
+//   node merge-keys.mjs add|remove <our keys.json> <their keys.json> <backup folder> [--only <key>]... [--dry-run]
 //
 // Prints a line a key. A changed file is copied into the backup folder first, then replaced in one rename (through a
 // link, the file it points at). A file it can't read as keys is left alone, with why (and for add, what to add). Exits
@@ -199,11 +199,11 @@ export function describe({ section, key, as = key, action, outcome, was }, { dry
 const toAdd = wanted => Object.entries(wanted).map(([section, keys]) =>
   `add ${Object.entries(keys).map(([key, action]) => `${JSON.stringify(key)}: ${JSON.stringify(action)}`).join(", ")} to its ${JSON.stringify(section)} section`).join(" and ");
 
-// The members of `all` whose key is `key`, however its modifiers are written.
-function only(all, key) {
-  const picked = {};
-  for (const [section, keys] of Object.entries(all)) {
-    const hits = Object.entries(keys).filter(([k]) => chord(k) === chord(key));
+// The members of `all` whose key is one of `keys`, however its modifiers are written.
+function only(all, keys) {
+  const chords = new Set(keys.map(key => chord(key))), picked = {};
+  for (const [section, members] of Object.entries(all)) {
+    const hits = Object.entries(members).filter(([k]) => chords.has(chord(k)));
     if (hits.length) picked[section] = Object.fromEntries(hits);
   }
   return picked;
@@ -211,16 +211,18 @@ function only(all, key) {
 
 function main(argv) {
   const [mode, ours, theirs, backup] = argv, flags = argv.slice(4), dryRun = flags.includes("--dry-run");
-  const onlyKey = flags.includes("--only") ? flags[flags.indexOf("--only") + 1] : null;
-  if (!["add", "remove"].includes(mode) || !ours || !theirs || !backup || (flags.includes("--only") && !onlyKey)) {
-    console.error("usage: node merge-keys.mjs add|remove <our keys.json> <their keys.json> <backup folder> [--only <key>] [--dry-run]");
+  const onlyKeys = flags.flatMap((flag, i) => (flag === "--only" ? [flags[i + 1]] : []));
+  if (!["add", "remove"].includes(mode) || !ours || !theirs || !backup || onlyKeys.some(key => !key || key.startsWith("--"))) {
+    console.error("usage: node merge-keys.mjs add|remove <our keys.json> <their keys.json> <backup folder> [--only <key>]... [--dry-run]");
     return FAILED;
   }
-  const all = JSON.parse(readFileSync(ours, "utf8")), wanted = onlyKey ? only(all, onlyKey) : all;
-  if (!Object.keys(wanted).length) {
-    console.error(`keys: ${ours} suggests no ${onlyKey}`);
+  const all = JSON.parse(readFileSync(ours, "utf8"));
+  const missing = onlyKeys.filter(key => !Object.keys(only(all, [key])).length);
+  if (missing.length) {
+    console.error(`keys: ${ours} suggests no ${missing.join(", ")}`);
     return FAILED;
   }
+  const wanted = onlyKeys.length ? only(all, onlyKeys) : all;
   const file = realpathSync(theirs), before = readFileSync(file, "utf8");
   let merged;
   try { merged = mode === "add" ? addKeys(before, wanted) : removeKeys(before, wanted); }

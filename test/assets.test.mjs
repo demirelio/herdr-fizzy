@@ -8,6 +8,7 @@ import { makeCx, drawn as drawnBy, space, agent, ROOT, MOD_DIR, modFile } from "
 import { makeAccount, LAYOUT } from "./fizzy-fixtures.mjs";
 
 const { default: Fizzy } = await import(modFile("main.js"));
+const { REQUEST_EVERY } = await import(modFile("lib.js"));
 
 const ours = path => /^mods\/fizzy\//.test(path);
 const drawn = tree => all(tree, n => n.kind === "svg" || n.kind === "image").map(n => n.path);
@@ -71,8 +72,15 @@ async function panelPaths() {
     return fire(el, "on_click", { click_count: 1, modifiers: {}, ...event }, cx);
   };
 
-  // The board: the lanes opened, a selection (the bar of hand-offs: its four icons and the chevrons), then a golden card's detail.
+  // The board: the cards' step progress and comment counts read (the request timer), the board watched (Stop watching's
+  // icon), the lanes opened, a selection (the bar of hand-offs: its four icons and the chevrons), then a golden card's detail.
   let tree = await draw();
+  const requests = cx.timers.find(t => !t.after && t.ms === REQUEST_EVERY);
+  for (let i = 0; i < 3; i++) { await requests.fn(cx); await cx.settle(); }
+  press(tree, "fizzy-watch-toggle");
+  await cx.settle();
+  tree = await draw();
+  for (const name of ["circle-check", "message-square-text", "bell-off"]) assert.ok(drawn(tree).includes(`mods/fizzy/${name}.svg`), `the board draws ${name}.svg`);
   for (const id of ["not-now", "done"]) press(tree, `fizzy-section-${id}`);
   press(tree, "fizzy-card-101", { modifiers: { platform: true } });
   tree = await draw();
@@ -81,7 +89,7 @@ async function panelPaths() {
   // The filter with words (its clear button), then the search of every board (its field, then its results).
   panel.boardFilter.edit("login", cx);
   tree = await draw();
-  for (const name of ["search", "x", "user", "plus"]) assert.ok(drawn(find(tree, "fizzy-list-bar")).includes(`mods/fizzy/${name}.svg`), `the list bar draws ${name}.svg`);
+  for (const name of ["search", "x", "user", "star", "pin"]) assert.ok(drawn(find(tree, "fizzy-list-bar")).includes(`mods/fizzy/${name}.svg`), `the list bar draws ${name}.svg`);
   panel.boardFilter.edit("", cx);
   press(await draw(), "fizzy-search-open");
   panel.searchField.edit("login", cx);
@@ -143,7 +151,7 @@ async function panelPaths() {
   const menus = [{ kind: "card", card, columns }, { kind: "card", card, columns, pinned: true }, { kind: "card", card: { ...card, closed: true, golden: true }, columns, pinned: true, watching: true },
     { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "newCard", current: "b1" }, { kind: "agents", cards: [card] },
     { kind: "start", cards: [card] },
-    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }, { kind: "lanes", card, columns },
+    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card },
     { kind: "react", number: 101, comment: "cm1", mine: ["👍"] }, { kind: "mention", target: "comment" }, { kind: "cardref", target: "comment", cards: [{ number: 101, title: "T", board: "Roadmap" }] }];
   for (const menu of menus) {
     state.props = { menu, overlay: "o" };

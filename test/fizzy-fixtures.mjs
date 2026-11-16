@@ -4,7 +4,7 @@
 import { layoutWith, modFile } from "./helpers.mjs";
 import { state } from "./mocks/herdr.mjs";
 
-const { YAML_SCRIPT, AVATAR_SCRIPT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
+const { YAML_SCRIPT, AVATAR_SCRIPT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, WRITE_SCRIPT, JQ, SEARCH_CAP } = await import(modFile("lib.js"));
 
 export const LAYOUT = layoutWith({ active: "fizzy", children: ["files", "changes", "fizzy"] });
 
@@ -49,7 +49,6 @@ export const CLOSED_FROM = 4500;
 export const ACTIVITY_PAGE = 15;
 
 // opts.closed: how many extra closed cards board b1 has (to page through), numbered from CLOSED_FROM;
-// opts.pageSize: this fake's own page size, small so that a few cards make several pages;
 // opts.morePages: every page of closed cards says another follows, the last one too.
 export function makeAccount(opts = {}) {
   const a = {
@@ -91,9 +90,12 @@ export function makeAccount(opts = {}) {
     reactions: {},     // comment id -> its reactions ([{ id, content, reacter }])
     attachments: {},   // card number -> its attachments' sgids, in the order `card attachments download` numbers them
     clipboardImage: false, // the clipboard holds an image (what the paste script reads)
+    written: {}, // path -> the text WRITE_SCRIPT wrote there
+    watching: { b1: [TEAMMATE.id] }, // board id -> the ids of who watches it for new cards
+    access: { b1: { all: false, ids: [ME.id, TEAMMATE.id] } }, // board id -> every member can see it (all), else who can (ids)
     webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
-    pageSize: opts.pageSize ?? 15,
-    searchCap: opts.searchCap ?? SEARCH_CAP,
+    pageSize: 15,            // small, so that a few cards make several pages
+    searchCap: SEARCH_CAP,
     morePages: opts.morePages ?? false,
     createReturnsNumber: true,
     fail: null,        // (argv) => a failure result, or undefined: made-up trouble
@@ -119,6 +121,19 @@ export function makeAccount(opts = {}) {
     }
     if (a1 === "board" && a2 === "list") return ok(a.boards);
     if (a1 === "column" && a2 === "list") return ok(a.columns[flag(args, "--board")] ?? []);
+    // A column trades places with the next real column on that side; Maybe?, Not Now and Done keep theirs.
+    if (a1 === "column" && (a2 === "move-left" || a2 === "move-right")) {
+      for (const list of Object.values(a.columns)) {
+        const real = list.filter(c => !c.pseudo), i = real.findIndex(c => c.id === n), j = i + (a2 === "move-left" ? -1 : 1);
+        if (i < 0) continue;
+        if (j < 0 || j >= real.length) return ok(null);
+        [real[i], real[j]] = [real[j], real[i]];
+        let k = 0;
+        list.splice(0, list.length, ...list.map(c => (c.pseudo ? c : real[k++])));
+        return ok(null);
+      }
+      return failure("not_found", `Resource not found: column ${n}`);
+    }
     if (a1 === "search") {
       const words = (args[args.indexOf("--") + 1] ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       const text = c => [c.title, c.description, ...c.tags, ...(a.comments[c.number] ?? []).map(x => x.body.plain_text)].join(" ").toLowerCase();
@@ -165,7 +180,25 @@ export function makeAccount(opts = {}) {
     }
     if (a1 === "upload" && a2 === "file") return ok({ attachable_sgid: `sgid-upload-${++sequence}`, filename: n.split("/").pop() });
     if (a1 === "card" && a2 === "show") return find(n) ? ok(typed(find(n))) : failure("not_found", `Resource not found: https://app.fizzy.do/111/cards/${n}`);
-    if (a1 === "comment" && a2 === "list") return ok(a.comments[Number(flag(args, "--card"))] ?? []);
+    if (a1 === "comment" && a2 === "list") {
+      const list = a.comments[Number(flag(args, "--card"))] ?? [];
+      return ok(jq === JQ.count ? list.length : list);
+    }
+    // Who watches a board for new cards (`watching`: board id -> user ids), and the signed-in user watching it or not.
+    if (a1 === "board" && a2 === "accesses") {
+      const board = flag(args, "--board"), access = a.access[board] ?? { all: false, ids: [] };
+      return ok({ all: access.all, ids: access.all ? a.users.map(u => u.id) : access.ids.slice(), watching: (a.watching[board] ?? []).slice() });
+    }
+    if (a1 === "board" && a2 === "update") {
+      const access = a.access[n] ??= { all: false, ids: [] };
+      if (flag(args, "--all_access") != null) access.all = flag(args, "--all_access") === "true";
+      return ok(null);
+    }
+    if (a1 === "board" && a2 === "involvement") {
+      const list = (a.watching[n] ??= []).filter(id => id !== ME.id);
+      a.watching[n] = flag(args, "--involvement") === "watching" ? [...list, ME.id] : list;
+      return ok(null);
+    }
     if (a1 === "user" && a2 === "list") return ok(a.users);
     if (a1 === "tag" && a2 === "list") return ok(a.tags);
     if (a1 === "pin" && a2 === "list") return ok(a.pins.map(typed));
@@ -175,9 +208,7 @@ export function makeAccount(opts = {}) {
       const c = find(n);
       switch (a2) {
         case "create": {
-          const made = card(300 + ++sequence, flag(args, "--title"), a.boards.find(b => b.id === flag(args, "--board")), {
-            description: (flag(args, "--description") ?? "").replace(/<[^>]*>/g, ""), description_html: flag(args, "--description") ?? "",
-          });
+          const made = card(300 + ++sequence, flag(args, "--title"), a.boards.find(b => b.id === flag(args, "--board")));
           a.cards.push(made);
           return ok(a.createReturnsNumber ? { number: made.number, title: made.title } : null);
         }
@@ -270,6 +301,11 @@ export function makeAccount(opts = {}) {
       const [folder, name, ext] = params;
       return done(0, `${folder}/${name}${ext}`);
     }
+    if (script === WRITE_SCRIPT) {
+      const [path, text] = params;
+      a.written[path] = text;
+      return done(0);
+    }
     return null;
   }
 
@@ -314,7 +350,7 @@ export function makeAccount(opts = {}) {
   const unheld = new Promise(resolve => { unhold = resolve; });
   a.unhold = () => unhold();
 
-  const reads = new Set(["board list", "column list", "card list", "card show", "card attachments", "comment list", "user list", "tag list", "pin list", "identity show",
+  const reads = new Set(["board list", "board accesses", "column list", "card list", "card show", "card attachments", "comment list", "user list", "tag list", "pin list", "identity show",
     "notification tray", "config show", "search --", "activity list", "reaction list"]);
   a.writes = () => a.log.filter(args => !reads.has(`${args[0]} ${args[1]}`));
   a.asked = (...prefix) => a.log.filter(args => prefix.every((p, i) => args[i] === p));

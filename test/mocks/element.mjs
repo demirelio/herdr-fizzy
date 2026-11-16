@@ -10,8 +10,12 @@ const STYLES = new Set(`size size_full w h min_w min_h max_w max_h w_full h_full
 // More the Fizzy panel draws with (every one is a builder in Herdr's gpui-kit.d.ts).
 export const PANEL_STYLES = `whitespace_normal line_through flex_wrap italic text_ellipsis overflow_x_hidden overflow_y_hidden cursor_default
   self_center self_start items_baseline flex_shrink_0 justify_start text_left content_center gap_x gap_y flex_row items_stretch cursor_grabbing
-  token`.split(/\s+/);
+  token rounded_br max_w_full`.split(/\s+/);
 for (const name of PANEL_STYLES) STYLES.add(name);
+// The builders that take a value in gpui-kit.d.ts: Herdr fails the draw ("expected a number, got nil") when one has none.
+const VALUED = new Set(`size w h min_w min_h max_w max_h p px py pl pr pt pb mx my mt mb mr ml gap gap_x gap_y rounded rounded_br border_color bg
+  text_color text_size opacity flex_shrink top left right bottom line_height font_family font_weight border_b border_t border_l border_r
+  tooltip`.split(/\s+/));
 const HANDLERS = new Set(["on_click", "on_key_down", "on_key_up", "on_hover", "on_scroll_wheel", "on_size_change", "on_drop", "on_mouse_move", "on_mouse_down_out", "on_action"]);
 // Things a test runner or inspector may probe on any object.
 const PROBES = new Set(["then", "toJSON", "constructor", "valueOf", "toString", "inspect", "asymmetricMatch", "nodeType", "tagName", "$$typeof", "length"]);
@@ -37,6 +41,7 @@ export function makeElement(kind, extra = {}) {
     on_mouse_down: (button, fn) => { node.handlers[`on_mouse_down:${button}`] = fn; },
     on_mouse_up: (button, fn) => { node.handlers[`on_mouse_up:${button}`] = fn; },
     track_focus: handle => { node.focus = handle; },
+    drag_paths: (paths, options) => { node.dragPaths = paths; node.dragOptions = options; },
   };
   // What only a TextView has (TextViewElement in gpui-kit.d.ts): other elements still refuse these.
   if (kind === "textview") {
@@ -58,7 +63,13 @@ export function makeElement(kind, extra = {}) {
       }
       if (prop in methods) return (...args) => { methods[prop](...args); return proxy; };
       if (HANDLERS.has(prop)) return fn => { node.handlers[prop] = fn; return proxy; };
-      if (STYLES.has(prop)) return (...args) => { node.style[prop] = args.length > 1 ? args : args[0] ?? true; return proxy; };
+      if (STYLES.has(prop)) {
+        return (...args) => {
+          if (VALUED.has(prop) && args[0] === undefined) throw new Error(`${kind}.${prop}(): expected a value, got none`);
+          node.style[prop] = args.length > 1 ? args : args[0] ?? true;
+          return proxy;
+        };
+      }
       return () => { throw new Error(`${kind}.${prop}(): not a builder method on this mock's list`); };
     },
   });

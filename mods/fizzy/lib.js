@@ -6,7 +6,7 @@ export const POLL_VIEW = 30000, POLL_INBOX = 30000, CONCURRENCY = 6;
 // Notifications: how many toasts one poll posts at most, how many seen ids are kept, how long a toast's click
 // is waited for when it had to bring the panel up first (ms), and how long a toast stays.
 export const TOASTS = 3, SEEN_CAP = 300, PENDING_FOR = 60000, TOAST_FOR = 8000;
-// How often a panel looks for a popup's request when no draw does (a hidden panel is not drawn).
+// The period (ms) of the panel's request timer, which also runs while the panel is hidden and so not drawn.
 export const REQUEST_EVERY = 300;
 // "Start new session": how long (ms) a new session is waited for before the reference is only copied, and how long a
 // session that has appeared but is not idle yet is waited for before the reference is pasted anyway.
@@ -21,9 +21,9 @@ export const AGENTS = 6;
 // is fetched again, how long a photo that failed is left alone, how many are fetched at once, and how often the people are
 // read again (ms).
 export const AVATAR_DIR = "data/fizzy/avatars", AVATAR_TTL = 7 * 86400000, AVATAR_BACKOFF = 3600000, AVATAR_PARALLEL = 4, AVATAR_EVERY = 86400000;
-// The images in descriptions and comments: where they are cached (under the app's folder too), how many are downloaded at once,
-// and the largest one downloaded (bytes); a larger one is shown as a file.
-export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576, FILE_DAYS = 7;
+// FILE_DIR: images and the cards' .md files, deleted after FILE_DAYS. IMAGE_MAX (bytes): a larger image is drawn as a
+// file. FILE_TIMEOUT (ms): one upload or download.
+export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576, FILE_DAYS = 7, FILE_TIMEOUT = 5 * 60000;
 
 // `code` is the CLI's own ("auth_required", "not_found", "network", "forbidden", "rate_limit", "api_error", "usage"), or
 // ours: "MISSING" (the program would not start), "TIMEOUT" (Herdr stopped it) and "PARSE" (stdout was not the JSON
@@ -74,7 +74,6 @@ export function execFailure(error) {
   return new FizzyError(message, /took longer than/.test(message) ? "TIMEOUT" : "MISSING");
 }
 
-// What to tell the person about an error.
 export function explain(error) {
   if (typeof error === "string") return error;
   switch (error?.code) {
@@ -100,7 +99,7 @@ export function explainSearch(error) {
 // --jq projections: an answer cut down to the envelope's `ok` and the fields the panel reads. A failure's envelope passes
 // --jq untouched, so parseResult reads both alike.
 const COLUMN_JQ = '(.column | if type == "object" then {id, name, color} else null end)';
-const CARD_JQ = `{number, title, url, closed, postponed, golden, column: ${COLUMN_JQ}, board: (.board | if type == "object" then {id, name} else null end), tags: (.tags // []), assignees: [(.assignees // [])[] | {id, name, avatar_url}], last_active_at, description: ((.description // "") | .[0:300])}`;
+const CARD_JQ = `{number, title, url, closed, postponed, golden, column: ${COLUMN_JQ}, board: (.board | if type == "object" then {id, name} else null end), tags: (.tags // []), assignees: [(.assignees // [])[] | {id, name, avatar_url}], creator: (.creator | if type == "object" then {id, name, avatar_url} else null end), created_at, last_active_at, description: ((.description // "") | .[0:300])}`;
 const NOTE_JQ = `{id, title, body, read, created_at, creator: (.creator | if type == "object" then {id, name, avatar_url} else null end), card: (.card | if type == "object" then {number, title, url, closed, postponed, board_name, column: ${COLUMN_JQ}} else null end)}`;
 export const JQ = {
   cards: `{ok, data: [(.data // [])[] | ${CARD_JQ}]}`,
@@ -114,10 +113,12 @@ export const JQ = {
   mentions: '{ok, data: {html: [(.data // [])[] | .eventable | ((.body.html? // ""), (.description_html? // ""))] | map(select(contains("vnd.actiontext.mention"))) | unique, more: (.context.pagination.has_next // false)}}',
   // A card's attachments as their sgids, in the order `card attachments download` numbers them (from 1).
   attachments: "{ok, data: [(.data // [])[] | .sgid]}",
+  count: "{ok, data: ((.data // []) | length)}",
+  // { all: everyone on the team can see the board, ids: who can, watching: who of them watch it for new cards }
+  accesses: '{ok, data: {all: (.data.all_access // false), ids: [(.data.users // [])[] | select(.has_access) | .id], watching: [(.data.users // [])[] | select(.involvement == "watching") | .id]}}',
 };
 
-// The argv after "fizzy" for each command; withJson adds the --json. Every flag here but --jq, which
-// every command takes and only `fizzy --help` lists, is one `fizzy <command> --help` lists.
+// The argv after "fizzy" for each command; withJson adds --json. --jq is global: only `fizzy --help` lists it.
 export const cmd = {
   boards: () => ["board", "list", "--all"],
   columns: board => ["column", "list", "--board", board],
@@ -130,6 +131,10 @@ export const cmd = {
   search: q => ["search", "--jq", JQ.cards, "--", String(q ?? "").replace(/^\s*#?/, "").trim()],
   card: n => ["card", "show", String(n)],
   comments: n => ["comment", "list", "--card", String(n), "--all"],
+  commentCount: n => ["comment", "list", "--card", String(n), "--all", "--jq", JQ.count],
+  accesses: board => ["board", "accesses", "--board", board, "--jq", JQ.accesses],
+  watchBoard: (board, on) => ["board", "involvement", board, "--involvement", on ? "watching" : "access_only"],
+  boardForAll: (board, on) => ["board", "update", board, "--all_access", on ? "true" : "false"],
   users: () => ["user", "list", "--all"],
   tags: () => ["tag", "list", "--all"],
   pins: () => ["pin", "list", "--jq", JQ.cards],
@@ -137,9 +142,11 @@ export const cmd = {
   me: () => ["identity", "show"],
   activity: page => ["activity", "list", "--page", String(page), "--jq", JQ.mentions],
   config: () => ["config", "show", "--jq", JQ.config],
-  create: (board, title, html = "") => ["card", "create", "--board", board, "--title", title, ...(html ? ["--description", html] : [])],
-  update: (n, { title, html } = {}) => ["card", "update", String(n), ...(title != null ? ["--title", title] : []), ...(html != null ? ["--description", html] : [])],
+  create: (board, title) => ["card", "create", "--board", board, "--title", title],
+  // The CLI leaves the description as it is when --description is empty, so an emptied one is sent as an empty paragraph.
+  update: (n, { title, html } = {}) => ["card", "update", String(n), ...(title != null ? ["--title", title] : []), ...(html != null ? ["--description", html || "<p></p>"] : [])],
   column: (n, column) => ["card", "column", String(n), "--column", column],
+  shiftColumn: (id, right) => ["column", right ? "move-right" : "move-left", id],
   postpone: n => ["card", "postpone", String(n)],
   untriage: n => ["card", "untriage", String(n)],
   close: n => ["card", "close", String(n)],
@@ -185,7 +192,6 @@ export function laneOf(card) {
 }
 
 const LANE_NAMES = { maybe: "Maybe?", "not-now": "Not Now", done: "Done" };
-// The lane's name for people: the column's, or Maybe? / Not Now / Done.
 export function laneName(card) {
   const lane = laneOf(card);
   return LANE_NAMES[lane] ?? card?.column?.name ?? lane;
@@ -203,6 +209,21 @@ export function fullCard(card) {
   return {
     ...card, column: columnOf(card.column), assignees: card.assignees ?? [], tags: card.tags ?? [], steps: card.steps ?? [],
     description: card.description ?? "", description_html: card.description_html ?? "",
+  };
+}
+
+// Column `id` dropped on column `target` takes its place: { columns (the new order), steps (the CLI's one-place moves) },
+// or null when nothing moves. Maybe?, Not Now and Done keep their places.
+export function reorderColumns(columns, id, target) {
+  const real = columns.filter(c => !c.pseudo);
+  const from = real.findIndex(c => c.id === id), to = real.findIndex(c => c.id === target);
+  if (from < 0 || to < 0 || from === to) return null;
+  const moved = [...real];
+  moved.splice(to, 0, ...moved.splice(from, 1));
+  let next = 0;
+  return {
+    columns: columns.map(c => (c.pseudo ? c : moved[next++])),
+    steps: Array.from({ length: Math.abs(to - from) }, () => cmd.shiftColumn(id, to > from)),
   };
 }
 
@@ -275,11 +296,14 @@ export function sections(columns, open, extra = {}) {
 
 const tagTitle = t => (typeof t === "string" ? t : t?.title);
 // Cards whose words all appear (case does not matter) in the title, "#<number>", tags, assignees' names, column
-// name or description. `mine`: only cards assigned to `me` (a user id); with no `me` known none qualifies.
-export function filterCards(cards, query, { mine = false, me = null } = {}) {
+// name or description. `mine`: only cards assigned to `me` (a user id); with no `me` known none qualifies. `golden`: only
+// golden cards. `pinned`: only the cards whose numbers it holds (a Set).
+export function filterCards(cards, query, { mine = false, me = null, golden = false, pinned = null } = {}) {
   const words = String(query ?? "").toLowerCase().split(/\s+/).filter(Boolean), meId = idOf(me);
   return (cards ?? []).filter(c => {
     if (mine && !(meId && (c.assignees ?? []).some(u => u.id === meId))) return false;
+    if (golden && !c.golden) return false;
+    if (pinned && !pinned.has(c.number)) return false;
     if (!words.length) return true;
     const hay = [c.title, `#${c.number}`, ...(c.tags ?? []).map(tagTitle), ...(c.assignees ?? []).map(u => u.name), c.column?.name, c.description]
       .filter(Boolean).join("\n").toLowerCase();
@@ -297,14 +321,12 @@ export function meFrom(identity, account) {
 
 const flat = s => String(s ?? "").replace(/\s+/g, " ").trim();
 
-// A reference is what a hand-off puts in an agent's input (never submitted: the person presses Enter).
-// One line: Fizzy board "Roadmap" (https://app.fizzy.do/111/boards/00000000000000000000000b1)
+// What a hand-off pastes, one line: Fizzy board "Roadmap" (https://app.fizzy.do/111/boards/<id>)
 export function boardRef(board) {
   return `Fizzy board "${flat(board.name)}"${board.url ? ` (${board.url})` : ""}`;
 }
 
-// What the bar hands over is a card, or (in the Board view with no card open or picked) the board shown: { kind: "board", id, name, url }.
-// One line: Fizzy #4242 "Fix the login redirect" (https://app.fizzy.do/111/cards/4242)
+// One line: Fizzy #4242 "Fix the login redirect" (https://app.fizzy.do/111/cards/4242); `card` may be a board.
 export function ref(card) {
   if (card?.kind === "board") return boardRef(card);
   return `Fizzy #${card.number} "${flat(card.title)}"${card.url ? ` (${card.url})` : ""}`;
@@ -324,6 +346,10 @@ const MENTION_TYPE = "application/vnd.actiontext.mention";
 // An attachment in Fizzy's rich text: [1] its attributes, [2] what Fizzy put inside. A mention's inside is the person's photo,
 // <img title="<name>" src="/<account>/users/<user id>/avatar">, and their first name.
 const ATTACHMENT = /<action-text-attachment\b([^>]*)>([\s\S]*?)<\/action-text-attachment\s*>/gi;
+// Fizzy draws an attachment as a <figure> inside it. In a paragraph the figure can't stay there, so Fizzy's HTML closes the
+// paragraph before it: the attachment comes out empty, its figure (image, name, size, Download) after it, then an empty <p></p>.
+const PUSHED_FIGURE = /(<action-text-attachment\b[^>]*>\s*<\/action-text-attachment\s*>\s*<\/p\s*>)\s*<figure\b[^>]*>[\s\S]*?<\/figure\s*>(?:\s*<p>\s*<\/p\s*>)?/gi;
+const withoutPushedFigures = html => String(html ?? "").replace(PUSHED_FIGURE, "$1");
 const attrOf = (attrs, name) => new RegExp(`(?:^|\\s)${name}\\s*=\\s*"([^"]*)"`, "i").exec(attrs)?.[1];
 
 // A mention's { sgid, user }, or null for any other attachment. The user id is in the photo's address, else in the sgid, whose
@@ -519,7 +545,7 @@ const decode = s => s.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos|nbs
 // the token fileToken makes, which ends its paragraph.
 export function htmlToContent(html, users = []) {
   const found = [], slot = token => `${found.push(token) - 1}`;
-  const text = decode(slotFree(String(html ?? ""))
+  const text = decode(slotFree(withoutPushedFigures(html))
     .replace(/\s+/g, " ")
     .replace(ATTACHMENT, (whole, attrs, inner) => {
       const mention = mentionOf(attrs, inner);
@@ -565,7 +591,7 @@ const BLOCK_TAG = /^(?:p|div|table|tr|figure|figcaption|hr|section|article|heade
 // its own, { file, gap } (see fileOf); another attachment with an address is a link to it.
 export function richLines(html, users = []) {
   const atoms = [], slot = run => `${atoms.push(run) - 1}`;
-  const source = slotFree(String(html ?? ""))
+  const source = slotFree(withoutPushedFigures(html))
     .replace(ATTACHMENT, (whole, attrs, inner) => {
       const mention = mentionOf(attrs, inner);
       if (mention) {
@@ -794,7 +820,7 @@ export function htmlForView(html) {
 // textToHtml writes, the mentions, attachments and card links it writes back, the div Fizzy wraps it in and a plain ol; a
 // list inside a list item loses its nesting.
 export const formatted = html => {
-  const s = String(html ?? "").replace(ATTACHMENT, (whole, attrs, inner) => (mentionOf(attrs, inner) || attrOf(attrs, "sgid") ? "" : whole))
+  const s = withoutPushedFigures(html).replace(ATTACHMENT, (whole, attrs, inner) => (mentionOf(attrs, inner) || attrOf(attrs, "sgid") ? "" : whole))
     .replace(LINK, (whole, attrs) => (linkedCard(attrs) ? "" : whole));
   return /<\/?(?!(?:p|br|div|ul|ol|li)\b)[a-z]/i.test(s) || /<li\b(?:(?!<\/li\b)[\s\S])*<(?:ul|ol)\b/i.test(s);
 };
@@ -815,12 +841,8 @@ export function hue(id) {
 }
 
 // Fizzy's avatar URLs need no sign-in (they redirect to a signed link that lasts 300 s), and image() only draws files, so
-// each photo is fetched once into the app's folder and drawn from there.
-// AVATAR_SCRIPT fetches "$1" (an http(s) URL) into the folder "$2" as "$3.<ext>" and prints that file name. "$3" is "<user id>-<YYYYMMDD>":
-// the extension comes from the content type (png, jpg, webp, svg, gif; anything else, an error page for one, fails), and the
-// same user's other files (an older day, another format) are deleted once the new one is in place. It writes only in "$2", a
-// half-done download is "$2/.$3.part" and is removed on any failure, and it exits non-zero on any failure. Plain POSIX sh
-// (curl is the one program it runs besides mkdir, mv, rm, tr), run as sh -c SCRIPT fizzy <url> <folder> <base>.
+// each photo is fetched once into the app's folder. Run as sh -c AVATAR_SCRIPT fizzy <url> <folder> <avatarBase>; prints
+// the saved file name and deletes that user's older photos; any failure exits non-zero and leaves no partial file.
 export const AVATAR_SCRIPT = `case $1 in http://*|https://*) ;; *) exit 1;; esac
 d=$2; b=$3
 case $b in *[!A-Za-z0-9_-]*) exit 1;; esac
@@ -854,9 +876,8 @@ export function avatarBase(id, at = Date.now()) {
 // Is this a file name AVATAR_SCRIPT can have printed (what the index keeps, and what an image path is built from)?
 export const isAvatarFile = name => typeof name === "string" && /^[A-Za-z0-9_]+-\d{8}\.(?:png|jpg|webp|svg|gif)$/.test(name);
 
-// IMAGE_SCRIPT fetches "$1" (an image on the web) into the folder "$2" as "$3.<ext>" and prints that file name. "$3" is a
-// shortHash; the extension comes from the content type, and anything but an image Herdr draws, or one over IMAGE_MAX bytes, fails.
-// A half-done download is "$2/.$3.part", removed on any failure. Plain POSIX sh, run as sh -c SCRIPT fizzy <url> <folder> <base>.
+// Run as sh -c IMAGE_SCRIPT fizzy <url> <folder> <shortHash>; prints the saved file name. Anything but an image of IMAGE_TYPES,
+// or one over IMAGE_MAX bytes, fails and leaves no file.
 export const IMAGE_SCRIPT = `case $1 in http://*|https://*) ;; *) exit 1;; esac
 case $3 in ''|*[!0-9a-f]*) exit 1;; esac
 p="$2/.$3.part"
@@ -905,6 +926,47 @@ p="$d/$b$e"; i=2
 while [ -e "$p" ]; do p="$d/$b ($i)$e"; i=$((i + 1)); done
 printf %s "$p"`;
 
+// Run as sh -c WRITE_SCRIPT fizzy <path> <text>.
+export const WRITE_SCRIPT = 'mkdir -p "${1%/*}" && printf %s "$2" > "$1"';
+
+// A folded column's name, read top to bottom. Mods can't turn text, so it is an SVG file named after the text. labelBox is
+// its [width, height] in px, the height generous so the text is never cut.
+const LABEL_DIR = "data/fizzy/labels";
+export const LABEL_FONT = 12;
+export const labelFile = text => `${LABEL_DIR}/${shortHash(text)}.svg`;
+export const labelBox = text => [LABEL_FONT + 4, Math.ceil([...String(text)].length * LABEL_FONT * 0.82) + 4];
+export function labelSvg(text) {
+  const [w, h] = labelBox(text);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<text transform="translate(${Math.round(w * 0.24)} 2) rotate(90)" font-family="sans-serif" font-size="${LABEL_FONT}" font-weight="600"`
+    + ` letter-spacing="1.2" fill="#000">${escapeHtml(String(text))}</text></svg>`;
+}
+
+// The file a card dragged into a terminal drops; Herdr shows its name under the pointer while it is dragged.
+export function cardFile(card) {
+  const title = [...flat(card.title).replace(/[\u0000-\u001f\u007f]/g, "").replace(/[/\\]/g, "-")].slice(0, 60).join("").trim();
+  return `${FILE_DIR}/cards/#${card.number}${title ? ` ${title}` : ""}.md`;
+}
+
+// A card as markdown for an agent to start on; a card from a list has no steps until it is opened.
+export function cardMarkdown(card) {
+  const names = list => (list ?? []).map(x => flat(typeof x === "string" ? x : x?.title ?? x?.name)).filter(Boolean).join(", ");
+  const tags = names(card.tags), people = names(card.assignees), description = String(card.description ?? "").trim();
+  const facts = [
+    card.board?.name && `Board: ${flat(card.board.name)}`,
+    `Lane: ${laneName(card)}`,
+    tags && `Tags: ${tags}`,
+    people && `Assigned to: ${people}`,
+    card.url && `Link: ${card.url}`,
+  ].filter(Boolean);
+  const steps = (card.steps ?? []).map(s => `- [${s.completed ? "x" : " "}] ${flat(s.content)}`);
+  return [
+    `# Fizzy #${card.number}: ${flat(card.title)}`, "", ...facts,
+    ...(description ? ["", description] : []),
+    ...(steps.length ? ["", "## Steps", ...steps] : []),
+  ].join("\n") + "\n";
+}
+
 // Every user in what the CLI answered that has a photo, once each: [{ id, url }] (assignees, creators, authors, the people list).
 export function photosIn(data) {
   const found = new Map();
@@ -923,6 +985,15 @@ export function photosIn(data) {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const stamp = x => (x instanceof Date ? x.getTime() : typeof x === "number" ? x : new Date(x).getTime());
+// How many calendar days ago, as Fizzy's cards say it: "today", "yesterday", "8 days ago"; "" when unknown.
+export function daysAgo(iso, now) {
+  const t = stamp(iso), n = stamp(now ?? Date.now());
+  if (!iso || Number.isNaN(t) || Number.isNaN(n)) return "";
+  const day = ms => { const d = new Date(ms); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); };
+  const days = Math.max(0, Math.round((day(n) - day(t)) / 86400000));
+  return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 // How long ago: "now", "5m", "3h", "2d", then the date ("Mar 4", with the year when it isn't this one).
 export function ago(iso, now) {
   const t = stamp(iso), n = stamp(now ?? Date.now());
@@ -940,17 +1011,34 @@ export function ago(iso, now) {
 
 const DAY = 86400000;
 const dayStart = ms => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
-// Fizzy's warning on an open card that is not postponed, as its card bubble decides it: "Closes in N days" once fewer days
-// than a quarter of the board's auto-postpone period (`period`, in days) are left, counted in calendar days; else "Stalled"
-// when Fizzy lists the card as stalled. { kind: "closing" | "stalled", label } or null.
-export function inactivity(card, { period, stalled = false, now }) {
+// Calendar days before Fizzy moves an idle open card to Not Now (`period`: the board's, in days); null when unknown.
+export function daysToPostpone(card, { period, now }) {
   if (card?.closed || card?.postponed) return null;
   const last = stamp(card?.last_active_at);
-  if (period > 0 && !Number.isNaN(last)) {
-    const left = Math.round((dayStart(last + period * DAY) - dayStart(stamp(now))) / DAY);
-    if (left < Math.round(period * 0.25)) return { kind: "closing", label: left < 1 ? "Closes today" : `Closes in ${left}d` };
-  }
-  return stalled ? { kind: "stalled", label: "Stalled" } : null;
+  if (!(period > 0) || Number.isNaN(last)) return null;
+  return Math.round((dayStart(last + period * DAY) - dayStart(stamp(now))) / DAY);
+}
+
+// Fizzy's warning, as its card bubble decides it: closing once under a quarter of the period is left, else stalled when
+// Fizzy lists the card so. { kind: "closing" | "stalled", label } or null.
+export function inactivity(card, { period, stalled = false, now }) {
+  const left = daysToPostpone(card, { period, now });
+  if (left != null && left < Math.round(period * 0.25)) return { kind: "closing", label: left < 1 ? "Closes today" : `Closes in ${left}d` };
+  return !card?.closed && !card?.postponed && stalled ? { kind: "stalled", label: "Stalled" } : null;
+}
+
+export function postponeNote(left) {
+  if (left == null) return null;
+  const when = left < 1 ? "today" : `in ${left} ${left === 1 ? "day" : "days"}`;
+  return `Moves to “Not Now” ${when} if there’s no activity.`;
+}
+
+// A #rrggbb color moved `amount` (0 to 1) of the way to white; anything else as it is.
+export function lighten(hex, amount) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex ?? "");
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  return `#${[16, 8, 0].map(s => (n >> s) & 255).map(v => Math.round(v + (255 - v) * amount).toString(16).padStart(2, "0")).join("")}`;
 }
 
 // Walks from "$1" up to / and prints the `board:` line of the first .fizzy.yaml it finds, and nothing else of the file (it may
@@ -986,8 +1074,7 @@ export function parseYaml(text) {
   return out;
 }
 
-// The board to show: the space's own when following, else the one picked, else the CLI's default, else the first.
-// Only boards that exist count (`boards`: [{ id, name }]).
+// `fallback`: the CLI's default board.
 export function chooseBoard({ boards, follow, spaceBoard, picked, fallback }) {
   const has = id => !!id && (boards ?? []).some(b => b.id === id);
   if (follow && has(spaceBoard)) return spaceBoard;
@@ -999,7 +1086,8 @@ export function chooseBoard({ boards, follow, spaceBoard, picked, fallback }) {
 // Board groups: how the board dropdown is organised (kept in shared state `fizzy.boardGroups`).
 //   { groups: [{ id, name, match, hidden }],            ordered; `match`: "" (members are put there by hand) or a text, and a board
 //                                                        whose name contains it (case does not matter) is in the group
-//     boards: { [boardId]: { group?, hidden? } } }      `group`: a group's id, or null for "No group" by choice; absent: Automatic
+//     boards: { [boardId]: { group?, hidden? } },       `group`: a group's id, or null for "No group" by choice; absent: Automatic
+//     order?: [boardId] }   every board's place, set once a board is dropped on another (placeBoardAt)
 // "Hidden" only takes a board out of the board dropdown: Mine, Search all boards, Follow current space and the board the panel
 // shows are not affected. Every edit returns a NEW config (the one given is never changed); an edit that cannot be made (an empty
 // name, a group that is not there) returns the config it was given.
@@ -1023,7 +1111,8 @@ export function groupsConfig(raw) {
     if (e?.hidden === true) entry.hidden = true;
     if (Object.keys(entry).length) boards[id] = entry;
   }
-  return { groups, boards };
+  const order = Array.isArray(raw.order) ? [...new Set(raw.order.filter(id => typeof id === "string" && id))] : [];
+  return order.length ? { groups, boards, order } : { groups, boards };
 }
 
 const entryOf = (config, id) => (Object.hasOwn(config.boards ?? {}, id) ? config.boards[id] : undefined);
@@ -1038,13 +1127,11 @@ export function choiceOf(boardId, config) {
   return "auto";
 }
 
-// The first group, in order, whose rule the board's name satisfies; null when none does.
 export function ruleGroupOf(board, config) {
   const name = String(board?.name ?? "").toLowerCase();
   return config.groups.find(g => g.match && name.includes(g.match.toLowerCase())) ?? null;
 }
 
-// The group a board is in: the one chosen for it; when none is, the one its name's rule picks; else null.
 export function groupOf(board, config) {
   const choice = choiceOf(board?.id, config);
   if (choice === null) return null;
@@ -1052,14 +1139,20 @@ export function groupOf(board, config) {
   return ruleGroupOf(board, config);
 }
 
-// The boards as the dropdown shows them, in the list's order: { ungrouped: [board], groups: [{ group, boards: [board] }] }, the groups
-// in their own order. A hidden board, and a hidden group with what is in it, are left out; `withHidden` leaves nothing out.
+// The boards in the order Settings gave them (`order`), then the boards it has not placed, in the list's order.
+function sortBoards(boards, config) {
+  const rank = new Map((config.order ?? []).map((id, i) => [id, i])), last = rank.size;
+  return [...(boards ?? [])].sort((a, b) => (rank.get(a.id) ?? last) - (rank.get(b.id) ?? last));
+}
+
+// The boards as the dropdown shows them: { ungrouped: [board], groups: [{ group, boards: [board] }] }, in sortBoards'
+// order. A hidden board, and a hidden group with what is in it, are left out; `withHidden` leaves nothing out.
 // `keep`: a board (the one the panel shows) that is never left out, with its group (so the tick on it never vanishes).
 // The third argument is `{ withHidden, keep }`, or just `true` for `withHidden`.
 export function boardGroups(boards, config, options = {}) {
   const { withHidden = false, keep = null } = options && typeof options === "object" ? options : { withHidden: Boolean(options) };
   const ungrouped = [], by = new Map(config.groups.map(g => [g.id, []]));
-  for (const b of boards ?? []) {
+  for (const b of sortBoards(boards, config)) {
     const group = groupOf(b, config);
     if (!withHidden && b.id !== keep && (ownHidden(b.id, config) || group?.hidden)) continue;
     (group ? by.get(group.id) : ungrouped).push(b);
@@ -1080,7 +1173,6 @@ function withBoard(config, id, patch) {
   return { ...config, boards };
 }
 
-// A new group, first, with no rule and shown. Its id is `g-<n>`, one that no group has.
 export function addGroup(config, name) {
   const text = String(name ?? "").trim();
   if (!text) return config;
@@ -1092,7 +1184,6 @@ export function renameGroup(config, id, name) {
   const text = String(name ?? "").trim();
   return text ? mapGroup(config, id, g => ({ ...g, name: text })) : config;
 }
-// The rule: "" is none.
 export const setMatch = (config, id, text) => mapGroup(config, id, g => ({ ...g, match: String(text ?? "").trim() }));
 export const setGroupHidden = (config, id, hidden) => mapGroup(config, id, g => ({ ...g, hidden: Boolean(hidden) }));
 // The group goes; the boards that were put in it by hand go back to Automatic.
@@ -1114,6 +1205,18 @@ export function moveBoard(config, boardId, to) {
 export function placeBoard(config, board, to) {
   const rule = ruleGroupOf(board, config)?.id ?? null;
   return moveBoard(config, board.id, to === rule ? "auto" : to);
+}
+// The boards, hidden ones too, in the order Settings lists them: each group's in the groups' order, then those in no group.
+export function listedBoards(boards, config) {
+  const { ungrouped, groups } = boardGroups(boards, config, true);
+  return [...groups.flatMap(g => g.boards), ...ungrouped];
+}
+// A board dropped on another's row joins its group and takes its place; from then on `order` places every board.
+export function placeBoardAt(config, boards, board, target) {
+  const ids = listedBoards(boards, config).map(b => b.id), from = ids.indexOf(board.id), to = ids.indexOf(target.id);
+  if (from < 0 || to < 0 || from === to) return config;
+  ids.splice(to, 0, ...ids.splice(from, 1));
+  return { ...placeBoard(config, board, groupOf(target, config)?.id ?? null), order: ids };
 }
 export const setBoardHidden = (config, boardId, hidden) => withBoard(config, boardId, { hidden: Boolean(hidden) });
 // A group takes the position of another: it lands before the target when it moves up, after it when it moves down. An id that is not
@@ -1157,7 +1260,6 @@ export function fizzyVisible(root) {
   return !findNode(root, "panel")?.hidden && body.active === "fizzy";
 }
 
-// A notification: { id, title, body, source_type, read, creator: { name }, card: { number, title, board_name, url }, created_at }
 const noteTime = note => {
   const t = Date.parse(note?.created_at);
   return Number.isNaN(t) ? 0 : t;
@@ -1166,7 +1268,6 @@ const noteTime = note => {
 export function unreadNotes(notes) {
   return (notes ?? []).filter(n => !n.read).sort((a, b) => noteTime(b) - noteTime(a));
 }
-// Oldest first (the order toasts are posted in).
 export const oldestFirst = notes => [...(notes ?? [])].sort((a, b) => noteTime(a) - noteTime(b));
 
 // The card a notification is about, or null when it has none (Fizzy numbers a missing one 0).
@@ -1211,15 +1312,16 @@ export function noteReady(root, before) {
 
 // A menu row is { type: "row", id, label, icon, hint?, checked?, danger?, color?, agent?, act }; `act` says
 // what choosing it does:
+// No act submits: a hand-off only pastes text into an agent's input.
 //   { request: op }           a Fizzy write, done by the panel (ops below)
-//   Nothing here ever submits: each hand-off only pastes text into an agent's input.
 //   { insert: text }          into the current chat (the agent in view) | { paste: { address, text } } into that session, brought to focus first
 //   { start: { name, argv, text, agent } }  a new tab with an agent (`agent`: its name), the text pasted once it is ready
 //   { copy: text } | { open: url }
-//   { choose: { follow, board, compose? } }    the board picker's answer (board null: keep the picked one); `compose`: New card's, which also opens the new-card field
+//   { choose: { follow, board, compose? } }    the board picker's answer (board null: keep the picked one); `compose`: New card's, which then makes a card on that board
 //   { menu: next }            closes this popup, opens another | { arm: rowId }  re-render with that row armed
 // ops: { kind: "move", number, target } | { kind: "golden"|"pin"|"watch", number, on } | { kind: "selfAssign", number }
 //   | { kind: "assign", number, user } | { kind: "tag", number, name } | { kind: "moveBoard", number, board }
+//   | { kind: "boardForAll", board, on } (every member of the team can see the board, or only the people given it)
 //   | { kind: "remove", number } | { kind: "reopen", number } | { kind: "react", number, comment, content } (toggles yours)
 //   | { kind: "mention", target, user, name } | { kind: "cardref", target, number, title } (a person's or a card's token into an
 //     editor: "comment", "commentEdit" or "desc"; nothing is written)
@@ -1233,8 +1335,8 @@ const label = (id, text) => ({ type: "label", id, label: text });
 const note = (id, text) => ({ type: "note", id, label: text });
 const sep = id => ({ type: "sep", id });
 
-// ctx: { agents, focused, known, checking, failed, boards, groups (the saved board groups), users, tags, me, mentionable, armed }, read live by the
-// caller (`agents`: running agents; `known`: knownAgents(), the ones that can be started; `mentionable`: the ids of the users the panel can mention).
+// ctx, read live by the caller: { agents (running), focused, known (knownAgents(): the ones that can be started), checking,
+// failed, boards, groups (the saved board groups), users, tags, me, mentionable (user ids), armed, query, looked }.
 // A card menu opened by the panel carries `to`: the label of the agent its Insert goes to (null: it copies), and `pinned` and
 // `watching` (true or false) when it knows them; a toggle row offers both verbs while its state is missing.
 export function menuRows(menu, ctx = {}) {
@@ -1245,9 +1347,9 @@ export function menuRows(menu, ctx = {}) {
     case "agents": return agentRows(menu, ctx);
     case "start": return startRows(menu, ctx);
     case "users": return menu.card ? userRows(menu, ctx) : [];
+    case "access": return accessRows(menu, ctx);
     case "tags": return menu.card ? tagRows(menu, ctx) : [];
     case "moveBoard": return menu.card ? moveBoardRows(menu, ctx) : [];
-    case "lanes": return menu.card ? laneRows(menu.card, menu.columns) : [];
     case "react": return menu.comment ? reactRows(menu) : [];
     case "mention": return mentionRows(menu, ctx);
     case "cardref": return cardRefRows(menu, ctx);
@@ -1267,7 +1369,6 @@ function groupedBoards(menu, ctx, pick) {
   ];
 }
 
-// Follow current space, then the boards.
 function boardRows(menu, ctx) {
   const own = (ctx.boards ?? []).find(b => b.id === menu.spaceBoard);
   const pick = b => row(`board-${b.id}`, b.name, null, { choose: { follow: false, board: b.id } }, { checked: !menu.follow && b.id === menu.current });
@@ -1280,13 +1381,11 @@ function boardRows(menu, ctx) {
   ];
 }
 
-// The boards, each opening the new-card field on it; the one the panel shows is ticked.
 function newCardRows(menu, ctx) {
   const pick = b => row(`board-${b.id}`, b.name, null, { choose: { follow: false, board: b.id, compose: true } }, { checked: b.id === menu.current });
   return [label("new-label", "New card on"), ...groupedBoards(menu, ctx, pick)];
 }
 
-// One row per lane: choosing it moves the card there.
 function laneRows(card, columns) {
   const here = laneOf(card);
   return lanes(columns).map(l => row(`lane-${l.id}`, l.name, null, { request: { kind: "move", number: card.number, target: l.id } }, { checked: l.id === here, color: l.color ?? undefined }));
@@ -1294,7 +1393,6 @@ function laneRows(card, columns) {
 
 function cardRows(menu, ctx) {
   const { card } = menu, n = card.number, meId = idOf(ctx.me);
-  // Where Insert goes: the agent in view, as the panel said when it opened the menu (`to`), else as it is now.
   const inView = targetAgent({ agents: ctx.agents, focused: ctx.focused });
   const target = "to" in menu ? menu.to : inView ? agentLabel(inView) : null;
   const mine = !!meId && (card.assignees ?? []).some(u => u.id === meId);
@@ -1326,8 +1424,7 @@ function cardRows(menu, ctx) {
   ];
 }
 
-// The running agent sessions, the one Insert would use first, the rest as agents() lists them (space, tab). Choosing one
-// brings that session to focus and pastes the cards' references into it (not submitted).
+// The agent Insert would use first, then the rest as agents() lists them.
 function agentRows(menu, ctx) {
   const list = ctx.agents ?? [], target = targetAgent({ agents: list, focused: ctx.focused });
   const ordered = target ? [target, ...list.filter(a => a.address !== target.address)] : list;
@@ -1338,8 +1435,7 @@ function agentRows(menu, ctx) {
   ];
 }
 
-// The agents that can be started (installed ones), each opening a new tab with no first message; the cards' references are
-// pasted into the new session once it is ready (not submitted).
+// The installed agents; each new tab starts with no first message.
 function startRows(menu, ctx) {
   const installed = (ctx.known ?? []).filter(a => a.installed).slice(0, AGENTS);
   const name = menu.cards?.[0] ? tabName(menu.cards[0]) : "", text = refs(menu.cards);
@@ -1365,8 +1461,25 @@ function userRows(menu, ctx) {
   ];
 }
 
+// The CLI can't add or take away one person, so a person's row, and the last one, open the board in Fizzy.
+function accessRows(menu, ctx) {
+  if (ctx.users == null) return [note("users-note", "Loading people…")];
+  const meId = idOf(ctx.me), can = new Set(menu.ids ?? []);
+  const people = activePeople(ctx.users, meId).filter(u => menu.all || can.has(u.id));
+  const fizzy = menu.url ? { open: menu.url } : null, you = u => (meId && u.id === meId ? "you" : undefined);
+  return [
+    row("access-all", "Everyone on the team", ICON("users"), { request: { kind: "boardForAll", board: menu.board, on: !menu.all } }, { checked: Boolean(menu.all) }),
+    sep("sep-access"),
+    label("access-who", menu.all ? "Everyone can see it" : `${people.length} ${people.length === 1 ? "person" : "people"} can see it`),
+    ...people.map(u => (fizzy
+      ? row(`user-${u.id}`, u.name, null, fizzy, { user: { id: u.id, name: u.name }, hint: you(u) })
+      : note(`user-${u.id}`, u.name))),
+    ...(fizzy ? [sep("sep-fizzy"), row("access-fizzy", "Change who can see it in Fizzy", ICON("external-link"), fizzy)] : []),
+  ];
+}
+
 // Someone the panel has no mention id for yet "can't tag yet": their "@<name>" is saved as plain text.
-// `ctx.query`: the words typed in the popup's field; a person stays when their name holds them.
+// `ctx.query`: what is typed in the popup's field; a person stays when their name contains it.
 function mentionRows(menu, ctx) {
   if (ctx.users == null) return [note("users-note", "Loading people…")];
   const meId = idOf(ctx.me), known = new Set(ctx.mentionable ?? []), q = String(ctx.query ?? "").trim().toLowerCase();

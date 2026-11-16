@@ -86,8 +86,15 @@ test("TextView.html makes an element with that id that carries the html and take
 
 test("the builders the Fizzy panel adds are accepted, and a made-up one still fails", () => {
   assert.ok(PANEL_STYLES.length > 0);
-  for (const name of PANEL_STYLES) assert.equal(nodeOf(makeElement("div")[name]()).style[name], true, name);
+  for (const name of PANEL_STYLES) assert.equal(nodeOf(makeElement("div")[name](4)).style[name], 4, name);
   assert.throws(() => makeElement("div").wobble_sideways(2), /not a builder method/);
+});
+
+test("a builder that takes a value fails without one, as Herdr's does; one that takes none needs none", () => {
+  for (const name of ["flex_shrink", "w", "gap_x", "rounded_br", "text_size", "tooltip"]) {
+    assert.throws(() => makeElement("div")[name](), /expected a value, got none/, name);
+  }
+  assert.equal(nodeOf(makeElement("div").flex_1().border_1().rounded_full()).style.rounded_full, true);
 });
 
 test("a cx has timer.after, the clipboard it wrote, and open_url", () => {

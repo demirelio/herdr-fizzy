@@ -15,12 +15,12 @@ import {
 
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
-  FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, lanes, sections, filterCards, colorOf, meFrom,
-  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, inactivity,
-  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX,
+  FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, reorderColumns, lanes, sections, filterCards, colorOf, meFrom,
+  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, daysAgo, inactivity, daysToPostpone, postponeNote, lighten,
+  mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown, cardFile,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
-  defaultGroups, groupsConfig, choiceOf, groupOf, ruleGroupOf, ownHidden, boardGroups, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, moveBoard, placeBoard, moveGroup, setBoardHidden,
+  defaultGroups, groupsConfig, choiceOf, groupOf, ruleGroupOf, ownHidden, boardGroups, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, moveBoard, placeBoard, placeBoardAt, listedBoards, moveGroup, setBoardHidden,
 } = await import(modFile("lib.js"));
 
 // Builders in the shapes the fizzy CLI prints.
@@ -59,15 +59,15 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.me(), ["identity", "show"]);
   assert.deepEqual(cmd.config(), ["config", "show", "--jq", JQ.config], "the CLI's own account and board, nothing else of its settings");
   assert.deepEqual(cmd.create("b1", "Fix it"), ["card", "create", "--board", "b1", "--title", "Fix it"]);
-  assert.deepEqual(cmd.create("b1", "Fix it", ""), ["card", "create", "--board", "b1", "--title", "Fix it"]);
-  assert.deepEqual(cmd.create("b1", "Fix it", "<p>why</p>"), ["card", "create", "--board", "b1", "--title", "Fix it", "--description", "<p>why</p>"]);
   assert.deepEqual(cmd.update(7, { title: "New" }), ["card", "update", "7", "--title", "New"]);
   assert.deepEqual(cmd.update(7, { html: "<p>x</p>" }), ["card", "update", "7", "--description", "<p>x</p>"]);
   assert.deepEqual(cmd.update(7, { title: "New", html: "<p>x</p>" }), ["card", "update", "7", "--title", "New", "--description", "<p>x</p>"]);
   // An emptied description is a real change (html ""), only an absent one is skipped.
-  assert.deepEqual(cmd.update(7, { html: "" }), ["card", "update", "7", "--description", ""]);
+  assert.deepEqual(cmd.update(7, { html: "" }), ["card", "update", "7", "--description", "<p></p>"], "the CLI ignores an empty --description");
   assert.deepEqual(cmd.update(7), ["card", "update", "7"]);
   assert.deepEqual(cmd.column(7, "c1"), ["card", "column", "7", "--column", "c1"]);
+  assert.deepEqual(cmd.shiftColumn("c1", false), ["column", "move-left", "c1"]);
+  assert.deepEqual(cmd.shiftColumn("c1", true), ["column", "move-right", "c1"]);
   assert.deepEqual(cmd.postpone(7), ["card", "postpone", "7"]);
   assert.deepEqual(cmd.untriage(7), ["card", "untriage", "7"]);
   assert.deepEqual(cmd.close(7), ["card", "close", "7"]);
@@ -78,6 +78,12 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
   assert.deepEqual(cmd.pin(7, false), ["card", "unpin", "7"]);
   assert.deepEqual(cmd.watch(7, true), ["card", "watch", "7"]);
   assert.deepEqual(cmd.watch(7, false), ["card", "unwatch", "7"]);
+  assert.deepEqual(cmd.commentCount(7), ["comment", "list", "--card", "7", "--all", "--jq", JQ.count]);
+  assert.deepEqual(cmd.accesses("b1"), ["board", "accesses", "--board", "b1", "--jq", JQ.accesses]);
+  assert.deepEqual(cmd.watchBoard("b1", true), ["board", "involvement", "b1", "--involvement", "watching"]);
+  assert.deepEqual(cmd.watchBoard("b1", false), ["board", "involvement", "b1", "--involvement", "access_only"]);
+  assert.deepEqual(cmd.boardForAll("b1", true), ["board", "update", "b1", "--all_access", "true"]);
+  assert.deepEqual(cmd.boardForAll("b1", false), ["board", "update", "b1", "--all_access", "false"]);
   assert.deepEqual(cmd.selfAssign(7), ["card", "self-assign", "7"]);
   assert.deepEqual(cmd.assign(7, "u1"), ["card", "assign", "7", "--user", "u1"]);
   assert.deepEqual(cmd.tag(7, "bug"), ["card", "tag", "7", "--tag", "bug"]);
@@ -106,7 +112,7 @@ test("cmd builders produce the exact argv; numbers become strings", () => {
 test("every argv a builder makes is all strings, and the fake fizzy CLI the panel's tests run on answers each one", async () => {
   const argvs = [
     cmd.boards(), cmd.columns("b1"), cmd.open("b1"), cmd.notNow("b1"), cmd.done("b1", 2), cmd.mine("b1", "u-me"), cmd.mineAll("u-me"), cmd.search("login"), cmd.card(101),
-    cmd.comments(101), cmd.users(), cmd.tags(), cmd.pins(), cmd.inbox(), cmd.me(), cmd.config(), cmd.create("b1", "t", "<p>d</p>"),
+    cmd.comments(101), cmd.users(), cmd.tags(), cmd.pins(), cmd.inbox(), cmd.me(), cmd.config(), cmd.create("b1", "t"),
     cmd.update(101, { title: "t", html: "<p>d</p>" }), cmd.column(101, "c1"), cmd.postpone(101), cmd.untriage(101), cmd.close(101), cmd.reopen(101),
     cmd.golden(101, true), cmd.golden(101, false), cmd.pin(101, true), cmd.pin(101, false), cmd.watch(101, true), cmd.watch(101, false),
     cmd.selfAssign(101), cmd.assign(101, "u-bob"), cmd.tag(101, "bug"), cmd.moveBoard(101, "b2"), cmd.remove(101), cmd.addStep(101, "s"),
@@ -114,8 +120,10 @@ test("every argv a builder makes is all strings, and the fake fizzy CLI the pane
     cmd.editComment(101, "cm1", "<p>c</p>"), cmd.dropComment(101, "cm1"), cmd.read("n1"), cmd.readAll(),
     cmd.stalled("b1"), cmd.activity(1), cmd.reactions(101, "cm1"), cmd.react(101, "cm1", "👍"), cmd.unreact(101, "cm1", "r1"),
     cmd.attachments(101), cmd.download(101, 1, "/home/tester/x.png"), cmd.upload("/home/tester/x.png"),
+    cmd.shiftColumn("c2", false), cmd.shiftColumn("c1", true), cmd.commentCount(101), cmd.accesses("b1"), cmd.watchBoard("b1", true), cmd.watchBoard("b1", false),
+    cmd.boardForAll("b1", true), cmd.boardForAll("b1", false),
   ];
-  assert.equal(argvs.length, Object.keys(cmd).length + 4, "every builder, and both sides of golden, pin, watch and step, is covered");
+  assert.equal(argvs.length, Object.keys(cmd).length + 7, "every builder, and both sides of golden, pin, watch, step, shiftColumn, watchBoard and boardForAll, is covered");
   for (const argv of argvs) {
     assert.ok(argv.every(a => typeof a === "string"), `${argv.join(" ")}: all strings`);
     const account = makeAccount();
@@ -201,12 +209,33 @@ function throughJq(filter, answer) {
   return { ...answer, stdout: run.stdout };
 }
 
+test("JQ.count is how many a list holds; JQ.accesses says whether everyone can see a board, who can, and who of them watches it", () => {
+  const answer = data => ({ code: 0, stdout: JSON.stringify({ ok: true, data }), stderr: "" });
+  assert.equal(parseResult(throughJq(JQ.count, answer([{ id: "cm1" }, { id: "cm2" }, { id: "cm3" }]))), 3);
+  assert.equal(parseResult(throughJq(JQ.count, answer(null))), 0);
+  const users = [
+    { id: "u1", has_access: true, involvement: "watching" }, { id: "u2", has_access: true, involvement: "access_only" },
+    { id: "u3", has_access: false }, { id: "u4", has_access: true, involvement: "watching" },
+  ];
+  assert.deepEqual(parseResult(throughJq(JQ.accesses, answer({ board_id: "b1", all_access: false, users }))), { all: false, ids: ["u1", "u2", "u4"], watching: ["u1", "u4"] });
+  assert.deepEqual(parseResult(throughJq(JQ.accesses, answer({ board_id: "b1", all_access: true, users: [] }))), { all: true, ids: [], watching: [] });
+});
+
+test("daysAgo counts calendar days, as Fizzy's cards say it", () => {
+  const now = new Date(2026, 10, 16, 1, 0).toISOString();
+  assert.equal(daysAgo(new Date(2026, 10, 16, 0, 5).toISOString(), now), "today");
+  assert.equal(daysAgo(new Date(2026, 10, 15, 23, 55).toISOString(), now), "yesterday", "ten minutes ago, but the day before");
+  assert.equal(daysAgo(new Date(2026, 10, 8, 12).toISOString(), now), "8 days ago");
+  assert.equal(daysAgo(undefined, now), "");
+});
+
 test("the --jq projections keep what the panel reads, with the envelope's ok, and leave the rest out", () => {
   const [listed, triaged] = parseResult(throughJq(JQ.cards, OPEN));
   assert.deepEqual(listed, {
     number: 4242, title: "Write the changelog", url: "https://app.fizzy.do/111/cards/4242", closed: false, postponed: false, golden: true,
     column: { id: "c2", name: "Review", color: { name: "Purple", value: "var(--color-card-7)" } }, board: { id: "b1", name: "Roadmap" },
     tags: ["release"], assignees: [{ id: "u-me", name: "Ada", avatar_url: "https://app.fizzy.do/111/users/u-me/avatar" }],
+    creator: { id: "u-me", name: "Ada", avatar_url: "https://app.fizzy.do/111/users/u-me/avatar" }, created_at: "2025-01-10T09:00:00.000Z",
     last_active_at: "2025-01-14T12:00:00.000Z", description: "Newest on top",
   });
   assert.deepEqual([triaged.column, triaged.assignees, triaged.tags, triaged.description.length], [null, [], [], 300], "Maybe?: no column; the description cut to 300");
@@ -341,6 +370,19 @@ test("fullCard puts back what a typed `card show` leaves out, and keeps everythi
   assert.equal(laneOf(closed), "done");
   assert.match(closed.description_html, /Newest on top/);
   assert.equal(fullCard(null), null);
+});
+
+test("reorderColumns: the column takes the target's place among the real columns, one CLI move per place; Maybe?, Not Now and Done stay", () => {
+  const MAYBE = { id: "maybe", kind: "triage", pseudo: true, name: "Maybe?" }, DONE = { id: "done", kind: "closed", pseudo: true, name: "Done" };
+  const list = [NOT_NOW, MAYBE, col("c1", "A", "Blue"), col("c2", "B", "Red"), col("c3", "C", "Lime"), DONE];
+  const order = moved => moved.columns.map(c => c.id);
+  const right = reorderColumns(list, "c1", "c3");
+  assert.deepEqual(order(right), ["not-now", "maybe", "c2", "c3", "c1", "done"]);
+  assert.deepEqual(right.steps, [["column", "move-right", "c1"], ["column", "move-right", "c1"]]);
+  const left = reorderColumns(list, "c3", "c2");
+  assert.deepEqual(order(left), ["not-now", "maybe", "c1", "c3", "c2", "done"]);
+  assert.deepEqual(left.steps, [["column", "move-left", "c3"]]);
+  for (const [id, target] of [["c1", "c1"], ["c1", "maybe"], ["done", "c1"], ["gone", "c2"]]) assert.equal(reorderColumns(list, id, target), null, `${id} onto ${target}`);
 });
 
 test("moveTo gives the argv lists for every from -> to pair, from Done included", () => {
@@ -501,6 +543,20 @@ test("filterCards: `mine` keeps only cards assigned to me, and works together wi
   assert.deepEqual(nums("", { mine: true }), []);
 });
 
+test("filterCards: `golden` keeps the golden cards, `pinned` the numbers it holds; with `mine` and the words, a card must pass them all", () => {
+  const cards = [
+    card(1, { title: "alpha", golden: true, assignees: [user("me", "Ada")] }),
+    card(2, { title: "alpha", golden: true }),
+    card(3, { title: "beta", assignees: [user("me", "Ada")] }),
+  ];
+  const nums = (q, o) => filterCards(cards, q, o).map(c => c.number);
+  assert.deepEqual(nums("", { golden: true }), [1, 2]);
+  assert.deepEqual(nums("", { pinned: new Set([2, 3]) }), [2, 3]);
+  assert.deepEqual(nums("", { pinned: new Set() }), [], "nothing pinned: none");
+  assert.deepEqual(nums("alpha", { golden: true, mine: true, me: "me" }), [1]);
+  assert.deepEqual(nums("", { golden: true, pinned: new Set([3]) }), []);
+});
+
 test("colorOf: Fizzy's named colors as hex, null for none or unknown", () => {
   for (const name of ["Blue", "Gray", "Tan", "Yellow", "Lime", "Aqua", "Violet", "Purple", "Pink", "Red", "Orange", "Green"]) {
     assert.match(colorOf({ color: { name, value: "x" } }), /^#[0-9a-f]{6}$/, name);
@@ -554,6 +610,28 @@ test("refs puts one ref per line", () => {
   assert.equal(out.split("\n").length, 2);
   assert.equal(refs([]), "");
   assert.equal(refs(undefined), "");
+});
+
+test("cardFile: named \"#<n> <title>.md\", the title on one line, with no slash or control character, cut at 60 characters", () => {
+  assert.equal(cardFile(card(45, { title: "Müşteri Takip Sistemi" })), "data/fizzy/files/cards/#45 Müşteri Takip Sistemi.md");
+  assert.equal(cardFile(card(7, { title: " a/b\\c\n\u0007d " })), "data/fizzy/files/cards/#7 a-b-c d.md");
+  assert.equal(cardFile(card(8, { title: "" })), "data/fizzy/files/cards/#8.md");
+  assert.equal(cardFile(card(9, { title: `${"x".repeat(59)}👍👍` })), `data/fizzy/files/cards/#9 ${"x".repeat(59)}👍.md`, "never half an emoji");
+});
+
+test("cardMarkdown: the title as a heading, then board, lane, tags, people and link, the description, and the steps as a checklist", () => {
+  const whole = card(4242, {
+    title: "Fix the\nlogin redirect", column: col("c1", "In progress", "Blue"), tags: ["bug", { title: "web" }],
+    assignees: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }], description: "  The spinner hangs.\n\nOn Safari only.  ",
+    steps: [{ content: "Reproduce it", completed: true }, { content: "Patch\nit", completed: false }],
+  });
+  assert.equal(cardMarkdown(whole), [
+    "# Fizzy #4242: Fix the login redirect", "",
+    "Board: Roadmap", "Lane: In progress", "Tags: bug, web", "Assigned to: Ana, Bo", "Link: https://app.fizzy.do/111/cards/4242", "",
+    "The spinner hangs.\n\nOn Safari only.", "",
+    "## Steps", "- [x] Reproduce it", "- [ ] Patch it", "",
+  ].join("\n"));
+  assert.equal(cardMarkdown(card(7, { board: undefined, url: undefined, closed: true })), "# Fizzy #7: Card 7\n\nLane: Done\n", "only what is known");
 });
 
 test("tabName: #number and the title, at most 32 characters, with an ellipsis when cut", () => {
@@ -893,6 +971,18 @@ test("htmlToContent: a mention is the token \"@<full name>\", a link to a card \
     + "<p><action-text-attachment sgid=\"sgid-pic\"></action-text-attachment></p><p>End</p>");
 });
 
+test("an attachment in a paragraph, whose figure Fizzy's HTML pushes out after it, is the file alone: in the editor, on screen, and not formatting", () => {
+  const html = '<div class="action-text-content"><p><action-text-attachment sgid="sg-1" content-type="image/png" filename="shot.png" filesize="11485" width="511" height="390">  </action-text-attachment></p>'
+    + '<figure class="attachment attachment--preview attachment--png"><a href="/x"><img width="511" height="390" src="/x/shot.png"></a>'
+    + '<figcaption class="attachment__caption"><span class="attachment__name">shot.png</span><span> · </span><span class="attachment__size">11.2 KB</span>'
+    + '<a class="attachment__link" href="/x?disposition=attachment"><span>Download</span></a></figcaption></figure><p></p><p>After</p></div>';
+  const content = htmlToContent(html);
+  assert.equal(content.text, "🖼 shot.png\n\nAfter");
+  assert.deepEqual(content.tokens.map(s => s.token.id), ["file:sg-1"]);
+  assert.deepEqual(richLines(html).map(l => (l.file ? `file ${l.file.filename}` : l.runs.map(r => r.text).join(""))), ["file shot.png", "After"]);
+  assert.equal(formatted(html), false);
+});
+
 test("htmlToContent names a mentioned person by their photo's title, else from the people list, else by what Fizzy wrote; a mention of nobody known is plain text", () => {
   const bob = `<action-text-attachment sgid="sgid-bob" content-type="${MENTION_TYPE}"><img src="/111/users/u-bob/avatar">Bob</action-text-attachment>`;
   assert.deepEqual(htmlToContent(`<p>${bob}</p>`, [{ id: "u-bob", name: "Bob Builder" }]).text, "@Bob Builder");
@@ -1090,6 +1180,28 @@ test("inactivity: an open card says it closes in N days once fewer than a quarte
   assert.deepEqual(inactivity(card(1, { last_active_at: "garbage" }), { period: 30, stalled: true, now }), { kind: "stalled", label: "Stalled" });
   for (const done of [{ closed: true }, { postponed: true }]) assert.equal(inactivity(card(1, { last_active_at: daysAgo(29), ...done }), { period: 30, stalled: true, now }), null, JSON.stringify(done));
   assert.equal(inactivity(null, { period: 30, now }), null);
+});
+
+test("daysToPostpone and postponeNote: the calendar days an open card has before Fizzy moves it to Not Now, as Fizzy says it under the card", () => {
+  const now = new Date(2026, 4, 20, 12, 0).getTime(), daysAgo = d => new Date(2026, 4, 20 - d, 12, 0).toISOString();
+  const left = (d, opts = {}) => daysToPostpone(card(1, { last_active_at: daysAgo(d), ...opts }), { period: 30, now });
+  assert.deepEqual([left(0), left(29), left(30), left(45)], [30, 1, 0, -15]);
+  for (const done of [{ closed: true }, { postponed: true }]) assert.equal(left(3, done), null, JSON.stringify(done));
+  assert.equal(daysToPostpone(card(1, { last_active_at: daysAgo(3) }), { period: undefined, now }), null, "no period known");
+  assert.equal(daysToPostpone(card(1, { last_active_at: "garbage" }), { period: 30, now }), null);
+  assert.equal(postponeNote(26), "Moves to “Not Now” in 26 days if there’s no activity.");
+  assert.equal(postponeNote(1), "Moves to “Not Now” in 1 day if there’s no activity.");
+  assert.equal(postponeNote(0), "Moves to “Not Now” today if there’s no activity.");
+  assert.equal(postponeNote(-3), "Moves to “Not Now” today if there’s no activity.", "overdue: today");
+  assert.equal(postponeNote(null), null);
+});
+
+test("lighten: a #rrggbb color moved part of the way to white; anything else as it is", () => {
+  assert.equal(lighten("#000000", 0.5), "#808080");
+  assert.equal(lighten("#4f8ef7", 0), "#4f8ef7");
+  assert.equal(lighten("#4F8EF7", 1), "#ffffff");
+  assert.equal(lighten("#102030", 0.55), "#939ba2");
+  for (const odd of ["accent", "#fff", null, undefined]) assert.equal(lighten(odd, 0.5), odd);
 });
 
 test("parseYaml reads the top-level board and account, nothing else", () => {
@@ -1661,6 +1773,30 @@ test("placeBoard: Automatic exactly when the target is the group the board's nam
   assert.equal(JSON.stringify(start), frozen, "the config given is never changed");
 });
 
+test("placeBoardAt: a board takes the target row's place in the list (after it moving down, before it moving up) and joins its group; `order` then places every board, which boardGroups and groupsConfig keep", () => {
+  const boards = [{ id: "a", name: "A [team]" }, { id: "b", name: "B [team]" }, { id: "c", name: "C [team]" }, { id: "p", name: "Plain" }, { id: "q", name: "Other" }];
+  const by = id => boards.find(b => b.id === id), start = CFG(), frozen = JSON.stringify(start);
+  const rows = config => listedBoards(boards, config).map(b => b.id);
+  assert.deepEqual(rows(start), ["a", "b", "c", "p", "q"], "nothing placed yet: the groups' boards, then the rest, in the list's order");
+  const down = placeBoardAt(start, boards, by("a"), by("c"));
+  assert.deepEqual(down.order, ["b", "c", "a", "p", "q"]);
+  assert.deepEqual(down.boards, {}, "it stays in its group");
+  const up = placeBoardAt(down, boards, by("q"), by("b"));
+  assert.deepEqual(rows(up), ["q", "b", "c", "a", "p"], "from No group, before the row, into Team");
+  assert.deepEqual(up.boards, { q: { group: "team" } });
+  assert.deepEqual(boardGroups(boards, up).groups[0].boards.map(b => b.id), ["q", "b", "c", "a"]);
+  const out = placeBoardAt(up, boards, by("b"), by("p"));
+  assert.deepEqual(boardGroups(boards, out).ungrouped.map(b => b.id), ["p", "b"], "into No group, after the row");
+  assert.deepEqual(out.boards.b, { group: null });
+  assert.equal(placeBoardAt(start, boards, by("a"), by("a")), start, "onto itself");
+  assert.equal(placeBoardAt(start, boards, { id: "gone" }, by("a")), start, "a board that is not listed");
+  assert.equal(JSON.stringify(start), frozen, "the config given is never changed");
+  const later = [...boards, { id: "n", name: "New [team]" }];
+  assert.deepEqual(boardGroups(later, up).groups[0].boards.map(b => b.id), ["q", "b", "c", "a", "n"], "a board made later comes after the placed ones");
+  assert.deepEqual(groupsConfig({ ...up, order: ["q", "q", "", 7, "b"] }).order, ["q", "b"], "saved: unique ids only");
+  assert.equal("order" in groupsConfig({ ...start, order: [] }), false);
+});
+
 test("moveGroup: a group takes the target's place (before it when moving up, after it when moving down); unknown or the same id change nothing; nothing is mutated", () => {
   const start = append(append(append(CFG(), "B"), "C"), "D"), order = cfg => cfg.groups.map(g => g.id);
   assert.deepEqual(order(start), ["team", "g-2", "g-3", "g-4"]);
@@ -1931,9 +2067,9 @@ test("card menu: delete is two steps — the armed row says so, is danger, and r
   assert.equal(byId(menuRows({ kind: "card", card: c, columns: COLUMNS }, {}), "delete").act.arm, "delete");
 });
 
-test("lanes menu: just the lanes, as moves", () => {
+test("the card menu's Move to rows: just the lanes, as moves", () => {
   const c = card(77, { column: C1 });
-  const rows = menuRows({ kind: "lanes", card: c, columns: COLUMNS }, {});
+  const rows = menuRows({ kind: "card", card: c, columns: COLUMNS }, {}).filter(r => r.id?.startsWith("lane-"));
   assert.deepEqual(ids(rows), ["lane-not-now", "lane-maybe", "lane-c1", "lane-c2", "lane-done"]);
   assert.ok(rows.every(r => r.type === "row" && r.icon === null));
   assert.deepEqual(rows.map(r => r.checked), [false, false, true, false, false]);
@@ -2149,9 +2285,9 @@ test("menuRows: an unknown or empty menu has no rows, and no menu needs a ctx", 
   assert.deepEqual(menuRows({}, {}), []);
   assert.deepEqual(menuRows(null, {}), []);
   assert.deepEqual(menuRows(undefined), []);
-  for (const kind of ["card", "users", "tags", "moveBoard", "lanes"]) assert.deepEqual(menuRows({ kind }, {}), [], `${kind} without a card`);
+  for (const kind of ["card", "users", "tags", "moveBoard"]) assert.deepEqual(menuRows({ kind }, {}), [], `${kind} without a card`);
   assert.deepEqual(menuRows({ kind: "react" }, {}), [], "react without a comment");
-  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) }, { kind: "lanes", card: card(1) },
+  for (const m of [{ kind: "boards" }, { kind: "newCard" }, { kind: "agents", cards: [] }, { kind: "start", cards: [] }, { kind: "card", card: card(1) },
     { kind: "mention" }, { kind: "cardref" }]) {
     assert.doesNotThrow(() => menuRows(m), JSON.stringify(m));
   }
@@ -2166,7 +2302,7 @@ test("every row is well formed, and every icon the menus use is in mods/fizzy", 
   };
   const menus = [
     { kind: "boards", current: "b1", follow: false, spaceBoard: "b1" }, { kind: "newCard", current: "b1" },
-    { kind: "card", card: c, columns: COLUMNS, pinned: true }, { kind: "lanes", card: c, columns: COLUMNS },
+    { kind: "card", card: c, columns: COLUMNS, pinned: true },
     { kind: "agents", cards: [c] }, { kind: "start", cards: [c] },
     { kind: "users", card: c }, { kind: "tags", card: c }, { kind: "moveBoard", card: c },
     { kind: "react", number: 4242, comment: "c9", mine: ["👍"] }, { kind: "mention", target: "comment" },

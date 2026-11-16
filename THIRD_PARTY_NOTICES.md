@@ -3,9 +3,10 @@
 ## Lucide icons (ISC; some derived from Feather, MIT)
 
 The icons in `mods/fizzy/` are Lucide icons (https://lucide.dev, https://github.com/lucide-icons/lucide), each a bare
-`<svg>` element. Most files carry the Lucide icon's own name: `arrow-left`, `bot`, `check`, `chevron-down`,
-`chevron-right`, `copy`, `external-link`, `eye`, `eye-off`, `link`, `pencil`, `pin`, `pin-off`, `plus`, `rotate-ccw`,
-`search`, `send`, `settings`, `star`, `star-off`, `tag`, `trash`, `user`, `user-plus` and `x`. Four are renamed:
+`<svg>` element. Most files carry the Lucide icon's own name: `arrow-left`, `arrow-right`, `bell`, `bell-off`, `bot`,
+`check`, `chevron-down`, `chevron-right`, `circle-check`, `copy`, `external-link`, `eye`, `eye-off`, `link`,
+`message-square-text`, `paperclip`, `pencil`, `pin`, `pin-off`, `plus`, `rotate-ccw`, `rows-3`, `search`, `send`,
+`settings`, `smile-plus`, `star`, `star-off`, `tag`, `trash`, `user`, `user-plus`, `users` and `x`. Four are renamed:
 
 | File | Lucide icon |
 |---|---|
@@ -17,10 +18,10 @@ The icons in `mods/fizzy/` are Lucide icons (https://lucide.dev, https://github.
 Their path data matches Lucide 1.69.0, except `search.svg`, which keeps the path data Lucide's `search` had before May
 2025.
 
-Of these, `arrow-left`, `check`, `chevron-down`, `chevron-right`, `corner-down-left` (`insert.svg`), `external-link`,
-`link`, `more-horizontal` (`more.svg`), `plus`, `search`, `trash` (`trash.svg`) and `x` are among the Lucide icons that
-Lucide's license lists as derived from Feather, which is under the MIT license that follows it. Lucide's `LICENSE`,
-verbatim:
+Of these, `arrow-left`, `arrow-right`, `check`, `chevron-down`, `chevron-right`, `corner-down-left` (`insert.svg`),
+`external-link`, `link`, `more-horizontal` (`more.svg`), `plus`, `search`, `trash` (`trash.svg`) and `x` are among the
+Lucide icons that Lucide's license lists as derived from Feather, which is under the MIT license that follows it.
+Lucide's `LICENSE`, verbatim:
 
 ```
 ISC License
@@ -72,7 +73,7 @@ SOFTWARE.
 
 `tabs/fizzy-button.patch` quotes lines of [Herdr](https://herdr.dev)'s desktop app,
 https://github.com/herdrdev/herdr-app: the patch's lines that start with a space or a single `-` (its context, and the
-lines it replaces) are lines of Herdr's stock tab bar, `defaults/mods/tabs/main.js`, at tag `v0.1.12`. That is all of
+lines it replaces) are lines of Herdr's stock tab bar, `defaults/mods/tabs/main.js`, at tag `v0.1.16`. That is all of
 Herdr this repo carries.
 
 The patch's lines that start with a single `+` are this repo's changes, under its MIT license; some of them are Herdr's
@@ -83,7 +84,7 @@ Herdr is licensed under the Apache License, Version 2.0. Its license file is the
 of its own, and Herdr's repository has no `NOTICE` file. The notice, then Herdr's `LICENSE` from the same tag, verbatim:
 
 ```
-Herdr desktop app (https://herdr.dev, https://github.com/herdrdev/herdr-app), v0.1.12
+Herdr desktop app (https://herdr.dev, https://github.com/herdrdev/herdr-app), v0.1.16
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

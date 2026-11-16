@@ -13,8 +13,10 @@ import { join } from "node:path";
 const {
   POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, ref, refs, tabName, menuRows, menuHeight, FRAME, YAML_SCRIPT, fizzyVisible,
   boardRef, AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, colorOf, JQ,
-  FILE_DIR, IMAGE_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, shortHash,
+  FILE_DIR, FILE_TIMEOUT, IMAGE_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, shortHash, cardFile, cardMarkdown, daysAgo, labelFile, labelSvg, LABEL_FONT, lighten,
 } = await import(modFile("lib.js"));
+// The options of each `fizzy <first>` exec so far.
+const execOptions = first => calls.exec.filter(c => c.command === "fizzy" && c.args[0] === first).map(c => c.options);
 const { default: Fizzy } = await import(modFile("main.js"));
 const { textPx } = await import(modFile("text.js"));
 
@@ -133,15 +135,16 @@ async function mountPopup(spec = lastPopup(), extra = {}) {
 const menuClick = (popup, id) => fire(must(popup.tree(), `fizzy-menu-${id}`), "on_click", {}, popup.cx);
 const requestOps = () => calls.setShared.filter(([k, v]) => k === "fizzy.request" && v).map(([, v]) => v.op);
 // The board's name as the select shows it (its hint, when there is one, is not part of it).
-const boardName = tree => textOf(must(tree, "fizzy-board").kids[1]);
-// New card as a person does it: the picker is open (the list bar's button, or the key), a row picks the board, and the draws that
-// follow run the timer that makes the card there and open it.
+const boardName = tree => textOf(must(tree, "fizzy-board-name"));
+// New card as a person does it: the picker is open (its key), a row picks the board, and the draws that follow run the timer
+// that makes the card there and open it.
 async function chooseNewCard(m, boardId) {
   menuClick(await mountPopup(), `board-${boardId}`);
   return m.draw();
 }
 async function newCardOn(m, boardId) {
-  click(await m.draw(), "fizzy-new", m.cx);
+  await m.draw();
+  await press(m.cx, "new");
   return chooseNewCard(m, boardId);
 }
 // A search of every board as a person runs it: the header's search icon (unless the field is open already), the words, Enter.
@@ -157,6 +160,15 @@ async function searchFor(m, words) {
   return m.draw();
 }
 
+test("under herdr-app check the panel draws but asks nothing: no CLI, no file work, no timers", async () => {
+  state.checking = true;
+  const { view, cx } = await mount();
+  drawn(view, cx);
+  await cx.settle();
+  assert.deepEqual(calls.exec.map(c => [c.command, ...c.args]), []);
+  assert.deepEqual([cx.timers.length, calls.nextCommand.length], [0, 0]);
+});
+
 test("the board view lists the lanes in the board's order, Not Now and Done folded, the open cards under theirs", async () => {
   const { draw } = await mount();
   const tree = await draw();
@@ -169,21 +181,53 @@ test("the board view lists the lanes in the board's order, Not Now and Done fold
     "only the open cards, and which of them are stalled, always with an explicit board");
 });
 
-test("a card row has its number, title, tags (three, then +N), people and age, and a golden card a gold border", async () => {
+test("a card is drawn as Fizzy's: number | board, a bold title, its tags (three, then +N), who made it and when, when it changed and who it is assigned to; golden, a gold glow", async () => {
   const { draw } = await mount();
   const tree = await draw();
-  const row = must(tree, "fizzy-card-102");
+  const row = must(tree, "fizzy-card-102"), card = acct.card(102);
+  assert.equal(textOf(must(tree, "fizzy-card-head-102")).replace(/\s+/g, " ").trim(), "102 ROADMAP");
+  assert.deepEqual([textOf(must(tree, "fizzy-card-title-102")), must(tree, "fizzy-card-title-102").style.font_bold], ["Write the changelog", true]);
   const text = textOf(row);
-  assert.match(text, /#102/);
-  assert.match(text, /Write the changelog/);
-  assert.deepEqual(["docs", "release", "web", "extra"].map(tag => text.includes(tag)), [true, true, true, false], "three chips; the fourth is only counted");
+  assert.deepEqual(["#docs", "#release", "#web", "#extra"].map(tag => text.includes(tag)), [true, true, true, false], "three chips; the fourth is only counted");
   assert.match(text, /\+1/, "four tags: three chips and +1");
-  assert.equal(all(row, n => n.kind === "div" && n.style?.rounded_full && textOf(n) === "B").length, 1, "its assignee, Bob");
-  assert.match(text, /3h/);
-  assert.deepEqual([row.style.border_2, row.style.border_color], [true, "ansi3"], "golden: a gold border");
-  assert.deepEqual([must(tree, "fizzy-card-101").style.border_2, must(tree, "fizzy-card-101").style.border_1], [undefined, true], "not golden: the thin one");
-  assert.equal(all(row, n => n.path === "mods/fizzy/star.svg").length, 0, "no star");
+  assert.equal(textOf(must(tree, "fizzy-card-added-102")).trim(), `ADDED ${daysAgo(card.created_at, Date.now()).toUpperCase()}`);
+  assert.equal(textOf(must(tree, "fizzy-card-creator-102")).trim(), "BOB");
+  assert.equal(textOf(must(tree, "fizzy-card-changed-102")).trim(), daysAgo(card.last_active_at, Date.now()).toUpperCase());
+  assert.equal(textOf(must(tree, "fizzy-card-assigned-102")).trim(), "BOB");
+  assert.deepEqual(iconsIn(tree, "fizzy-card-changed-102").concat(iconsIn(tree, "fizzy-card-assigned-102")), ["mods/fizzy/refresh.svg", "mods/fizzy/arrow-right.svg"]);
+  assert.equal(all(must(tree, "fizzy-card-meta-102"), n => n.kind === "div" && n.style?.rounded_full && textOf(n) === "B").length, 2, "Bob made it and has it: his initials twice");
+  assert.equal(find(tree, "fizzy-card-steps-102"), null, "no step progress or comment count until they are read");
+  assert.ok(glowOf(row), "golden: a gold glow");
+  assert.equal(glowOf(must(tree, "fizzy-card-101")), null, "not golden: none");
   assert.equal(textOf(must(tree, "fizzy-card-title-101")), "Fix the login redirect");
+});
+
+test("a card's step progress and comment count are read (card show, comment list) by the request timer for each card on the board, kept, and read again only once the card has changed", async () => {
+  const { view, cx, draw } = await mount();
+  await draw();
+  const counts = () => acct.asked("comment", "list").length;
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  await cx.settle();
+  for (let i = 0; i < 5 && view.countWanted.size; i++) { await timer(cx, REQUEST_EVERY).fn(cx); await cx.settle(); }
+  assert.equal(counts(), 3, "one comment count per open card on the board (101, 102, 103)");
+  let tree = await draw();
+  assert.equal(textOf(must(tree, "fizzy-card-steps-101")).trim(), "1/2");
+  assert.equal(textOf(must(tree, "fizzy-card-comments-101")).trim(), "3");
+  assert.equal(find(tree, "fizzy-card-comments-102"), null, "no comments: no count");
+  assert.equal(find(tree, "fizzy-card-steps-103"), null, "no steps: no progress");
+  assert.deepEqual(JSON.parse(localStorage.getItem("counts")).find(e => e[0] === 101).slice(2), [1, 2, 3], "kept between runs: done, total, comments");
+  await press(cx, "refresh");
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  await cx.settle();
+  assert.equal(counts(), 3, "nothing changed: nothing read again");
+  acct.card(101).last_active_at = new Date().toISOString();
+  acct.card(101).steps[0].completed = true;
+  await press(cx, "refresh");
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  await cx.settle();
+  assert.equal(counts(), 4, "the changed card alone");
+  tree = await draw();
+  assert.equal(textOf(must(tree, "fizzy-card-steps-101")).trim(), "2/2");
 });
 
 test("unfolding Not Now reads that lane, and each unfold reads it fresh", async () => {
@@ -321,6 +365,21 @@ test("the board is the CLI's own default when nothing else says: `config show`, 
   assert.deepEqual(JSON.parse(localStorage.getItem("config")), { board: "b2", account: "111" });
 });
 
+test("a board shown from the cache reads its columns once more, and with them who can see it and its stalled cards: Who can see this board opens", async () => {
+  localStorage.setItem("config", JSON.stringify({ board: "b1", account: "111" }));
+  localStorage.setItem("boards", JSON.stringify([B1, B2]));
+  localStorage.setItem("data:b1", JSON.stringify({ columns: [{ id: "c1", name: "Old name", color: null }], open: [] }));
+  const { view, cx, draw } = await mount();
+  const tree = await draw();
+  assert.equal(header(tree, "c1"), "In progress 1", "the cached name is replaced");
+  click(tree, "fizzy-board-access", cx);
+  assert.equal(lastPopup().props.menu.kind, "access");
+  view.loadBoard(cx);
+  await cx.settle();
+  const reads = () => ["column", "accesses", "stalled"].map(w => acct.log.filter(a => a.includes(w)).length);
+  assert.deepEqual(reads(), [1, 1, 1], "once per session, not by every load");
+});
+
 test("the CLI's default board is kept: a first start waits for `config show` rather than read another board, a later start picks it at once", async () => {
   acct.config = { account: "111", board: "b2" };
   localStorage.setItem("boards", JSON.stringify([B1, B2]));
@@ -346,7 +405,7 @@ test("the CLI's default board is kept: a first start waits for `config show` rat
   await next.cx.settle();
   acct.hold = null;
   assert.deepEqual(atOnce, ["b2", "b2"], "known from the last start: read at once");
-  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b2"], "and its cached columns are known: they are not read again");
+  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b2", "b2"], "its cached columns stand in until read once more");
 });
 
 test("when `config show` fails, the last start's default board and account stand", async () => {
@@ -462,29 +521,24 @@ test("clicking a row opens the card: card show, comment list and pin list asked 
   assert.equal(acct.asked("pin", "list").length, pinReads + 1, "the pin state comes from the pin list, read again as the card opens");
   assert.ok(early > 0);
   assert.equal(textOf(must(tree, "fizzy-title")), "Fix the login redirect");
-  assert.match(textOf(must(tree, "fizzy-lane")), /In progress/);
-  assert.match(textOf(must(tree, "fizzy-detail")), /Steps 1\/2/);
+  assert.match(textOf(must(tree, "fizzy-lane")), /In progress/i);
   assert.deepEqual(ids(tree).filter(i => /^fizzy-step-s\d$/.test(i)), ["fizzy-step-s1", "fizzy-step-s2"]);
-  assert.match(textOf(must(tree, "fizzy-detail")), /Comments 2/, "what people wrote: Fizzy's own line is not counted");
+  assert.equal(textOf(must(tree, "fizzy-comments-count")), "2", "what people wrote: Fizzy's own line is not counted");
   assert.ok(find(tree, "fizzy-comment-cm1") && find(tree, "fizzy-comment-cm2"));
   assert.equal(find(tree, "fizzy-comment-cm3"), null, "the system's line is no comment");
   assert.match(textOf(must(tree, "fizzy-activity")), /Activity 1/);
   assert.equal(find(tree, "fizzy-list"), null, "the detail replaces the list");
-  assert.match(textOf(must(tree, "fizzy-back")) + ids(tree).join(), /fizzy-back/);
   const head = ids(tree).slice(ids(tree).indexOf("fizzy-back"), ids(tree).indexOf("fizzy-detail"));
-  assert.deepEqual(head, ["fizzy-back", "fizzy-detail-number", "fizzy-detail-board", "fizzy-pin", "fizzy-watch", "fizzy-golden", "fizzy-act-open", "fizzy-card-menu"]);
-  assert.equal(textOf(must(tree, "fizzy-detail-number")), "#101");
-  assert.equal(textOf(must(tree, "fizzy-detail-board")), "Roadmap");
-  assert.equal(tipOf(tree, "fizzy-detail-board"), "Roadmap");
-  const icons = all(must(tree, "fizzy"), n => n.kind === "svg").slice(0, 6).map(n => n.path.replace("mods/fizzy/", ""));
-  assert.deepEqual(icons, ["arrow-left.svg", "pin.svg", "eye.svg", "star.svg", "external-link.svg", "more.svg"]);
-  const toggleGroup = parentOf(tree, "fizzy-pin"), actionGroup = parentOf(tree, "fizzy-card-menu");
-  assert.deepEqual(toggleGroup.kids.map(k => k.id), ["fizzy-pin", "fizzy-watch", "fizzy-golden"]);
-  assert.deepEqual(actionGroup.kids.map(k => k.id), ["fizzy-act-open", "fizzy-card-menu"]);
-  assert.equal(toggleGroup.style.gap, 2);
-  assert.equal(actionGroup.style.gap, 2);
+  assert.deepEqual(head, ["fizzy-back", "fizzy-to-board", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-act-open", "fizzy-card-menu"],
+    "Back and the card's board, then the card's round toggles and actions");
+  const round = head.filter(id => id !== "fizzy-to-board");
+  for (const id of round) assert.deepEqual([must(tree, id).style.size, must(tree, id).style.rounded_full, must(tree, id).style.border_1], [30, true, true], id);
+  assert.equal(textOf(must(tree, "fizzy-detail-number")), "No. 101", "the number on the card's tab");
+  assert.equal(textOf(must(tree, "fizzy-detail-board")), "ROADMAP");
+  assert.equal(tipOf(tree, "fizzy-detail-board"), "Roadmap: move to another board");
+  const icons = round.map(id => iconOf(tree, id));
+  assert.deepEqual(icons, ["arrow-left.svg", "star.svg", "bell.svg", "pin.svg", "external-link.svg", "more.svg"]);
   assert.equal(find(tree, "fizzy-open-settings"), null);
-  assert.equal(all(must(tree, "fizzy-card-menu"), n => n.path === "mods/fizzy/chevron-down.svg").length, 0, "the menu button has no chevron");
 });
 
 test("the detail shows the summary at once, 'Loading…' for what is still coming, and Back returns to the list", async () => {
@@ -495,7 +549,7 @@ test("the detail shows the summary at once, 'Loading…' for what is still comin
   click(tree, "fizzy-card-101", cx);
   tree = drawn(view, cx);
   assert.equal(textOf(must(tree, "fizzy-title")), "Fix the login redirect", "from the list's own data");
-  assert.match(textOf(must(tree, "fizzy-lane")), /In progress/);
+  assert.match(textOf(must(tree, "fizzy-lane")), /In progress/i);
   assert.equal(textOf(must(tree, "fizzy-detail")).split("Loading…").length - 1, 1, "one line, not one per section");
   assert.ok(find(tree, "fizzy-detail-meta"), "People and Tags from the list's data");
   for (const id of ["fizzy-desc", "fizzy-steps", "fizzy-comments"]) assert.equal(find(tree, id), null, `${id} waits for the read`);
@@ -528,7 +582,7 @@ test("the description is drawn by the panel from its HTML: bold stays bold, a li
   assert.equal(pieceOf(comment, "twice").style.font_bold, true);
 });
 
-test("the description's HTML, its plain text and its empty line each sit in a box at 8, and its editor at 0", async () => {
+test("the description's HTML, its plain text, its empty line and its editor sit straight in the card, the text at 14 px", async () => {
   const { cx, draw } = await mount();
   acct.card(102).description = "Only text";
   const open = async number => {
@@ -536,17 +590,17 @@ test("the description's HTML, its plain text and its empty line each sit in a bo
     return draw();
   };
   let tree = await open(101);
-  assert.equal(parentOf(tree, "fizzy-desc-html").style.px, 8, "HTML");
+  assert.deepEqual([parentOf(tree, "fizzy-desc-html").id, must(tree, "fizzy-desc-html").style.text_size], ["fizzy-desc", textPx(14)], "HTML");
   click(tree, "fizzy-desc-edit", cx);
-  assert.equal(must(await draw(), "fizzy-desc-editor").style.px, undefined, "editor");
+  assert.equal(parentOf(await draw(), "fizzy-desc-editor").id, "fizzy-desc", "editor");
   click(await draw(), "fizzy-desc-cancel", cx);
   click(await draw(), "fizzy-back", cx);
   tree = await open(102);
-  assert.equal(parentOf(tree, "fizzy-desc-text").style.px, 8, "plain text");
+  assert.deepEqual([parentOf(tree, "fizzy-desc-text").id, must(tree, "fizzy-desc-text").style.text_size], ["fizzy-desc", textPx(14)], "plain text");
   assert.equal(find(tree, "fizzy-desc-empty"), null);
   click(await draw(), "fizzy-back", cx);
   tree = await open(103);
-  assert.equal(parentOf(tree, "fizzy-desc-empty").style.px, 8, "empty");
+  assert.equal(parentOf(tree, "fizzy-desc-empty").id, "fizzy-desc", "empty");
 });
 
 test("in the description and the comments a <br> breaks the line where it stands; a paragraph or a list starts a block, with a gap above it", async () => {
@@ -570,8 +624,7 @@ test("a description or comment with no HTML is plain text, one line to a div and
   click(await draw(), "fizzy-card-102", cx);
   const tree = await draw();
   const text = must(tree, "fizzy-desc-text");
-  assert.equal(text.style.text_size, textPx(13));
-  assert.equal(parentOf(tree, "fizzy-desc-text").style.px, 8);
+  assert.equal(text.style.text_size, textPx(14));
   assert.deepEqual(text.kids.map(k => [textOf(k), k.style.h ?? null]), [["Line one", null], ["", 6], ["Line three that is long", null], ["Line four", null]]);
   for (const line of text.kids.filter(k => !k.style.h)) {
     assert.equal(line.kind, "div");
@@ -621,8 +674,8 @@ test("a card without a description says so", async () => {
 test("a card Fizzy answers without its empty lists and texts is read whole: People and Tags open their pickers, and a description written on it shows as HTML at once", async () => {
   const { view, cx, draw, tree } = await openDetail(103);
   for (const id of ["fizzy-people", "fizzy-tags"]) assert.equal(typeof must(tree, id).handlers.on_click, "function", id);
-  assert.match(textOf(must(tree, "fizzy-people")), /Nobody/);
-  assert.match(textOf(must(tree, "fizzy-tags")), /No tags/);
+  assert.match(textOf(must(tree, "fizzy-detail-assigned")), /ASSIGNED TO NOBODY/);
+  assert.equal(find(tree, "fizzy-tag-list"), null, "no tags, no line of them");
   click(tree, "fizzy-desc-edit", cx);
   const next = await draw();
   inputOf(next, "fizzy-desc-input").edit("Due before the beta", cx);
@@ -635,6 +688,16 @@ test("a card Fizzy answers without its empty lists and texts is read whole: Peop
   acct.hold = null;
   assert.equal(shown && plain(shown), "Due before the beta", "drawn from its HTML before Fizzy has answered");
   assert.deepEqual(acct.writes(), [["card", "update", "103", "--description", "<p>Due before the beta</p>"]]);
+});
+
+test("a description emptied and saved is cleared in Fizzy (sent as an empty paragraph, which the CLI does not drop) and reads back as No description", async () => {
+  const { cx, draw, tree } = await openDetail(101);
+  click(tree, "fizzy-desc-edit", cx);
+  inputOf(await draw(), "fizzy-desc-input").edit("", cx);
+  click(await draw(), "fizzy-desc-save", cx);
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "update", "101", "--description", "<p></p>"]]);
+  assert.match(textOf(must(await draw(), "fizzy-detail")), /No description/);
 });
 
 test("ticking a step shows at once and sends the exact argv; a failed write reads the truth back", async () => {
@@ -663,6 +726,24 @@ test("ticking a step shows at once and sends the exact argv; a failed write read
   assert.equal(checked(await draw()), 1, "and after reading again, as Fizzy has it");
 });
 
+test("a step's bin shows only while the pointer is on the step; in its place meanwhile, an empty space of its size", async () => {
+  const { cx, draw, tree } = await openDetail();
+  const end = (tr, id) => must(tr, id).kids.at(-1);
+  for (const id of ["fizzy-step-s1", "fizzy-step-s2"]) {
+    assert.deepEqual([end(tree, id).id, end(tree, id).style.size, Object.keys(end(tree, id).handlers)], [null, 22, []], `${id}: no bin`);
+  }
+  fire(must(tree, "fizzy-step-s2"), "on_hover", true, cx);
+  let next = await draw();
+  assert.equal(end(next, "fizzy-step-s2").id, "fizzy-step-del-s2", "the step under the pointer shows it");
+  assert.equal(find(next, "fizzy-step-del-s1"), null, "the others do not");
+  fire(must(next, "fizzy-step-s1"), "on_hover", true, cx);
+  fire(must(next, "fizzy-step-s2"), "on_hover", false, cx);
+  next = await draw();
+  assert.deepEqual([Boolean(find(next, "fizzy-step-del-s1")), Boolean(find(next, "fizzy-step-del-s2"))], [true, false], "it follows the pointer, whatever order enter and leave come in");
+  fire(must(next, "fizzy-step-s1"), "on_hover", false, cx);
+  assert.equal(find(await draw(), "fizzy-step-del-s1"), null, "gone once the pointer leaves");
+});
+
 test("a step is added from its field and removed by its bin; its box and its text take clicks, the row itself does not", async () => {
   const { cx, draw, tree } = await openDetail();
   assert.equal(must(tree, "fizzy-step-s1").handlers.on_click, undefined, "the row has no click of its own");
@@ -672,15 +753,15 @@ test("a step is added from its field and removed by its bin; its box and its tex
   assert.equal(must(tree, "fizzy-step-text-s2").style.line_through, true);
   assert.equal(must(tree, "fizzy-step-text-s2").style.text_color, "dim", "theme() answers each color's own name in the tests");
   const row = must(tree, "fizzy-step-new-row");
-  assert.deepEqual([row.style.pl, row.style.gap], [8, 4]);
-  assert.deepEqual(row.kids.map(k => k.id ?? all(k, n => n.kind === "svg")[0]?.path), ["mods/fizzy/plus.svg", "fizzy-step-input"]);
-  assert.equal(inputOf(tree, "fizzy-step-input").options.placeholder, "Add a step");
+  assert.deepEqual(row.kids.map(k => k.id ?? "box"), ["box", "fizzy-step-input"], "an empty box, as a step's, then the field");
+  assert.equal(inputOf(tree, "fizzy-step-input").options.placeholder, "Add a step…");
   const input = inputOf(tree, "fizzy-step-input");
   input.edit("Ship it", cx);
   input.submit(cx);
   await cx.settle();
   assert.deepEqual(acct.writes(), [["step", "create", "--card", "101", "--content", "Ship it"]]);
   assert.equal(input.value(), "", "cleared");
+  fire(must(await draw(), "fizzy-step-s2"), "on_hover", true, cx);
   const next = await draw();
   assert.match(textOf(must(next, "fizzy-detail")), /Ship it/);
   const bin = must(next, "fizzy-step-del-s2");
@@ -694,7 +775,8 @@ test("a step is added from its field and removed by its bin; its box and its tex
 test("editing the title: the field starts with it, Enter sends the update, an unchanged or empty title sends nothing", async () => {
   const { cx, draw, tree } = await openDetail();
   const title = must(tree, "fizzy-title");
-  assert.deepEqual([title.style.text_size, title.style.font_semibold, title.style.px, title.style.rounded, title.hover, title.style.cursor_pointer], [textPx(15), true, 8, 7, true, true]);
+  assert.deepEqual([title.style.text_size, title.style.font_bold, title.style.text_color, title.hover, title.style.cursor_pointer], [textPx(17), true, lighten(must(tree, "fizzy-lane").style.bg, 0.55), true, true],
+    "big and bold, in a light tint of the lane's color");
   assert.equal(tipOf(tree, "fizzy-title"), undefined, "the title has no tooltip");
   click(tree, "fizzy-title", cx);
   let next = await draw();
@@ -751,7 +833,9 @@ test("a comment is sent as HTML (escaped, paragraphs), then the box is emptied; 
     const button = must(next, id);
     assert.deepEqual([all(button, n => n.kind === "svg")[0].path, tipOf(next, id), button.style.size], [`mods/fizzy/${icon}.svg`, tip, 22]);
   }
-  assert.equal(must(next, "fizzy-comment-html-cm1") && parentOf(next, "fizzy-comment-html-cm1").style.pl, 26, "the text sits under the name");
+  const bubble = must(next, "fizzy-comment-cm1").kids[1];
+  assert.deepEqual([bubble.style.bg, bubble.style.rounded, bubble.style.px], ["raised", 8, 12], "the name, when and the text in one box beside the photo");
+  assert.ok(find(bubble, "fizzy-comment-html-cm1"), "the text is in it");
   click(next, "fizzy-comment-del-cm1", cx);
   next = await draw();
   assert.match(textOf(must(next, "fizzy-comment-del-cm1")), /Delete\?/);
@@ -771,22 +855,19 @@ test("a comment is sent as HTML (escaped, paragraphs), then the box is emptied; 
   assert.equal(acct.writes().filter(a => a[0] === "comment" && a[1] === "delete").length, 1);
 });
 
-test("editing the description: plain text in a box (8 rows), saved as HTML; Cancel leaves it alone", async () => {
+test("editing the description: Edit under the card, plain text in a box (8 rows), saved as HTML; Cancel leaves it alone", async () => {
   const { cx, draw, tree } = await openDetail();
-  const head = must(tree, "fizzy-desc-head");
-  assert.deepEqual([head.style.h, head.style.px, textOf(head).trim(), head.kids.at(-1).id], [30, 8, "Description", "fizzy-desc-edit"]);
-  const pencil = must(tree, "fizzy-desc-edit");
-  assert.deepEqual([all(pencil, n => n.kind === "svg")[0].path, tipOf(tree, "fizzy-desc-edit"), pencil.style.size], ["mods/fizzy/pencil.svg", "Edit", 22]);
+  assert.deepEqual(must(tree, "fizzy-card-actions").kids.map(k => k.id), ["fizzy-desc-edit", "fizzy-done"]);
+  assert.equal(textOf(must(tree, "fizzy-desc-edit")), "Edit");
   click(tree, "fizzy-desc-edit", cx);
   let next = await draw();
   const area = inputOf(next, "fizzy-desc-input");
   assert.equal(area.options.rows, 8);
   assert.equal(area.value(), "The spinner hangs.");
   assert.equal(find(next, "fizzy-desc-html"), null, "the box replaces the text while editing");
-  assert.equal(find(next, "fizzy-desc-edit"), null, "no pencil while editing");
+  assert.equal(find(next, "fizzy-desc-edit"), null, "no Edit while editing");
   const editor = must(next, "fizzy-desc-editor");
-  assert.equal(editor.style.px, undefined, "the editor sits at 0");
-  assert.equal(all(must(next, "fizzy-desc-input"), n => n.kind === "textarea")[0].style.px, 7);
+  assert.equal(all(must(next, "fizzy-desc-input"), n => n.kind === "textarea")[0].style.px, 8);
   assert.equal(textOf(must(next, "fizzy-desc-lossy")), "Saving keeps only the text: formatting is lost.", "this description has a <b>");
   const buttons = all(editor, n => n.style.justify_end)[0].kids.map(k => k.id);
   assert.deepEqual(buttons, ["fizzy-desc-cancel", "fizzy-desc-save"], "primary last, at the right");
@@ -864,12 +945,12 @@ test("the card view's ⋯ menu moves the card, reopens it and deletes it", async
   menuClick(popup, "lane-not-now");
   await draw();
   assert.deepEqual(acct.writes(), [["card", "postpone", "101"]]);
-  assert.match(textOf(must(await draw(), "fizzy-lane")), /Not Now/);
+  assert.match(textOf(must(await draw(), "fizzy-lane")), /Not Now/i);
   popup = await cardMenuPopup(await draw(), cx);
   menuClick(popup, "lane-done");
   await draw();
   assert.deepEqual(acct.writes().at(-1), ["card", "close", "101"]);
-  assert.match(textOf(must(await draw(), "fizzy-lane")), /Done/);
+  assert.match(textOf(must(await draw(), "fizzy-lane")), /Done/i);
   popup = await cardMenuPopup(await draw(), cx);
   const order = menuRows(lastPopup().props.menu, { agents: [], focused: null, boards: [] }).map(r => r.id);
   assert.equal(order[order.indexOf("sep-hand") + 1], "reopen", "Reopen comes first after the hand-off rows");
@@ -878,7 +959,7 @@ test("the card view's ⋯ menu moves the card, reopens it and deletes it", async
   await draw();
   assert.deepEqual(acct.writes().at(-1), ["card", "reopen", "101"]);
   assert.equal(acct.writes().filter(a => a[1] === "reopen").length, 1);
-  assert.doesNotMatch(textOf(must(await draw(), "fizzy-lane")), /Done/);
+  assert.doesNotMatch(textOf(must(await draw(), "fizzy-lane")), /Done/i);
   popup = await cardMenuPopup(await draw(), cx);
   menuClick(popup, "delete");
   assert.equal(acct.writes().filter(a => a[1] === "delete").length, 0, "the first click only asks");
@@ -895,14 +976,14 @@ test("Reopen from the menu shows at once: the lane stops reading Done before Fiz
   await draw();
   await press(cx, "open:105");
   const tree = await draw();
-  assert.match(textOf(must(tree, "fizzy-lane")), /Done/);
+  assert.match(textOf(must(tree, "fizzy-lane")), /Done/i);
   const popup = await cardMenuPopup(tree, cx);
   let release;
   acct.hold = new Promise(resolve => { release = resolve; });
   menuClick(popup, "reopen");
   assert.deepEqual(requestOps(), [{ kind: "reopen", number: 105 }]);
   await heldRequest(view, cx, { kind: "reopen", number: 105 });
-  assert.doesNotMatch(textOf(must(drawn(view, cx), "fizzy-lane")), /Done/, "changed before the answer");
+  assert.doesNotMatch(textOf(must(drawn(view, cx), "fizzy-lane")), /Done/i, "changed before the answer");
   release();
   await cx.settle();
   acct.hold = null;
@@ -961,7 +1042,7 @@ test("the golden toggle: muted when off, a lit star when on; a click shows at on
   const { view, cx, draw, tree } = await openDetail();
   assert.deepEqual(looks(tree, "fizzy-golden"), { icon: "star.svg", color: "muted", bg: undefined, tip: "Mark golden", hover: true, pointer: true, click: "function" });
   click(tree, "fizzy-golden", cx);
-  assert.deepEqual(looks(drawn(view, cx), "fizzy-golden"), { icon: "star.svg", color: "ansi3", bg: "selected", tip: "Remove golden", hover: true, pointer: true, click: "function" });
+  assert.deepEqual(looks(drawn(view, cx), "fizzy-golden"), { icon: "star.svg", color: "#e5b422", bg: "selected", tip: "Remove golden", hover: true, pointer: true, click: "function" });
   await cx.settle();
   assert.deepEqual(acct.writes(), [["card", "golden", "101"]]);
   click(await draw(), "fizzy-golden", cx);
@@ -969,26 +1050,26 @@ test("the golden toggle: muted when off, a lit star when on; a click shows at on
   assert.deepEqual(acct.writes().at(-1), ["card", "ungolden", "101"]);
   assert.equal(looks(await draw(), "fizzy-golden").color, "muted");
   const second = await openDetail(102);
-  assert.deepEqual([looks(second.tree, "fizzy-golden").color, looks(second.tree, "fizzy-golden").bg], ["ansi3", "selected"]);
+  assert.deepEqual([looks(second.tree, "fizzy-golden").color, looks(second.tree, "fizzy-golden").bg], ["#e5b422", "selected"]);
 });
 
 test("the watch toggle shows only what was set here: a dim eye that watches when clicked, a lit eye, a crossed one; remembered between copies", async () => {
   const { view, cx, draw, tree } = await openDetail();
-  assert.deepEqual(looks(tree, "fizzy-watch"), { icon: "eye.svg", color: "dim", bg: undefined, tip: "Watch", hover: true, pointer: true, click: "function" });
+  assert.deepEqual(looks(tree, "fizzy-watch"), { icon: "bell.svg", color: "dim", bg: undefined, tip: "Watch", hover: true, pointer: true, click: "function" });
   const toasts = calls.notify.length;
   click(tree, "fizzy-watch", cx);
   await cx.settle();
   assert.deepEqual(acct.writes(), [["card", "watch", "101"]]);
   assert.equal(calls.notify.length, toasts, "the card view shows it: no toast");
-  assert.deepEqual(looks(drawn(view, cx), "fizzy-watch"), { icon: "eye.svg", color: "accent", bg: "selected", tip: "Unwatch", hover: true, pointer: true, click: "function" });
+  assert.deepEqual(looks(drawn(view, cx), "fizzy-watch"), { icon: "bell.svg", color: "accent", bg: "selected", tip: "Stop watching", hover: true, pointer: true, click: "function" });
   assert.deepEqual(watchedBy(), [[101, true]]);
   click(await draw(), "fizzy-watch", cx);
   await cx.settle();
   assert.deepEqual(acct.writes().at(-1), ["card", "unwatch", "101"]);
-  assert.deepEqual(looks(drawn(view, cx), "fizzy-watch"), { icon: "eye-off.svg", color: "muted", bg: undefined, tip: "Watch", hover: true, pointer: true, click: "function" });
+  assert.deepEqual(looks(drawn(view, cx), "fizzy-watch"), { icon: "bell-off.svg", color: "muted", bg: undefined, tip: "Watch", hover: true, pointer: true, click: "function" });
   assert.deepEqual(watchedBy(), [[101, false]]);
   const next = await openDetail();
-  assert.equal(looks(next.tree, "fizzy-watch").icon, "eye-off.svg", "a new copy remembers it");
+  assert.equal(looks(next.tree, "fizzy-watch").icon, "bell-off.svg", "a new copy remembers it");
 });
 
 test("what is remembered about watching is kept newest last, at most 200 cards, and a damaged store is ignored", async () => {
@@ -1016,7 +1097,7 @@ test("a refused watch puts back what was there and tells the person; a later opp
   const { view, cx, draw, tree } = await openDetail();
   click(tree, "fizzy-watch", cx);
   await cx.settle();
-  assert.equal(looks(await draw(), "fizzy-watch").icon, "eye.svg");
+  assert.equal(looks(await draw(), "fizzy-watch").icon, "bell.svg");
   assert.equal(looks(drawn(view, cx), "fizzy-watch").color, "dim");
   assert.equal(looks(drawn(view, cx), "fizzy-watch").bg, undefined);
   assert.deepEqual(watchedBy(), []);
@@ -1028,7 +1109,7 @@ test("a refused watch puts back what was there and tells the person; a later opp
   click(drawn(second.view, second.cx), "fizzy-watch", second.cx);
   release();
   await second.cx.settle();
-  assert.deepEqual(looks(drawn(second.view, second.cx), "fizzy-watch").icon, "eye-off.svg");
+  assert.deepEqual(looks(drawn(second.view, second.cx), "fizzy-watch").icon, "bell-off.svg");
   assert.equal(looks(drawn(second.view, second.cx), "fizzy-watch").color, "muted");
   assert.deepEqual(watchedBy(), [[101, false]]);
   assert.equal(errors().length, 2, "one more error, for the first click only");
@@ -1039,7 +1120,7 @@ test("a remembered 'not watching' is forgotten when the person comments on the c
     setup();
     localStorage.setItem("watching", JSON.stringify([[101, on]]));
     const { view, cx, draw, tree } = await openDetail();
-    assert.equal(looks(tree, "fizzy-watch").icon, on ? "eye.svg" : "eye-off.svg", `${how}: starts as remembered`);
+    assert.equal(looks(tree, "fizzy-watch").icon, on ? "bell.svg" : "bell-off.svg", `${how}: starts as remembered`);
     if (how === "comment") {
       inputOf(tree, "fizzy-comment-input").edit("hello", cx);
       click(tree, "fizzy-comment-send", cx);
@@ -1051,7 +1132,7 @@ test("a remembered 'not watching' is forgotten when the person comments on the c
     await cx.settle();
     const next = await draw();
     if (on) assert.deepEqual([looks(next, "fizzy-watch").color, watchedBy()], ["accent", [[101, true]]], `${how}: kept`);
-    else assert.deepEqual([looks(next, "fizzy-watch").icon, looks(next, "fizzy-watch").color, looks(next, "fizzy-watch").bg, watchedBy()], ["eye.svg", "dim", undefined, []], `${how}: forgotten`);
+    else assert.deepEqual([looks(next, "fizzy-watch").icon, looks(next, "fizzy-watch").color, looks(next, "fizzy-watch").bg, watchedBy()], ["bell.svg", "dim", undefined, []], `${how}: forgotten`);
   }
 });
 
@@ -1075,34 +1156,34 @@ test("a watch request from a list or a menu toasts once Fizzy has accepted it, a
   await cx.settle();
   assert.equal(calls.notify.filter(n => /watching/i.test(n.body)).length, 1, "the open card shows it itself");
   let tree = await draw();
-  assert.deepEqual([looks(tree, "fizzy-watch").icon, looks(tree, "fizzy-watch").color], ["eye-off.svg", "muted"]);
+  assert.deepEqual([looks(tree, "fizzy-watch").icon, looks(tree, "fizzy-watch").color], ["bell-off.svg", "muted"]);
   await heldRequest(view, cx, { kind: "watch", number: 102, on: true });
   await cx.settle();
   assert.equal(calls.notify.filter(n => /watching/i.test(n.body)).length, 1, "watching the open card is not toasted either");
   tree = await draw();
-  assert.deepEqual([looks(tree, "fizzy-watch").icon, looks(tree, "fizzy-watch").color, looks(tree, "fizzy-watch").bg], ["eye.svg", "accent", "selected"]);
+  assert.deepEqual([looks(tree, "fizzy-watch").icon, looks(tree, "fizzy-watch").color, looks(tree, "fizzy-watch").bg], ["bell.svg", "accent", "selected"]);
 });
 
-test("the toggles are 26 px in every state, and an on toggle is told apart from an off one under the pointer by its icon", async () => {
+test("the toggles are 30 px round in every state, and an on toggle is told apart from an off one under the pointer by its icon", async () => {
   const { view, cx, draw } = await mount();
   let tree = await draw();
   const release = holdOn();
   click(tree, "fizzy-card-101", cx);
   tree = drawn(view, cx);
-  for (const id of ["fizzy-pin", "fizzy-watch", "fizzy-golden"]) assert.equal(must(tree, id).style.size, 26, `${id}: not known`);
+  for (const id of ["fizzy-pin", "fizzy-watch", "fizzy-golden"]) assert.equal(must(tree, id).style.size, 30, `${id}: not known`);
   release();
   await cx.settle();
   tree = await draw();
   for (const id of ["fizzy-pin", "fizzy-watch", "fizzy-golden"]) {
     const off = must(tree, id);
-    assert.deepEqual([off.style.size, off.hoverStyle.text_color, off.hoverStyle.bg], [26, "foreground", "hover"], `${id}: off`);
+    assert.deepEqual([off.style.size, off.hoverStyle.text_color, off.hoverStyle.bg], [30, "foreground", "hover"], `${id}: off`);
     click(tree, id, cx);
   }
   await cx.settle();
   tree = await draw();
-  for (const [id, color] of [["fizzy-pin", "accent"], ["fizzy-watch", "accent"], ["fizzy-golden", "ansi3"]]) {
+  for (const [id, color] of [["fizzy-pin", "accent"], ["fizzy-watch", "accent"], ["fizzy-golden", "#e5b422"]]) {
     const on = must(tree, id);
-    assert.deepEqual([on.style.size, on.style.text_color, on.style.bg, on.hoverStyle.bg, on.hoverStyle.text_color], [26, color, "selected", "hover", undefined], `${id}: on`);
+    assert.deepEqual([on.style.size, on.style.text_color, on.style.bg, on.hoverStyle.bg, on.hoverStyle.text_color], [30, color, "selected", "hover", undefined], `${id}: on`);
     assert.notEqual(on.style.text_color, "foreground", `${id}: lit differs from the off hover colour`);
   }
 });
@@ -1116,21 +1197,20 @@ test("a card opened by its number is only 'Loading…' until it is read: no titl
   const tree = drawn(view, cx);
   for (const id of ["fizzy-detail-top", "fizzy-detail-meta", "fizzy-desc", "fizzy-steps", "fizzy-comments", "fizzy-title", "fizzy-lane"]) assert.equal(find(tree, id), null, id);
   assert.equal(textOf(must(tree, "fizzy-detail")).split("Loading…").length - 1, 1);
-  assert.equal(textOf(must(tree, "fizzy-detail-board")), "");
-  assert.equal(tipOf(tree, "fizzy-detail-board"), undefined);
+  assert.equal(find(tree, "fizzy-card-frame"), null, "no card drawn before it is read, nor its board");
   assert.deepEqual([looks(tree, "fizzy-golden").color, looks(tree, "fizzy-golden").click], ["dim", "undefined"]);
-  assert.equal(looks(tree, "fizzy-watch").click, "function", "the eye still watches");
+  assert.equal(looks(tree, "fizzy-watch").click, "function", "the bell still watches");
   assert.equal(isOff(tree, "fizzy-act-open"), true);
   release();
   await cx.settle();
   const read = await draw();
   assert.equal(textOf(must(read, "fizzy-title")), "Shipped thing");
-  assert.match(textOf(must(read, "fizzy-lane")), /Done/);
+  assert.match(textOf(must(read, "fizzy-lane")), /Done/i);
   assert.deepEqual([looks(read, "fizzy-golden").color, looks(read, "fizzy-golden").click], ["muted", "function"]);
-  assert.equal(textOf(must(read, "fizzy-detail-board")), "Roadmap");
+  assert.match(textOf(must(read, "fizzy-detail-board")), /^ROADMAP/);
 });
 
-test("a note's card that no list holds waits for the read: people and tags are inert, the lane and ⋯ open once it is read, with the card's own board's lanes", async () => {
+test("a note's card that no list holds waits for the read: people and tags are inert, and its own board's lanes come once it is read", async () => {
   localStorage.setItem("follow", "false");
   localStorage.setItem("board", '"b2"');
   localStorage.setItem("view", '"inbox"');
@@ -1139,23 +1219,16 @@ test("a note's card that no list holds waits for the read: people and tags are i
   const release = holdOn();
   click(tree, "fizzy-note-n1", cx);
   tree = drawn(view, cx);
-  assert.equal(textOf(must(tree, "fizzy-detail-board")), "Roadmap", "the note's board");
-  for (const id of ["fizzy-people", "fizzy-tags"]) {
-    const row = must(tree, id);
-    assert.deepEqual([row.handlers.on_click, row.hover, /Nobody|No tags/.test(textOf(row))], [undefined, false, false], id);
-  }
+  assert.match(textOf(must(tree, "fizzy-detail-board")), /^ROADMAP/, "the note's board");
+  for (const id of ["fizzy-people", "fizzy-tags"]) assert.deepEqual([must(tree, id).handlers.on_click, must(tree, id).hover], [undefined, false], id);
+  assert.equal(textOf(must(tree, "fizzy-detail-assigned")).trim(), "ASSIGNED TO", "not known: not 'nobody'");
   assert.deepEqual([looks(tree, "fizzy-golden").color, looks(tree, "fizzy-golden").click], ["dim", "undefined"]);
-  const before = calls.openOverlay.length;
-  click(tree, "fizzy-lane", cx);
-  assert.equal(calls.openOverlay.length, before, "no popup before the card is read");
+  assert.equal(find(tree, "fizzy-lane-c2"), null, "b1's lanes are not known yet");
   release();
   await cx.settle();
-  assert.equal(calls.openOverlay.length, before + 1);
-  const menu = lastPopup().props.menu;
-  assert.equal(menu.kind, "lanes");
-  assert.ok(["c1", "c2"].every(id => menu.columns.some(c => c.id === id)), "b1's lanes, not b2's");
-  const popup = await mountPopup();
-  assert.equal(all(must(popup.tree(), "fizzy-menu-lane-c1"), n => n.path === "mods/fizzy/check.svg").length, 1);
+  tree = await draw();
+  assert.match(textOf(must(tree, "fizzy-lane")), /In progress/i);
+  assert.ok(["fizzy-lane-maybe", "fizzy-lane-c2", "fizzy-lane-done"].every(id => find(tree, id)), "b1's lanes, read for it, not b2's");
 });
 
 test("a note's card that a list holds opens with that copy: people known, golden clickable", async () => {
@@ -1166,7 +1239,7 @@ test("a note's card that a list holds opens with that copy: people known, golden
   const release = holdOn();
   click(tree, "fizzy-note-n1", cx);
   tree = drawn(view, cx);
-  assert.match(textOf(must(tree, "fizzy-people")), /Ada/);
+  assert.match(textOf(must(tree, "fizzy-detail-assigned")), /ADA/);
   assert.equal(typeof must(tree, "fizzy-people").handlers.on_click, "function");
   assert.deepEqual([looks(tree, "fizzy-golden").color, looks(tree, "fizzy-golden").click], ["muted", "function"]);
   release();
@@ -1229,25 +1302,30 @@ test("at 300 px the card's Open in Fizzy gives way and the toggles and ⋯ stay;
   const order = tree => ids(tree).slice(ids(tree).indexOf("fizzy-back"), ids(tree).indexOf("fizzy-detail"));
   fire(must(tree, "fizzy"), "on_size_change", { width: 300, height: 600 }, cx);
   const narrow = await draw();
-  assert.deepEqual(order(narrow), ["fizzy-back", "fizzy-detail-number", "fizzy-detail-board", "fizzy-pin", "fizzy-watch", "fizzy-golden", "fizzy-card-menu"]);
+  assert.deepEqual(order(narrow), ["fizzy-back", "fizzy-to-board", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-card-menu"]);
   fire(must(narrow, "fizzy"), "on_size_change", { width: 520, height: 600 }, cx);
-  assert.deepEqual(order(await draw()), ["fizzy-back", "fizzy-detail-number", "fizzy-detail-board", "fizzy-pin", "fizzy-watch", "fizzy-golden", "fizzy-act-open", "fizzy-card-menu"]);
+  assert.deepEqual(order(await draw()), ["fizzy-back", "fizzy-to-board", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-act-open", "fizzy-card-menu"]);
 });
 
-test("the detail's chip opens the lanes of its board; choosing one moves the card there", async () => {
-  const { cx, draw, tree } = await openDetail();
-  click(tree, "fizzy-lane", cx);
-  const spec = lastPopup();
-  assert.equal(spec.props.menu.kind, "lanes");
-  assert.deepEqual(spec.props.menu.columns.map(c => c.id), ["not-now", "maybe", "c1", "c2", "done"]);
-  const popup = await mountPopup(spec);
-  assert.deepEqual(ids(popup.tree()).filter(i => i.startsWith("fizzy-menu-lane-")), ["fizzy-menu-lane-not-now", "fizzy-menu-lane-maybe", "fizzy-menu-lane-c1", "fizzy-menu-lane-c2", "fizzy-menu-lane-done"], "in the board's order");
-  assert.equal(all(must(popup.tree(), "fizzy-menu-lane-c1"), n => n.path === "mods/fizzy/check.svg").length, 1, "the card's lane is checked");
-  menuClick(popup, "lane-c2");
-  assert.deepEqual(requestOps(), [{ kind: "move", number: 101, target: "c2" }]);
-  await draw();
+test("the card page lists its board's lanes in the board's order, its own filled in its color; a click on another moves the card there at once", async () => {
+  const { view, cx, draw, tree } = await openDetail();
+  assert.deepEqual(must(tree, "fizzy-lanes").kids.map(k => k.id), ["fizzy-lane-not-now", "fizzy-lane-maybe", "fizzy-lane", "fizzy-lane-c2", "fizzy-lane-done"]);
+  const here = must(tree, "fizzy-lane"), other = must(tree, "fizzy-lane-c2");
+  assert.deepEqual([textOf(here), here.style.bg, here.style.text_color, here.style.rounded_full, here.handlers.on_click], ["IN PROGRESS", must(tree, "fizzy-card-tab").style.bg, "#15171c", true, undefined],
+    "its own: filled, no click");
+  assert.deepEqual([textOf(other), other.style.bg, other.style.text_color, other.style.cursor_pointer, tipOf(tree, "fizzy-lane-c2")], ["REVIEW", undefined, here.style.bg, true, "Move to Review"]);
+  let release;
+  acct.hold = new Promise(resolve => { release = resolve; });
+  click(tree, "fizzy-lane-c2", cx);
+  assert.match(textOf(must(drawn(view, cx), "fizzy-lane")), /Review/i, "moved before Fizzy answers");
+  release();
+  await cx.settle();
+  acct.hold = null;
   assert.deepEqual(acct.writes(), [["card", "column", "101", "--column", "c2"]]);
-  assert.match(textOf(must(await draw(), "fizzy-lane")), /Review/);
+  click(await draw(), "fizzy-lane-done", cx);
+  await cx.settle();
+  assert.deepEqual(acct.writes().at(-1), ["card", "close", "101"]);
+  assert.match(textOf(must(await draw(), "fizzy-lane")), /Done/i);
 });
 
 test("the card view has the bar: Insert pastes at once, Send and Start open their menus, Copy copies, and the link stays in the header", async () => {
@@ -1273,73 +1351,96 @@ test("the card view has the bar: Insert pastes at once, Send and Start open thei
   assert.deepEqual(cx.opened, ["https://app.fizzy.do/111/cards/101"]);
 });
 
-test("the detail's menu button opens the card menu; the People and Tags lines open their pickers, with a chevron at the right", async () => {
+test("the detail's menu button opens the card menu; Tags by the tab and the people in the card's foot open their pickers; the board on the tab moves it", async () => {
   const { cx, tree } = await openDetail();
   click(tree, "fizzy-card-menu", cx);
   await cx.settle();
   assert.equal(lastPopup().props.menu.kind, "card");
-  const people = must(tree, "fizzy-people"), tags = must(tree, "fizzy-tags");
-  for (const row of [people, tags]) {
-    assert.deepEqual([row.style.min_h, row.style.px, row.style.rounded, row.hover, row.style.cursor_pointer], [30, 8, 7, true, true]);
-    const chevron = all(row, n => n.kind === "svg").at(-1);
-    assert.equal(chevron.path, "mods/fizzy/chevron-down.svg");
-    const box = all(row, n => n.kids.includes(chevron))[0];
-    assert.deepEqual([box.style.w, box.style.h], [22, 24], "the chevron sits in the column of the row buttons");
-  }
-  assert.equal(all(people, n => n.style.w === 52).length, 1, "the label is 52 wide");
-  assert.match(textOf(people), /People\s+A\s+Ada/);
-  assert.match(textOf(tags), /Tags\s+bug/);
-  assert.ok(all(people, n => n.kids.some(k => k.style.rounded_full)).every(n => n.style.bg === undefined), "a person is an avatar and a name, with no background");
+  assert.deepEqual([iconOf(tree, "fizzy-tags"), must(tree, "fizzy-tags").style.size, must(tree, "fizzy-tags").style.rounded_full, tipOf(tree, "fizzy-tags")], ["tag.svg", 26, true, "Tags"]);
+  assert.deepEqual(all(must(tree, "fizzy-tag-list"), n => n.kind === "text").map(n => n.text), ["#bug"], "the tags under the title");
+  const people = must(tree, "fizzy-people");
+  assert.deepEqual([people.style.cursor_pointer, tipOf(tree, "fizzy-people"), iconOf(tree, "fizzy-people")], [true, "Assign", "user-plus.svg"], "the photos, then the round add button");
+  assert.match(textOf(must(tree, "fizzy-detail-assigned")), /ASSIGNED TO\s+ADA/);
   click(tree, "fizzy-people", cx);
   assert.deepEqual([lastPopup().props.menu.kind, lastPopup().props.menu.card.number], ["users", 101]);
   click(tree, "fizzy-tags", cx);
   assert.deepEqual([lastPopup().props.menu.kind, lastPopup().props.menu.card.number], ["tags", 101]);
-  const bare = await openDetail(103);
-  assert.match(textOf(must(bare.tree, "fizzy-people")), /Nobody/);
-  assert.match(textOf(must(bare.tree, "fizzy-tags")), /No tags/);
+  click(tree, "fizzy-detail-board", cx);
+  assert.deepEqual([lastPopup().props.menu.kind, lastPopup().props.menu.card.number], ["moveBoard", 101]);
 });
 
-test("the body: a 6 px inset, three sections each with a head, and the lane chip next to the title", async () => {
+test("the card page: the card framed in its lane's color, its tab at the top left, then the title, lanes, tags, description, steps and foot; Edit and Mark as Done under it, then the comments", async () => {
   const { tree } = await openDetail();
   const body = must(tree, "fizzy-detail");
-  assert.deepEqual([body.style.p, body.style.pb, body.style.gap, body.style.overflow_y_scrollbar], [6, 14, 12, true]);
-  assert.deepEqual(body.kids.filter(k => k.id).map(k => k.id), ["fizzy-detail-top", "fizzy-detail-meta", "fizzy-desc", "fizzy-steps", "fizzy-comments"]);
-  assert.deepEqual(all(must(tree, "fizzy-steps-head"), n => n.id === "fizzy-steps-count").map(textOf), ["1/2"]);
-  assert.deepEqual(all(must(tree, "fizzy-comments-head"), n => n.id === "fizzy-comments-count").map(textOf), ["2"]);
-  const lane = must(tree, "fizzy-lane");
-  assert.deepEqual([lane.style.h, lane.style.rounded, lane.style.bg, textOf(lane).trim(), iconOf(tree, "fizzy-lane")], [26, 6, "raised", "In progress", "chevron-down.svg"]);
-  assert.equal(textOf(must(tree, "fizzy-detail-top")).includes("Roadmap"), false, "the board's name is in the header only");
+  assert.deepEqual([body.style.p, body.style.pb, body.style.gap, body.style.overflow_y_scrollbar], [10, 16, 12, true]);
+  assert.deepEqual(body.kids.filter(k => k.id).map(k => k.id), ["fizzy-card-frame", "fizzy-card-actions", "fizzy-comments"], "no auto-postpone period known: no line about it");
+  const frame = must(tree, "fizzy-card-frame"), color = must(tree, "fizzy-card-tab").style.bg;
+  assert.deepEqual([frame.style.bg, frame.style.p, frame.style.rounded], [`${color}33`, 8, 12], "a tint of the lane's color around the card");
+  const page = must(tree, "fizzy-card-page");
+  assert.deepEqual([page.style.bg, page.style.rounded], ["background", 8]);
+  assert.deepEqual(all(page, n => ["fizzy-card-tab", "fizzy-detail-top", "fizzy-desc", "fizzy-steps", "fizzy-detail-meta"].includes(n.id)).map(n => n.id),
+    ["fizzy-card-tab", "fizzy-detail-top", "fizzy-desc", "fizzy-steps", "fizzy-detail-meta"]);
+  assert.deepEqual(must(tree, "fizzy-detail-top").kids.map(k => k.id), ["fizzy-title", "fizzy-lanes", "fizzy-tag-list"]);
+  const tab = must(tree, "fizzy-card-tab");
+  assert.deepEqual([tab.style.rounded_br, tab.style.text_color, tab.style.font_semibold], [8, "#15171c", true]);
+  assert.match(textOf(must(tree, "fizzy-detail-meta")), /ADDED .* BY .* UPDATED .* ASSIGNED TO ADA/);
+  assert.equal(textOf(must(tree, "fizzy-comments-head")).replace(/\s+/g, " ").trim(), "COMMENTS 2");
+  for (const id of ["fizzy-desc-edit", "fizzy-done"]) {
+    const pill = must(tree, id);
+    assert.deepEqual([pill.style.bg, pill.style.text_color, pill.style.rounded_full], [color, "#15171c", true], `${id}: in the lane's color`);
+  }
 });
 
-test("the title and the lane dropdown share one row: the title wraps on the left, the dropdown is fixed at the right, and editing keeps that", async () => {
+test("Mark as Done closes the card at once; a done card offers Reopen instead", async () => {
+  const { view, cx, draw, tree } = await openDetail();
+  assert.equal(textOf(must(tree, "fizzy-done")), "Mark as Done");
+  click(tree, "fizzy-done", cx);
+  assert.match(textOf(must(drawn(view, cx), "fizzy-lane")), /Done/i, "shown before Fizzy answers");
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "close", "101"]]);
+  let next = await draw();
+  assert.equal(find(next, "fizzy-done"), null);
+  assert.equal(textOf(must(next, "fizzy-reopen")), "Reopen");
+  click(next, "fizzy-reopen", cx);
+  await cx.settle();
+  assert.deepEqual(acct.writes().at(-1), ["card", "reopen", "101"]);
+  next = await draw();
+  assert.doesNotMatch(textOf(must(next, "fizzy-lane")), /Done/i);
+  assert.ok(find(next, "fizzy-done"));
+});
+
+test("under an open card, Fizzy's line about when it moves to Not Now for want of activity, in the lane's color; none on a done card or with no period", async () => {
+  acct.boards[0] = { ...acct.boards[0], auto_postpone_period_in_days: 30 };
+  acct.card(101).last_active_at = new Date(Date.now() - 4 * 86400000).toISOString();
   const { cx, draw, tree } = await openDetail();
-  const top = must(tree, "fizzy-detail-top");
-  assert.deepEqual([top.kind, top.style.flex_none, top.style.gap, top.style.items_start], ["h_flex", true, 8, true], "a row, not a column");
-  assert.deepEqual(top.kids.map(k => k.id), ["fizzy-title", "fizzy-lane"], "the title, then the dropdown");
+  const note = must(tree, "fizzy-postpone");
+  assert.equal(textOf(note), "Moves to “Not Now” in 26 days if there’s no activity.");
+  assert.deepEqual([note.style.text_color, note.style.text_center], [must(tree, "fizzy-card-tab").style.bg, true]);
+  await press(cx, "open:105");
+  const done = await draw();
+  assert.equal(textOf(must(done, "fizzy-title")), "Shipped thing");
+  assert.equal(find(done, "fizzy-postpone"), null, "a done card stays where it is");
+  setup();
+  assert.equal(find((await openDetail()).tree, "fizzy-postpone"), null, "no period known");
+});
+
+test("the title sits above the lanes, wrapping; editing puts the field in its place, larger when wide", async () => {
+  const { cx, draw, tree } = await openDetail();
   const title = must(tree, "fizzy-title");
-  assert.deepEqual([title.style.flex_1, title.style.min_w, title.style.whitespace_normal, title.style.flex_none], [true, 0, true, undefined], "the title takes the room and wraps");
-  const lane = must(tree, "fizzy-lane");
-  assert.deepEqual([lane.style.flex_none, lane.style.mr, lane.style.mt, lane.style.h], [true, 8, 2, 26], "the dropdown keeps its size, 8 px from the edge, level with the title's first line");
-  assert.equal(all(lane, n => n.style.max_w).map(n => n.style.max_w)[0], 140);
+  assert.deepEqual([title.style.min_w, title.style.whitespace_normal], [0, true], "it wraps");
   click(tree, "fizzy-title", cx);
   const editing = await draw();
-  const row = must(editing, "fizzy-detail-top");
-  assert.deepEqual(row.kids.map(k => k.id), ["fizzy-title-edit", "fizzy-lane"], "the field takes the title's place");
-  assert.deepEqual([must(editing, "fizzy-title-edit").style.flex_1, must(editing, "fizzy-title-edit").style.min_w], [true, 0]);
-  assert.deepEqual([must(editing, "fizzy-lane").style.flex_none, must(editing, "fizzy-lane").style.mr], [true, 8]);
-  fire(must(editing, "fizzy"), "on_size_change", { width: 300, height: 600 }, cx);
-  const narrow = await draw();
-  assert.deepEqual(must(narrow, "fizzy-detail-top").kids.map(k => k.id), ["fizzy-title-edit", "fizzy-lane"], "the same row when narrow");
-  assert.equal(all(must(narrow, "fizzy-lane"), n => n.style.max_w).map(n => n.style.max_w)[0], 96);
-  click(narrow, "fizzy-title-cancel", cx);
-  const read = await draw();
-  assert.deepEqual(must(read, "fizzy-detail-top").kids.map(k => k.id), ["fizzy-title", "fizzy-lane"]);
-  assert.equal(all(must(read, "fizzy-lane"), n => n.style.max_w).map(n => n.style.max_w)[0], 96, "narrow stays narrow");
+  assert.deepEqual(must(editing, "fizzy-detail-top").kids.map(k => k.id), ["fizzy-title-edit", "fizzy-lanes", "fizzy-tag-list"], "the field takes the title's place");
+  fire(must(editing, "fizzy"), "on_size_change", { width: 520, height: 600 }, cx);
+  const wide = await draw();
+  assert.equal(all(must(wide, "fizzy-title-input"), n => n.kind === "input")[0].style.text_size, textPx(20));
+  click(wide, "fizzy-title-cancel", cx);
+  assert.equal(must(await draw(), "fizzy-title").style.text_size, textPx(20));
 });
 
 test("the card view in every state: ids on what reacts, unique, tooltips only where designed, no wide widths, and no draw acts or notifies late", async () => {
   const m = await mount();
-  const TIPPED = /^(fizzy-(back|pin|watch|golden|act-open|card-menu|detail-board|desc-edit|title-cancel)|fizzy-step-(del|cancel)-.+|fizzy-comment-(edit|del)-.+|fizzy-react-.+|fizzy-reaction-.+)$/;
+  const TIPPED = /^(fizzy-(back|to-board|pin|watch|golden|act-open|card-menu|detail-board|tags|people|title-cancel)|fizzy-lane-.+|fizzy-bar-.+|fizzy-step-(del|cancel)-.+|fizzy-comment-(edit|del)-.+|fizzy-react-.+|fizzy-reaction-.+)$/;
   const check = (tree, what) => {
     const found = ids(tree);
     assert.equal(new Set(found).size, found.length, `${what}: unique ids`);
@@ -1402,18 +1503,16 @@ test("the card view in every state: ids on what reacts, unique, tooltips only wh
   await quiet("a card that could not be read");
 });
 
-test("the composer under the comments is a box of three rows with the Comment button at the right", async () => {
-  const { cx, tree } = await openDetail();
+test("the composer under the comments: the person's photo beside a box of three rows, the round Comment button at the right under it", async () => {
+  const { tree } = await openDetail();
   const composer = must(tree, "fizzy-comment-new");
-  assert.deepEqual(composer.kids.map(k => k.id ?? "row"), ["fizzy-comment-input", "row"]);
+  assert.deepEqual([composer.kids.length, composer.kids[0].style.size ?? composer.kids[0].style.w], [2, 28], "the photo, then the box and its button");
   const box = all(must(tree, "fizzy-comment-input"), n => n.kind === "textarea")[0];
-  assert.deepEqual([box.state.options.rows, box.style.px, box.style.border_1], [3, 7, true]);
+  assert.deepEqual([box.state.options.rows, box.style.px, box.style.border_1, box.style.rounded], [3, 10, true, 8]);
   assert.equal(box.state.options.placeholder, "Write a comment… (@ mention, # card, drop or paste images)");
   assert.equal(typeof must(tree, "fizzy-comment-input").handlers.on_drop, "function", "a file dropped on it is attached");
-  const row = composer.kids[1];
-  assert.equal(row.style.justify_end, true);
-  assert.deepEqual([row.kids[0].id, iconOf(tree, "fizzy-comment-send"), textOf(row.kids[0]).trim()], ["fizzy-comment-send", "send.svg", "Comment"]);
-  assert.ok(cx);
+  const send = must(tree, "fizzy-comment-send");
+  assert.deepEqual([parentOf(tree, "fizzy-comment-send").style.justify_end, iconOf(tree, "fizzy-comment-send"), textOf(send).trim(), send.style.rounded_full], [true, "send.svg", "Comment", true]);
 });
 
 test("a card without steps or comments has no count; it says so, and the lines it has are placed under their heads", async () => {
@@ -1436,12 +1535,12 @@ test("an error reading the card shows inline with Retry; an error on a later pol
   assert.equal(textOf(must(tree, "fizzy-detail")).split("Loading…").length - 1, 0, "an error replaces the Loading line");
   for (const id of ["fizzy-title", "fizzy-lane", "fizzy-detail-top", "fizzy-detail-meta", "fizzy-people", "fizzy-tags"]) assert.equal(find(tree, id), null, `${id}: only the error and Retry when nothing was read`);
   assert.deepEqual(must(tree, "fizzy-detail").kids.map(k => k.id ?? "status"), ["status"]);
-  assert.ok(find(tree, "fizzy-back") && find(tree, "fizzy-detail-board") && find(tree, "fizzy-card-menu"), "the header stays as known");
+  assert.ok(find(tree, "fizzy-back") && find(tree, "fizzy-card-menu"), "the header stays");
   acct.fail = null;
   click(tree, "fizzy-retry", cx);
   tree = await draw();
   assert.doesNotMatch(textOf(must(tree, "fizzy-detail")), /Not found in Fizzy/);
-  assert.match(textOf(must(tree, "fizzy-detail")), /Steps 1\/2/);
+  assert.ok(find(tree, "fizzy-step-s1"));
   acct.fail = args => (args[0] === "card" && args[1] === "show" ? failure("not_found", "Resource not found") : undefined);
   timer(cx, POLL_VIEW).fn(cx);
   await cx.settle();
@@ -1449,7 +1548,7 @@ test("an error reading the card shows inline with Retry; an error on a later pol
   assert.match(textOf(must(tree, "fizzy-detail")), /Not found in Fizzy/);
   for (const kept of ["fizzy-title", "fizzy-lane", "fizzy-detail-meta", "fizzy-desc", "fizzy-steps", "fizzy-comments"]) assert.ok(find(tree, kept), `${kept} stays`);
   const order = ids(must(tree, "fizzy-detail"));
-  assert.ok(order.indexOf("fizzy-retry") < order.indexOf("fizzy-desc"), "the error sits between Tags and Description");
+  assert.ok(order.indexOf("fizzy-step-new-row") < order.indexOf("fizzy-retry") && order.indexOf("fizzy-retry") < order.indexOf("fizzy-card-actions"), "the error sits right under the card");
 });
 
 test("Insert in chat: the clipboard gets the reference, the agent's pane is focused, the terminal pastes, the old clipboard returns after 500 ms", async () => {
@@ -1472,6 +1571,39 @@ test("Insert in chat: the clipboard gets the reference, the agent's pane is focu
   after[0].fn(clicker);
   assert.equal(clicker.clipboardText, "what I had copied");
   assert.equal(calls.hc.length, 0, "nothing was sent");
+});
+
+test("a card's whole tile is the drag: the press writes the card's file (named after it) and picks the card up, so let go on a lane it moves and dropped on a terminal it is that file; a picked card drags every picked one", async () => {
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  const fileOf = n => `${state.appHome}/${cardFile(view.find(n))}`;
+  const tile = must(tree, "fizzy-card-102");
+  assert.deepEqual(tile.dragPaths, [`${state.appHome}/${FILE_DIR}/cards/#102 Write the changelog.md`]);
+  assert.equal(must(tree, "fizzy-insert-102").dragPaths, undefined, "the ↵ is a button only");
+  fire(tile, "on_mouse_down:left", {}, cx);
+  await cx.settle();
+  assert.deepEqual(acct.written, { [fileOf(102)]: cardMarkdown(view.find(102)) });
+  fire(must(tree, "fizzy-section-c1"), "on_mouse_up:left", {}, cx);
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "column", "102", "--column", "c1"]], "the same press moves it to the lane it is let go on");
+  tree = await draw();
+  click(tree, "fizzy-card-101", cx, { modifiers: { platform: true } });
+  click(tree, "fizzy-card-103", cx, { modifiers: { platform: true } });
+  tree = await draw();
+  assert.deepEqual(must(tree, "fizzy-card-103").dragPaths, [fileOf(101), fileOf(103)]);
+  assert.deepEqual(must(tree, "fizzy-card-102").dragPaths, [fileOf(102)], "one not picked drags itself");
+  assert.deepEqual(must(tree, "fizzy-bar-insert").dragPaths, [fileOf(101), fileOf(103)], "and so does the bar's Insert");
+});
+
+test("on an open card the bar's Insert drags its file, which holds the card's own read, steps included", async () => {
+  const { view, tree } = await openDetail(101);
+  const bar = must(tree, "fizzy-bar-insert"), path = `${state.appHome}/${cardFile(view.detail.card)}`;
+  assert.deepEqual(bar.dragPaths, [path]);
+  const presser = makeCx();
+  fire(bar, "on_mouse_down:left", {}, presser);
+  await presser.settle();
+  assert.equal(acct.written[path], cardMarkdown(view.detail.card));
+  assert.match(acct.written[path], /\n## Steps\n- \[ \] Reproduce it\n- \[x\] Patch it\n$/);
 });
 
 test("Insert in chat with nothing copied before leaves the reference on the clipboard", async () => {
@@ -1933,6 +2065,196 @@ test("releasing on the same lane, or anywhere else, moves nothing and forgets th
   assert.deepEqual(acct.writes(), []);
 });
 
+// The panel at a width (px), drawn again.
+async function atWidth(m, width) {
+  fire(must(await m.draw(), "fizzy"), "on_size_change", { width, height: 700 }, m.cx);
+  return m.draw();
+}
+const columnsOf = tree => must(tree, "fizzy-columns").kids.map(k => k.id.slice("fizzy-col-".length) + (k.style.flex_1 ? "" : " (folded)"));
+
+test("from 480 px the board is Fizzy's: columns side by side in the board's order, Maybe? open, the rest folded into pills with their count; narrower, the lanes stack", async () => {
+  const m = await mount();
+  let tree = await atWidth(m, 479);
+  assert.ok(find(tree, "fizzy-list") && !find(tree, "fizzy-columns"), "479 px: stacked");
+  tree = await atWidth(m, 600);
+  assert.equal(find(tree, "fizzy-lane-maybe"), null);
+  assert.deepEqual(columnsOf(tree), ["not-now (folded)", "maybe", "c1 (folded)", "c2 (folded)", "done (folded)"]);
+  assert.deepEqual(["c1", "c2", "not-now"].map(k => textOf(must(tree, `fizzy-col-count-${k}`))), ["1", "1", ""], "Not Now is read only when it opens");
+  assert.equal(textOf(must(tree, "fizzy-col-head-maybe")).trim(), "MAYBE?");
+  assert.deepEqual(ids(must(tree, "fizzy-col-cards-maybe")).filter(id => /^fizzy-(watch|card-\d+)$/.test(id)), ["fizzy-watch", "fizzy-card-103"], "Add a card and the watchers first, then its cards");
+});
+
+test("a folded column is Fizzy's pill: its color fading downwards to a tenth of it (never to nothing), round at both ends, as tall as its cards make it (a circle with none), over a faint line to the board's foot; Not Now and Done are gray, and as tall as it gets until read", async () => {
+  acct.cards = acct.cards.filter(c => c.number !== 102);
+  for (const n of [111, 112, 113]) acct.cards.push({ ...acct.card(101), id: `id-${n}`, number: n });
+  const m = await mount();
+  const tree = await atWidth(m, 600);
+  const pillOf = key => all(must(tree, `fizzy-col-${key}`), n => n.kind === "path")[0];
+  const look = key => { const p = pillOf(key); return [p.style.h, p.background.angle, p.background.from, p.background.to]; };
+  const [c1, c2] = ["c1", "c2"].map(id => colorOf(acct.columns.b1.find(c => c.id === id)));
+  assert.deepEqual(["c1", "c2"].map(k => textOf(must(tree, `fizzy-col-count-${k}`))), ["4", "0"]);
+  assert.deepEqual(look("c1"), [36 + 4 * 28, 180, `${c1}b3`, `${c1}1a`], "four cards: taller, in its color, fading downwards to 10 %");
+  assert.deepEqual(look("c2"), [36, 180, `${c2}b3`, `${c2}1a`], "none: a circle");
+  assert.deepEqual(look("done"), [480, 180, "#8a8f98b3", "#8a8f981a"], "Done, not read: gray, as tall as it gets");
+  const col = must(tree, "fizzy-col-c1"), line = must(tree, "fizzy-col-line-c1");
+  assert.deepEqual([col.kids[0], col.kids[1]], [line, pillOf("c1")], "the line, then the pill over it, then the count and the name");
+  assert.deepEqual([line.style.absolute, line.style.bottom, line.style.w, line.style.bg], [true, 0, 1, `${c1}4d`]);
+  assert.ok(line.style.top > 36, "the line starts below the name");
+  const h = 36 + 4 * 28;
+  assert.deepEqual(pillOf("c1").path.steps, [
+    ["move_to", 0, 18], ["arc_to", 18, 18, 0, false, true, 36, 18], ["line_to", 36, h - 18], ["arc_to", 18, 18, 0, false, true, 0, h - 18], ["close"],
+  ], "a round top and a round foot, at its own height");
+  assert.deepEqual(pillOf("c2").path.steps.slice(1, 4), [["arc_to", 18, 18, 0, false, true, 36, 18], ["line_to", 36, 18], ["arc_to", 18, 18, 0, false, true, 0, 18]], "at its smallest, a circle");
+});
+
+test("an open column grows no wider than 380 px, and the columns stay together in the middle of a wider panel, as Fizzy's", async () => {
+  const m = await mount();
+  const tree = await atWidth(m, 1200);
+  const row = must(tree, "fizzy-columns"), open = must(tree, "fizzy-col-maybe");
+  assert.deepEqual([open.style.flex_1, open.style.max_w], [true, 380]);
+  assert.equal(row.style.justify_center, true);
+});
+
+test("the folded column under the pointer is drawn brighter, its pill and its line; moving from one to the next never leaves none lit", async () => {
+  const m = await mount();
+  let tree = await atWidth(m, 600);
+  const lookOf = key => { const col = must(tree, `fizzy-col-${key}`), pill = all(col, n => n.kind === "path")[0]; return [pill.background.from.slice(-2), pill.background.to.slice(-2), must(tree, `fizzy-col-line-${key}`).style.bg.slice(-2)]; };
+  assert.deepEqual(lookOf("c1"), ["b3", "1a", "4d"]);
+  fire(must(tree, "fizzy-col-c1"), "on_hover", true, m.cx);
+  tree = await m.draw();
+  assert.deepEqual([lookOf("c1"), lookOf("c2")], [["e6", "33", "80"], ["b3", "1a", "4d"]], "lit: brighter");
+  fire(must(tree, "fizzy-col-c2"), "on_hover", true, m.cx);
+  fire(must(tree, "fizzy-col-c1"), "on_hover", false, m.cx);
+  tree = await m.draw();
+  assert.deepEqual([lookOf("c1"), lookOf("c2")], [["b3", "1a", "4d"], ["e6", "33", "80"]], "into the next before out of the last");
+  fire(must(tree, "fizzy-col-c2"), "on_hover", false, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lookOf("c2"), ["b3", "1a", "4d"], "out of all: none lit");
+});
+
+test("a folded column's name is drawn sideways from an SVG file the request timer writes once; until then the pill shows its count alone", async () => {
+  const m = await mount();
+  let tree = await atWidth(m, 600);
+  assert.equal(all(must(tree, "fizzy-col-c1"), n => n.kind === "svg").length, 0, "not written yet");
+  await timer(m.cx, REQUEST_EVERY).fn(m.cx);
+  await m.cx.settle();
+  const path = `${state.appHome}/${labelFile("IN PROGRESS")}`;
+  assert.equal(acct.written[path], labelSvg("IN PROGRESS"));
+  tree = await m.draw();
+  const label = all(must(tree, "fizzy-col-c1"), n => n.kind === "svg")[0];
+  assert.equal(label.path, labelFile("IN PROGRESS"));
+  assert.ok(label.style.h > label.style.w, "taller than wide");
+  const writes = Object.keys(acct.written).length;
+  await timer(m.cx, REQUEST_EVERY).fn(m.cx);
+  await m.cx.settle();
+  assert.equal(Object.keys(acct.written).length, writes, "written once");
+});
+
+test("a click opens a folded column and folds the open one, below 760 px; from 760 px two stay open and a third folds the one opened longest ago; an open column's head folds it unless it is the only one; kept per board", async () => {
+  const m = await mount();
+  let tree = await atWidth(m, 600);
+  click(tree, "fizzy-col-c1", m.cx);
+  tree = await m.draw();
+  assert.deepEqual(columnsOf(tree).filter(c => !c.endsWith("(folded)")), ["c1"]);
+  click(tree, "fizzy-col-head-c1", m.cx);
+  tree = await m.draw();
+  assert.deepEqual(columnsOf(tree).filter(c => !c.endsWith("(folded)")), ["c1"], "the only open one stays open");
+  tree = await atWidth(m, 800);
+  click(tree, "fizzy-col-c2", m.cx);
+  tree = await m.draw();
+  assert.deepEqual(columnsOf(tree).filter(c => !c.endsWith("(folded)")), ["c1", "c2"]);
+  click(tree, "fizzy-col-done", m.cx);
+  tree = await m.draw();
+  assert.deepEqual(columnsOf(tree).filter(c => !c.endsWith("(folded)")), ["c2", "done"], "c1 was opened longest ago");
+  await m.cx.settle();
+  assert.equal(acct.asked("card", "list", "--board", "b1", "--indexed-by", "closed").length > 0, true, "Done is read when it opens");
+  click(await m.draw(), "fizzy-col-head-c2", m.cx);
+  tree = await m.draw();
+  assert.deepEqual(columnsOf(tree).filter(c => !c.endsWith("(folded)")), ["done"]);
+  assert.deepEqual(JSON.parse(localStorage.getItem("openColumns")), { b1: ["done"] });
+});
+
+test("crossing 480 px draws again, and a board left with Done open reads Done then, though its first read came before the width was known", async () => {
+  localStorage.setItem("openColumns", JSON.stringify({ b1: ["done"] }));
+  const m = await mount();
+  let tree = await m.draw();
+  const closed = () => acct.asked("card", "list", "--board", "b1", "--indexed-by", "closed").length;
+  assert.equal(closed(), 0, "stacked, Done is folded");
+  fire(must(tree, "fizzy"), "on_size_change", { width: 400, height: 700 }, m.cx);
+  const before = m.cx.notified;
+  fire(must(tree, "fizzy"), "on_size_change", { width: 600, height: 700 }, m.cx);
+  assert.equal(m.cx.notified, before + 1, "the layout changes: drawn again");
+  fire(must(tree, "fizzy"), "on_size_change", { width: 620, height: 700 }, m.cx);
+  assert.equal(m.cx.notified, before + 1, "the same layout: not drawn again");
+  await m.cx.settle();
+  assert.ok(closed() > 0, "Done is read");
+  tree = await m.draw();
+  assert.ok(find(tree, "fizzy-card-105"), "and shows its cards");
+});
+
+test("side by side, a card let go over another column (open, or a folded pill) moves there, and a column's head let go over another column moves that column", async () => {
+  const m = await mount();
+  let tree = await atWidth(m, 600);
+  fire(must(tree, "fizzy-card-103"), "on_mouse_down:left", {}, m.cx);
+  fire(must(tree, "fizzy-col-c2"), "on_mouse_up:left", {}, m.cx);
+  await m.cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "column", "103", "--column", "c2"]]);
+  tree = await m.draw();
+  fire(must(tree, "fizzy-col-c2"), "on_mouse_down:left", {}, m.cx);
+  fire(must(tree, "fizzy-col-c1"), "on_mouse_up:left", {}, m.cx);
+  await m.cx.settle();
+  assert.deepEqual(acct.writes().at(-1), ["column", "move-left", "c2"]);
+});
+
+test("Maybe? starts with Add a card and the board's watchers: their photos, and Watch for new cards or Stop watching for the signed-in user, shown at once and read again", async () => {
+  const m = await mount();
+  let tree = await m.draw();
+  const box = () => must(tree, "fizzy-watch");
+  assert.match(textOf(box()), /Add a card[\s\S]*WATCHING FOR NEW CARDS/);
+  assert.equal(all(must(tree, "fizzy-watchers"), n => n.style?.rounded_full && textOf(n) === "B").length, 1, "Bob watches it");
+  assert.match(textOf(must(tree, "fizzy-watch-toggle")), /WATCH FOR NEW CARDS/);
+  assert.deepEqual(iconsIn(tree, "fizzy-watch-toggle"), ["mods/fizzy/bell.svg"]);
+  click(tree, "fizzy-watch-toggle", m.cx);
+  tree = drawn(m.view, m.cx);
+  assert.match(textOf(must(tree, "fizzy-watch-toggle")), /STOP WATCHING/, "at once");
+  await m.cx.settle();
+  assert.deepEqual(acct.writes(), [["board", "involvement", "b1", "--involvement", "watching"]]);
+  assert.equal(acct.asked("board", "accesses").length, 2, "read with the columns, and again after");
+  tree = await m.draw();
+  assert.deepEqual(iconsIn(tree, "fizzy-watch-toggle"), ["mods/fizzy/bell-off.svg"]);
+  click(tree, "fizzy-watch-toggle", m.cx);
+  await m.cx.settle();
+  assert.deepEqual(acct.writes().at(-1), ["board", "involvement", "b1", "--involvement", "access_only"]);
+  click(await m.draw(), "fizzy-watch-add", m.cx);
+  await m.cx.settle();
+  assert.deepEqual(acct.writes().at(-1).slice(0, 4), ["card", "create", "--board", "b1"], "Add a card makes one in Maybe?");
+});
+
+test("dragging a column's header onto another column reorders the lanes at once, Fizzy moves it a place at a time, and the columns are read again", async () => {
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  let release;
+  acct.hold = new Promise(resolve => { release = resolve; });
+  fire(must(tree, "fizzy-section-c2"), "on_mouse_down:left", {}, cx);
+  fire(must(tree, "fizzy-card-101"), "on_mouse_up:left", {}, cx);
+  assert.deepEqual(sectionIds(drawn(view, cx)), ["not-now", "maybe", "c2", "c1", "done"], "moved before Fizzy has answered");
+  const reads = acct.asked("column", "list").length;
+  release();
+  await cx.settle();
+  acct.hold = null;
+  assert.deepEqual(acct.asked("column", "move-left"), [["column", "move-left", "c2"]]);
+  assert.equal(acct.asked("column", "list").length, reads + 1);
+  assert.deepEqual(acct.columns.b1.map(c => c.id), ["not-now", "maybe", "c2", "c1", "done"]);
+  tree = await draw();
+  for (const [from, to] of [["c2", "c2"], ["c2", "maybe"], ["maybe", "c1"], ["done", "c1"]]) {
+    fire(must(tree, `fizzy-section-${from}`), "on_mouse_down:left", {}, cx);
+    fire(must(tree, `fizzy-section-${to}`), "on_mouse_up:left", {}, cx);
+  }
+  await cx.settle();
+  assert.equal(acct.asked("column", "move-left").length + acct.asked("column", "move-right").length, 1, "its own lane, Maybe?, Not Now and Done neither move nor take a column");
+  assert.deepEqual(acct.writes().filter(w => w[0] === "card"), [], "and no card moves");
+});
+
 test("a card moved out of Done is reopened first, then put in its lane", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
@@ -2125,6 +2447,19 @@ test("each request kind from a popup becomes the right command", async () => {
   ]);
 });
 
+test("a tab bar's search request (⌘K) opens the search, also while the panel is hidden (its request timer takes it), and leaves shared state empty", async () => {
+  const { view, cx, draw } = await mount();
+  click(await draw(), "fizzy-card-101", cx);
+  await cx.settle();
+  state.layout = layoutWith({ hidden: true, active: "fizzy", children: ["files", "changes", "fizzy"] });
+  state.shared["fizzy.request"] = { id: "search-1", op: { kind: "search" } };
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  assert.ok(view.search, "the search is open");
+  assert.equal(view.detail, null, "the open card made way for it");
+  assert.equal(view.searchField.focused, true);
+  assert.equal(state.shared["fizzy.request"], null);
+});
+
 test("a request from before this copy started is not done again; the next one is", async () => {
   state.shared["fizzy.request"] = { id: "old", op: { kind: "move", number: 101, target: "done" } };
   const { draw } = await mount();
@@ -2165,6 +2500,56 @@ test("moving a card to another board, or deleting it, takes it off the screen at
     release();
     await cx.settle();
   }
+});
+
+test("the card's board beside Back shows that board in the Board view and closes the card: another board is picked (following the space stops), the board shown stays as it is", async () => {
+  acct.yaml["/work/roadmap"] = "board: b1\n";
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  assert.equal(view.follow, true);
+  click(tree, "fizzy-card-101", cx);
+  tree = await draw();
+  const pill = must(tree, "fizzy-to-board");
+  assert.deepEqual([textOf(pill), tipOf(tree, "fizzy-to-board"), iconOf(tree, "fizzy-to-board"), pill.style.rounded_full, pill.style.border_1, pill.style.h, pill.style.min_w],
+    ["Roadmap", "Show the Roadmap board", "kanban.svg", true, true, 30, 0]);
+  click(tree, "fizzy-to-board", cx);
+  tree = await draw();
+  assert.deepEqual([view.detail, view.view, view.board, view.follow], [null, "board", "b1", true], "the board shown: following the space stays");
+  click(tree, "fizzy-view-mine", cx);
+  click(await draw(), "fizzy-card-201", cx);
+  tree = await draw();
+  assert.equal(textOf(must(tree, "fizzy-to-board")), "Personal");
+  click(tree, "fizzy-to-board", cx);
+  tree = await draw();
+  assert.deepEqual([view.detail, view.view, view.board, view.follow, view.picked], [null, "board", "b2", false, "b2"]);
+  assert.deepEqual([localStorage.getItem("follow"), localStorage.getItem("board")], ["false", '"b2"'], "kept as a pick in the dropdown is");
+  assert.equal(boardName(tree), "Personal");
+  assert.ok(rowIds(tree).includes(201), "its cards");
+});
+
+test("the open card moved to another board stays open, on that board at once, and is read again; deleted, it closes", async () => {
+  const { view, cx, draw, tree } = await openDetail();
+  click(tree, "fizzy-detail-board", cx);
+  menuClick(await mountPopup(), "board-b2");
+  drawn(view, cx);
+  await due(cx);
+  assert.equal(view.detail?.number, 101, "still open");
+  assert.match(textOf(must(drawn(view, cx), "fizzy-detail-board")), /^PERSONAL/, "on its new board before Fizzy answers");
+  await cx.settle();
+  assert.deepEqual(acct.writes(), [["card", "move", "101", "--to", "b2"]]);
+  const reads = acct.asked("card", "show").length;
+  assert.ok(reads >= 2, "read again after the move");
+  let next = await draw();
+  assert.equal(view.board, "b1", "the board shown stays");
+  assert.match(textOf(must(next, "fizzy-detail-board")), /^PERSONAL/);
+  click(next, "fizzy-back", cx);
+  assert.equal(rowIds(await draw()).includes(101), false, "gone from the board it left");
+  click(await draw(), "fizzy-card-102", cx);
+  await draw();
+  state.shared["fizzy.request"] = { id: "del", op: { kind: "remove", number: 102 } };
+  drawn(view, cx);
+  await due(cx);
+  assert.equal(view.detail, null, "a deleted card closes");
 });
 
 test("Delete in the card popup takes two clicks: the row arms, the second sends", async () => {
@@ -2330,7 +2715,7 @@ test("every popup row and header has an id, and the ids are unique", async () =>
   const card = { number: 101, title: "T", url: "u", column: { id: "c1", name: "In progress" }, tags: ["bug"], assignees: [], board: { id: "b1", name: "Roadmap" } };
   const columns = acct.columns.b1;
   for (const menu of [{ kind: "card", card, columns }, { kind: "card", card, columns, pinned: true }, { kind: "boards", current: "b1", follow: false, spaceBoard: "b2" }, { kind: "agents", cards: [card] }, { kind: "start", cards: [card] },
-    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }, { kind: "lanes", card, columns }]) {
+    { kind: "users", card }, { kind: "tags", card }, { kind: "moveBoard", card }]) {
     openOverlayFor(menu);
     const popup = await mountPopup();
     const tree = popup.tree();
@@ -2738,24 +3123,26 @@ test("the error of one board is not shown on the next one", async () => {
   assert.deepEqual(rowIds(tree), [201]);
 });
 
-const MAYBE_BLUE = "#4f8ef7", NOT_NOW_GRAY = "#8a8f98", DONE_GREEN = "#3fa65b";
+const MAYBE_BLUE = "#4f8ef7", NOT_NOW_GRAY = "#8a8f98", DONE_GRAY = "#9aa0aa";
+// The layer that gives a golden card its glow (window.paint_path), or null.
+const glowOf = tree_or_node => all(tree_or_node, n => n.kind === "path")[0] ?? null;
 
-test("a card's lane color is its column's; Maybe? is Fizzy's blue, Not Now gray and Done green", async () => {
+test("a lane's color is its column's; Maybe? is Fizzy's blue, Not Now gray and Done a muted gray: the lane's dot on the board, the lane named in its color on a card in a list, the card page's chip", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
-  const bar = id => must(tree, id).kids[0].style.bg;
+  const dot = key => must(tree, `fizzy-section-${key}`).kids[1].style.bg;
   const [inProgress, review] = ["c1", "c2"].map(id => colorOf(acct.columns.b1.find(c => c.id === id)));
   assert.ok(inProgress && review && inProgress !== review, "the fixture's two colored columns differ");
-  assert.equal(bar("fizzy-card-101"), inProgress, "In progress: its column's color");
-  assert.equal(bar("fizzy-card-102"), review, "Review: its column's color");
-  assert.equal(bar("fizzy-card-103"), MAYBE_BLUE, "Maybe?");
-  click(tree, "fizzy-section-done", cx);
-  click(tree, "fizzy-section-not-now", cx);
+  assert.deepEqual(["c1", "c2", "maybe", "not-now", "done"].map(dot), [inProgress, review, MAYBE_BLUE, NOT_NOW_GRAY, DONE_GRAY]);
+  assert.equal(find(tree, "fizzy-card-lane-101"), null, "on the board the lane says it");
+  click(tree, "fizzy-view-mine", cx);
   tree = await draw();
-  assert.equal(bar("fizzy-card-105"), DONE_GREEN, "a closed card sits in Done, whatever its last column was");
-  assert.equal(bar("fizzy-card-104"), NOT_NOW_GRAY, "Not Now");
-  click(tree, "fizzy-card-105", cx);
-  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, DONE_GREEN, "the card page's lane chip has the same dot");
+  const named = id => { const n = must(tree, id); return [n.style.text_color, n.kids[0].style.bg, textOf(n).trim()]; };
+  assert.deepEqual(named("fizzy-card-lane-101"), [inProgress, inProgress, "IN PROGRESS"]);
+  click(tree, "fizzy-home", cx);
+  click(await draw(), "fizzy-section-done", cx);
+  click(await draw(), "fizzy-card-105", cx);
+  assert.equal(must(await draw(), "fizzy-lane").style.bg, DONE_GRAY, "the card page's lane chip has the same dot");
 });
 
 test("Escape while a new card's title is written stops the edit: the card keeps its stand-in title, and its page stays with Discard and Done", async () => {
@@ -2989,8 +3376,8 @@ test("opening the same card again while its first read is out: the second detail
   acct.hold = null;
   const text = textOf(must(drawn(view, cx), "fizzy-detail"));
   assert.doesNotMatch(text, /Loading…/, "the second detail was filled in");
-  assert.match(text, /Steps 1\/2/);
-  assert.match(text, /Comments 2/);
+  assert.match(text, /Reproduce it/);
+  assert.match(text, /COMMENTS 2/);
   assert.equal(acct.asked("card", "show").length, 2, "the first read, and the queued one for the second detail");
 });
 
@@ -3042,7 +3429,7 @@ test("a step's text edits in place: click it, Enter saves with step update --con
   assert.deepEqual(acct.writes(), [], "the text edits; only the box ticks");
   let next = await draw();
   const edit = must(next, "fizzy-step-edit-s1");
-  assert.deepEqual([edit.style.pl, Object.keys(edit.handlers).sort()], [34, ["on_key_down", "on_mouse_down:left"]]);
+  assert.deepEqual([edit.style.pl, Object.keys(edit.handlers).sort()], [26, ["on_key_down", "on_mouse_down:left"]]);
   const input = inputOf(next, "fizzy-step-input-s1");
   assert.equal(input.value(), "Reproduce it");
   assert.equal(input.focused, true);
@@ -3101,8 +3488,7 @@ test("the person's own comment can be edited: the pencil, a box with its text, S
   const area = inputOf(next, "fizzy-comment-area-cm1");
   assert.equal(area.value(), "Tried twice", "the comment as plain text");
   assert.equal(area.focused, true);
-  assert.equal(must(next, "fizzy-comment-editor-cm1").style.pl, 17);
-  assert.equal(textOf(must(next, "fizzy-comment-lossy-cm1")), "Saving keeps only the text: formatting is lost.", "cm1 has a <b>");
+    assert.equal(textOf(must(next, "fizzy-comment-lossy-cm1")), "Saving keeps only the text: formatting is lost.", "cm1 has a <b>");
   assert.equal(find(next, "fizzy-comment-lossy-cm2"), null);
   assert.deepEqual(all(must(next, "fizzy-comment-editor-cm1"), n => n.style.justify_end)[0].kids.map(k => k.id), ["fizzy-comment-cancel-cm1", "fizzy-comment-save-cm1"]);
   assert.equal(find(next, "fizzy-comment-html-cm1"), null, "the box replaces the text");
@@ -3253,9 +3639,9 @@ test("the header's search icon opens a field in the header's place; Enter runs o
 test("Escape in the search field, its x, and the `back` key close the search; the x also empties the field", async () => {
   const m = await mount(), { view, cx, draw } = m;
   let tree = await searchFor(m, "login");
-  fire(headerOf(tree), "on_key_down", { key: "a", modifiers: {} }, cx);
+  fire(must(tree, "fizzy-search"), "on_key_down", { key: "a", modifiers: {} }, cx);
   assert.ok(view.search, "other keys leave it");
-  fire(headerOf(tree), "on_key_down", { key: "escape", modifiers: {} }, cx);
+  fire(must(tree, "fizzy-search"), "on_key_down", { key: "escape", modifiers: {} }, cx);
   assert.equal(view.search, null, "Escape");
   tree = await searchFor(m, "login");
   click(tree, "fizzy-search-clear", cx);
@@ -3306,11 +3692,11 @@ test("a search finds what the lanes do not hold: a closed card on another board,
   tree = await searchFor(m, "release");
   assert.deepEqual(ids(tree).filter(i => i.startsWith("fizzy-search-board-")), ["fizzy-search-board-b1", "fizzy-search-board-b2"], "in the boards' order");
   assert.deepEqual(rowIds(tree), [102, 210]);
-  const bar = id => must(tree, id).kids[0].style.bg;
+  const bar = id => must(tree, id.replace("fizzy-card-", "fizzy-card-lane-")).style.text_color;
   assert.equal(bar("fizzy-card-102"), colorOf(acct.columns.b1.find(c => c.id === "c2")), "an open card: its column's color");
-  assert.equal(bar("fizzy-card-210"), DONE_GREEN, "a closed card is Done's, whatever its last column was");
+  assert.equal(bar("fizzy-card-210"), DONE_GRAY, "a closed card is Done's, whatever its last column was");
   click(tree, "fizzy-card-210", cx);
-  assert.equal(must(await draw(), "fizzy-lane").kids[0].style.bg, DONE_GREEN, "and opens in Done");
+  assert.equal(must(await draw(), "fizzy-lane").style.bg, DONE_GRAY, "and opens in Done");
   click(await draw(), "fizzy-back", cx);
   tree = await searchFor(m, "later");
   assert.deepEqual(rowIds(tree), [104], "a card in Not Now, which no folded lane has read");
@@ -3579,7 +3965,7 @@ test("open:<number> shows that card; back returns; a number the lists do not hol
   await press(cx, "open:101");
   let tree = await draw();
   assert.equal(textOf(must(tree, "fizzy-title")), "Fix the login redirect");
-  assert.match(textOf(must(tree, "fizzy-detail")), /Steps 1\/2/);
+  assert.match(textOf(must(tree, "fizzy-detail")), /Reproduce it/);
   assert.deepEqual(acct.asked("card", "show"), [["card", "show", "101"]]);
   await press(cx, "back");
   tree = await draw();
@@ -3887,7 +4273,7 @@ test("Fizzy's own activity is one folded group after the people's comments; the 
   acct.comments[101].push(SYSTEM("sys-late", "Ada reopened this", "2026-01-07T10:00:00Z"), SYSTEM("sys-early", "Ada moved this to Not Now", "2026-01-01T10:00:00Z"));
   const { cx, draw, tree: first } = await openDetail();
   let tree = first;
-  assert.match(textOf(must(tree, "fizzy-detail")), /Comments 2/, "three system lines are not counted");
+  assert.match(textOf(must(tree, "fizzy-detail")), /COMMENTS 2/, "three system lines are not counted");
   assert.equal(textOf(must(tree, "fizzy-activity")).trim(), "Activity 3");
   assert.deepEqual(ids(tree).filter(i => /^fizzy-comment-cm\d$/.test(i)), ["fizzy-comment-cm1", "fizzy-comment-cm2"], "the people's comments");
   assert.deepEqual(activityIds(tree), [], "folded by default: no line shows");
@@ -3913,7 +4299,7 @@ test("Fizzy's own activity is one folded group after the people's comments; the 
     assert.equal(find(tree, `fizzy-comment-html-${id}`), null);
   }
   assert.deepEqual(ids(tree).filter(i => /^fizzy-comment-(edit|del)-/.test(i)), ["fizzy-comment-edit-cm1", "fizzy-comment-del-cm1"], "edit and delete are the person's own comment's alone, never a system line's");
-  assert.match(textOf(must(tree, "fizzy-detail")), /Comments 2/, "opening the group changes no count");
+  assert.match(textOf(must(tree, "fizzy-detail")), /COMMENTS 2/, "opening the group changes no count");
 
   click(tree, "fizzy-activity", cx);
   tree = await draw();
@@ -4193,9 +4579,7 @@ async function everyPopup() {
   const card = calls.openOverlay.filter(s => s.props.menu.kind === "card").at(-1);
   for (const row of ["assign", "tags", "move-board", "start", "send"]) menuClick(await mountPopup(card), row);
   click(tree, "fizzy-card-101", cx);
-  tree = await draw();
-  click(tree, "fizzy-lane", cx);
-  await cx.settle();
+  await draw();
   return Object.fromEntries(calls.openOverlay.map(s => [s.props.menu.kind, s]));
 }
 
@@ -4217,7 +4601,7 @@ async function fromCardMenu(row, { between = () => {}, wait = true } = {}) {
 
 test("every popup is a column with a height of its own and a list that fills it, so it never opens as an empty strip", async () => {
   const specs = await everyPopup();
-  assert.deepEqual(Object.keys(specs).sort(), ["agents", "boards", "card", "lanes", "moveBoard", "start", "tags", "users"]);
+  assert.deepEqual(Object.keys(specs).sort(), ["agents", "boards", "card", "moveBoard", "start", "tags", "users"]);
   for (const [kind, spec] of Object.entries(specs)) {
     const popup = await mountPopup(spec), tree = popup.tree(), menu = spec.props.menu;
     const rows = rowsNow(menu, popup.view.known);
@@ -4787,7 +5171,7 @@ const twoAgents = () => {
   state.focused = { space: "s1", tab: "s1-tab", pane: "p-t1", terminal: "t1", shown: null, agent: null, cwd: null };
 };
 
-test("the bar of hand-offs sits at the panel's foot in the card view and under a list with cards picked: one line, exactly four buttons, nothing else; otherwise the list's own bar is there (none in the Inbox)", async () => {
+test("the bar of hand-offs sits at the panel's foot in the card view and under a list with cards picked: what it is for between two rules, then exactly four round buttons; otherwise the list's own bar is there (none in the Inbox)", async () => {
   withAgent();
   installed(CLAUDE);
   const { cx, draw } = await mount();
@@ -4795,10 +5179,12 @@ test("the bar of hand-offs sits at the panel's foot in the card view and under a
     for (const id of ACTIONS) must(tree, id);
     const bar = must(tree, "fizzy-bar"), panel = must(tree, "fizzy");
     assert.equal(panel.kids.at(-1), bar, "the last thing in the panel: under the list or the card");
-    assert.deepEqual([bar.style.bg, bar.style.border_t, bar.style.border_color, bar.style.p, bar.style.gap, bar.style.text_size], ["chrome", 1, "border", 6, 4, textPx(12)]);
-    assert.deepEqual(bar.kids.map(k => k.id), ACTIONS, "four buttons, in this order, directly in the one line");
-    assert.equal(textOf(bar), "Insert Send Start Copy", "the four labels and nothing else");
-    assert.deepEqual(ids(bar), ["fizzy-bar", ...ACTIONS], "and no other element a person could press");
+    assert.deepEqual([bar.style.bg, bar.style.border_t, bar.style.px, bar.style.gap], [undefined, undefined, 12, 6], "the list bar's look: no strip of its own");
+    assert.equal(bar.kids[0].id, "fizzy-bar-label");
+    assert.deepEqual(bar.kids[1].kids.map(k => k.id), ACTIONS, "four buttons, in this order, in one line");
+    for (const id of ACTIONS) assert.deepEqual([must(tree, id).style.rounded_full, must(tree, id).style.border_1, must(tree, id).style.h], [true, true, 30], id);
+    assert.equal(textOf(bar), "HAND THIS CARD TO AN AGENT Insert Send Start Copy", "what it is for, then the four labels");
+    assert.deepEqual(ids(bar), ["fizzy-bar", "fizzy-bar-label", ...ACTIONS], "and no other element a person could press");
   };
   let tree = await draw();
   assert.ok(find(tree, "fizzy-insert-101") && find(tree, "fizzy-more-101"), "the rows keep their quick buttons");
@@ -4821,7 +5207,7 @@ test("the bar of hand-offs sits at the panel's foot in the card view and under a
   assert.ok(find(tree, "fizzy-act-open") && find(tree, "fizzy-card-menu"), "the card's link and menu stay in its header");
 });
 
-test("with nothing open or picked there is no bar of hand-offs; a picked card brings it, every button awake and none with a tooltip; an open card wins over the picked ones, which stay picked", async () => {
+test("with nothing open or picked there is no bar of hand-offs; a picked card brings it, every button awake and saying what it does; an open card wins over the picked ones, which stay picked", async () => {
   withAgent();
   installed(CLAUDE);
   const { cx, draw } = await mount();
@@ -4829,23 +5215,22 @@ test("with nothing open or picked there is no bar of hand-offs; a picked card br
   click(tree, "fizzy-view-mine", cx);
   tree = await draw();
   assert.equal(find(tree, "fizzy-bar"), null, "nothing to act on: no bar");
-  // No tooltip anywhere in the bar: it is four buttons and no other text.
-  const tooltips = tr => all(must(tr, "fizzy-bar"), n => n.style?.tooltip !== undefined).map(n => n.id);
   click(tree, "fizzy-home", cx);
   tree = await pick(cx, draw, 101);
-  assert.equal(textOf(must(tree, "fizzy-bar")), "Insert Send Start Copy", "the four labels only");
-  assert.deepEqual(tooltips(tree), [], "awake: still no tooltip on the bar or any button");
+  assert.equal(textOf(must(tree, "fizzy-bar")), "HAND THIS CARD TO AN AGENT Insert Send Start Copy");
+  assert.deepEqual(ACTIONS.map(id => tipOf(tree, id)),
+    ["Paste into the chat in view, or drag into a terminal", "Paste into a running session", "Start a new agent session with it", "Copy the reference"]);
   for (const id of ACTIONS) {
     const b = must(tree, id);
     assert.deepEqual(Object.keys(b.handlers).sort(), ["on_click", "on_mouse_down:left"], `${id}: it clicks and does not pass the press on`);
     assert.equal(b.hover, true, `${id}: hover`);
     assert.equal(b.style.cursor_pointer, true);
     assert.equal(b.style.text_color, "foreground");
-    assert.equal(b.style.tooltip, undefined, `${id}: awake or not, no tooltip: the four labels are all the text there is`);
   }
 
   // The open card is what the buttons act on, whatever is picked.
   tree = await pick(cx, draw, 103);
+  assert.match(textOf(must(tree, "fizzy-bar")), /^HAND 2 CARDS TO AN AGENT/);
   const both = 'Fizzy #101 "Fix the login redirect" (https://app.fizzy.do/111/cards/101)\nFizzy #103 "Triage me" (https://app.fizzy.do/111/cards/103)';
   const clicker = makeCx();
   click(tree, "fizzy-bar-copy", clicker);
@@ -5044,12 +5429,12 @@ test("the buttons have an icon and a label, Send and Start a chevron after it; b
   fire(must(tree, "fizzy"), "on_size_change", { width: 280, height: 600 }, cx);
   tree = await draw();
   assert.deepEqual(wide().send, ["Send", "chevron-down"]);
-  const bar = must(tree, "fizzy-bar");
-  assert.deepEqual(bar.kids.map(k => k.id), ACTIONS, "one row of four at 280, nothing second");
-  assert.equal(bar.style.flex_wrap, undefined, "it never wraps");
+  const bar = must(tree, "fizzy-bar"), row = bar.kids[1];
+  assert.deepEqual(row.kids.map(k => k.id), ACTIONS, "one row of four at 280, nothing second");
+  assert.equal(row.style.flex_wrap, undefined, "it never wraps");
   for (const id of ACTIONS) {
     const b = must(tree, id);
-    assert.deepEqual([b.style.flex_1, b.style.min_w, b.style.rounded, b.style.text_size, b.style.px, b.style.items_center, b.style.justify_center], [true, 0, 7, textPx(12), 6, true, true], `${id}: shares the row, can shrink`);
+    assert.deepEqual([b.style.flex_1, b.style.min_w, b.style.rounded_full, b.style.text_size, b.style.px, b.style.items_center, b.style.justify_center], [true, 0, true, textPx(12), 8, true, true], `${id}: shares the row, can shrink`);
     assert.equal(b.style.flex_none, undefined, `${id}: not a fixed size`);
     assert.equal(b.kids.find(k => k.kind !== "svg").style.truncate, true, `${id}: the label gives way last, by being cut`);
     assert.equal(b.style.overflow_hidden, true);
@@ -5063,16 +5448,12 @@ test("the buttons have an icon and a label, Send and Start a chevron after it; b
   assert.deepEqual(wide().insert, ["insert", "Insert"], "340 and up: icons again");
 });
 
-test("narrow (under 340 px) the list bar keeps one line: My cards and New card shrink to their icons and say what they are in a tooltip", async () => {
+test("narrow (under 340 px) the list bar keeps one line: the round filters keep their size, the field takes what is left", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
-  const look = id => { const b = must(tree, id); return [textOf(b).trim(), b.style.w, b.style.px, b.style.tooltip, b.kids.filter(k => k.kind === "svg").map(k => k.path)]; };
-  assert.deepEqual(look("fizzy-only-mine"), ["My cards", undefined, 8, undefined, ["mods/fizzy/user.svg"]]);
-  assert.deepEqual(look("fizzy-new"), ["New card", undefined, 10, undefined, ["mods/fizzy/plus.svg"]]);
   fire(must(tree, "fizzy"), "on_size_change", { width: 280, height: 600 }, cx);
   tree = await draw();
-  assert.deepEqual(look("fizzy-only-mine"), ["", 28, undefined, "My cards", ["mods/fizzy/user.svg"]]);
-  assert.deepEqual(look("fizzy-new"), ["", 28, undefined, "New card", ["mods/fizzy/plus.svg"]]);
+  for (const id of ["fizzy-only-mine", "fizzy-only-golden", "fizzy-only-pinned"]) assert.deepEqual([must(tree, id).style.size, must(tree, id).style.flex_none], [30, true], id);
   assert.equal(must(tree, "fizzy-list-bar").style.flex_wrap, undefined, "it never wraps");
   assert.deepEqual([must(tree, "fizzy-filter").style.flex_1, must(tree, "fizzy-filter").style.min_w], [true, 0], "the filter takes what is left");
 });
@@ -5144,17 +5525,18 @@ test("a person is drawn as their cached photo (round, the size the initials had)
   const { cx, draw } = await mount();
   let tree = await draw();
   const mine = imagesIn(must(tree, "fizzy-card-101"));
-  assert.deepEqual(mine.map(n => [n.path, n.style.size, n.style.rounded_full, n.style.flex_none]), [[photoPath("u-me"), 18, true, true]], "the row's assignee: the photo, 18 px, round");
+  assert.deepEqual(mine.map(n => [n.path, n.style.size, n.style.rounded_full, n.style.flex_none]), [[photoPath("u-me"), 20, true, true]], "the card's assignee: the photo, 20 px, round");
   assert.equal(circlesIn(must(tree, "fizzy-card-101"), "A").length, 0, "and not the initials besides");
   const bob = must(tree, "fizzy-card-102");
   assert.equal(imagesIn(bob).length, 0, "Bob has no photo yet");
-  assert.deepEqual(circlesIn(bob, "B").map(n => [n.style.size, n.style.bg]), [[18, "ansi6"]], "the initials circle, in the colour of hue 5 of the user id");
-  // The card view: the People line and comment authors (20 px).
+  assert.deepEqual(circlesIn(bob, "B").map(n => [n.style.size, n.style.bg]), [[20, "ansi6"], [20, "ansi6"]], "who made it and who has it, both Bob: the initials circle, in the colour of hue 5 of the user id");
+  // The card view: the people in the card's foot (26 px), comment authors and the composer (28 px).
   click(tree, "fizzy-card-101", cx);
   tree = await draw();
   const detail = must(tree, "fizzy-detail");
-  assert.deepEqual(imagesIn(detail).map(n => [n.path, n.style.size]), [[photoPath("u-me"), 20], [photoPath("u-me"), 20]], "Ada in People and on Ada's comment");
-  assert.deepEqual(circlesIn(detail, "B").map(n => n.style.size), [20], "Bob's comment: the initials, 20 px");
+  assert.deepEqual(imagesIn(detail).map(n => [n.path, n.style.size]), [[photoPath("u-me"), 26], [photoPath("u-me"), 28], [photoPath("u-me"), 28]],
+    "Ada in the card's foot, on Ada's comment, and beside the comment box");
+  assert.deepEqual(circlesIn(detail, "B").map(n => n.style.size), [28, 28], "Bob, who made the card, in its foot, and on Bob's comment: the initials, 28 px");
   // The Inbox: the creator, 16 px, before the title.
   seedPhotos(["u-me", "u-bob"]);
   const second = await mount();
@@ -5226,8 +5608,8 @@ test("photos: the people are read once at start, and each user's photo is fetche
   assert.equal(avatarSets().length, 1, "the shared map is set once for the whole batch");
   assert.deepEqual(avatarSets()[0], Object.fromEntries(Object.entries(index).map(([id, p]) => [id, `${AVATAR_DIR}/${p.file}`])));
   const tree = await draw();
-  assert.deepEqual(imagesIn(must(tree, "fizzy-card-101")).map(n => n.path), [avatarSets()[0]["u-me"]], "now drawn from the file");
-  assert.deepEqual(imagesIn(must(tree, "fizzy-card-102")).map(n => n.path), [avatarSets()[0]["u-bob"]]);
+  assert.deepEqual(imagesIn(must(tree, "fizzy-card-101")).map(n => n.path), [avatarSets()[0]["u-bob"], avatarSets()[0]["u-me"]], "now drawn from the file: who made it, who has it");
+  assert.deepEqual(imagesIn(must(tree, "fizzy-card-102")).map(n => n.path), [avatarSets()[0]["u-bob"], avatarSets()[0]["u-bob"]]);
   // Nothing again: not on the next ticks, not when the people are read again (a day later), until a photo is a week old.
   await look(cx); await look(cx);
   await daily(cx);
@@ -5326,7 +5708,7 @@ test("a photo older than a week is fetched again under a new name; one a day you
     }
     assert.equal(avatarSets().length, 2, "set again, once");
     assert.equal(avatarSets()[1]["u-me"], `${AVATAR_DIR}/${second["u-me"].file}`);
-    assert.deepEqual(imagesIn(must(await draw(), "fizzy-card-101")).map(n => n.path), [`${AVATAR_DIR}/${second["u-me"].file}`]);
+    assert.deepEqual(imagesIn(must(await draw(), "fizzy-card-people-101")).map(n => n.path), [`${AVATAR_DIR}/${second["u-me"].file}`]);
   } finally { clock.restore(); }
 });
 
@@ -5340,10 +5722,10 @@ test("an old photo is still drawn while its replacement is fetched, then the new
   await tick();
   assert.ok(triesFor("u-me") === 1, "a week old: asked again");
   // (a plain draw: the fetch is held back, and draw() would wait for it)
-  assert.deepEqual(imagesIn(must(drawn(view, cx), "fizzy-card-101")).map(n => n.path), [photoPath("u-me")], "the old one meanwhile");
+  assert.deepEqual(imagesIn(must(drawn(view, cx), "fizzy-card-people-101")).map(n => n.path), [photoPath("u-me")], "the old one meanwhile");
   release();
   await cx.settle();
-  assert.deepEqual(imagesIn(must(await draw(), "fizzy-card-101")).map(n => n.path), [`${AVATAR_DIR}/${avatarBase("u-me")}.png`]);
+  assert.deepEqual(imagesIn(must(await draw(), "fizzy-card-people-101")).map(n => n.path), [`${AVATAR_DIR}/${avatarBase("u-me")}.png`]);
 });
 
 test("photos that are fresh enough are not fetched at all, and their paths are shared at start", async () => {
@@ -5367,8 +5749,8 @@ test("a photo that fails is left alone for an hour (the initials stay, nobody is
     assert.deepEqual(Object.keys(JSON.parse(localStorage.getItem("avatars"))).sort(), ["u-bot", "u-me", "u-off"], "no entry for the one that failed");
     let tree = await draw();
     assert.equal(imagesIn(must(tree, "fizzy-card-102")).length, 0, "Bob keeps the initials");
-    assert.equal(circlesIn(must(tree, "fizzy-card-102"), "B").length, 1);
-    assert.equal(imagesIn(must(tree, "fizzy-card-101")).length, 1, "and the others have theirs");
+    assert.equal(circlesIn(must(tree, "fizzy-card-people-102"), "B").length, 1);
+    assert.equal(imagesIn(must(tree, "fizzy-card-people-101")).length, 1, "and the others have theirs");
     // Within the hour: the people are read again and the card lists too, and still no retry.
     clock.advance(AVATAR_BACKOFF - 1000);
     await daily(cx);
@@ -5393,7 +5775,7 @@ test("a photo that fails is left alone for an hour (the initials stay, nobody is
     assert.equal(triesFor("u-bob"), 3);
     assert.ok(JSON.parse(localStorage.getItem("avatars"))["u-bob"], "it worked this time");
     tree = await draw();
-    assert.equal(imagesIn(must(tree, "fizzy-card-102")).length, 1);
+    assert.equal(imagesIn(must(tree, "fizzy-card-people-102")).length, 1);
   } finally { clock.restore(); }
 });
 
@@ -5776,14 +6158,14 @@ test("the Fizzy bar ends with a gear (not the card view's header): it opens Sett
   for (const view of ["board", "mine", "inbox", "pins"]) {
     tree = view === "board" ? tree : (click(tree, `fizzy-view-${view}`, m.cx), await m.draw());
     const buttons = parentOf(tree, "fizzy-open-settings").kids;
-    assert.equal(buttons.at(-1).id, "fizzy-open-settings", `${view}: the gear is the last icon button`);
-    assert.deepEqual(buttons.map(k => k.id), ["fizzy-search-open", "fizzy-refresh", "fizzy-open-settings"]);
+    assert.equal(buttons.at(-1).id, "fizzy-open-settings", `${view}: the gear is the last button`);
+    assert.deepEqual(buttons.map(k => k.id), ["fizzy-refresh", "fizzy-open-settings"]);
   }
   click(tree, "fizzy-home", m.cx);
   tree = await m.draw();
   assert.deepEqual(iconsIn(tree, "fizzy-open-settings"), ["mods/fizzy/settings.svg"], "a gear and no chevron");
   assert.equal(tipOf(tree, "fizzy-open-settings"), "Settings");
-  assert.equal(must(tree, "fizzy-open-settings").style.size, 26);
+  assert.deepEqual([must(tree, "fizzy-open-settings").style.size, must(tree, "fizzy-open-settings").style.rounded_full], [30, true]);
   click(tree, "fizzy-card-101", m.cx);
   assert.equal(find(await m.draw(), "fizzy-open-settings"), null, "the card view's header does not have it");
   click(await m.draw(), "fizzy-back", m.cx);
@@ -5792,7 +6174,7 @@ test("the Fizzy bar ends with a gear (not the card view's header): it opens Sett
   tree = await m.draw();
   assert.ok(find(tree, "fizzy-settings"), "the page");
   assert.deepEqual(requestOps(), [], "no popup took part");
-  for (const id of ["fizzy-bar", "fizzy-list-bar", "fizzy-list", "fizzy-board-bar", "fizzy-view-mine", "fizzy-filter", "fizzy-home", "fizzy-board", "fizzy-new", "fizzy-search-open", "fizzy-open-settings"]) {
+  for (const id of ["fizzy-bar", "fizzy-list-bar", "fizzy-list", "fizzy-board-bar", "fizzy-view-mine", "fizzy-filter", "fizzy-home", "fizzy-board", "fizzy-only-mine", "fizzy-search-open", "fizzy-open-settings"]) {
     assert.equal(find(tree, id), null, `${id} is not on the page`);
   }
   assert.deepEqual(must(tree, "fizzy").kids.map(k => k.id ?? "header"), ["header", "fizzy-settings"], "a header and the page, nothing else");
@@ -6678,6 +7060,52 @@ test("⌘/Ctrl-drag a board onto a group's block saves once: it is stored as tha
   assert.deepEqual(calls.hc, []);
 });
 
+test("⌘/Ctrl-drag a board onto another board's row: a line shows where it lands, and letting go puts it there (after it moving down, before it moving up), joining that row's group; the boards list follows", async () => {
+  sampleBoards();
+  seedGroups(TWO());
+  const roadmap = boardId("Roadmap");
+  const m = await mount();
+  let tree = await settingsPage(m);
+  const team = boardRowsIn(tree, "fizzy-group-team");
+  const lines = () => all(must(tree, "fizzy-settings"), n => n.id?.startsWith("fizzy-board-line-")).map(n => [n.id.slice("fizzy-board-line-".length), "top" in n.style ? "top" : "bottom"]);
+  pressRow(tree, rowOf(team[0]), m.cx);
+  hoverOn(tree, rowOf(team[0]), true, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lines(), [], "its own row draws none");
+  hoverOn(tree, rowOf(team[2]), true, m.cx);
+  hoverOn(tree, rowOf(team[0]), false, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lines(), [[team[2], "bottom"]]);
+  const stopped = m.cx.stopped;
+  releaseOn(tree, rowOf(team[2]), m.cx);
+  assert.equal(m.cx.stopped, stopped + 1, "the block around the row does not take it too");
+  assert.equal(savedGroups().length, 1);
+  tree = await m.draw();
+  assert.deepEqual(boardRowsIn(tree, "fizzy-group-team"), [team[1], team[2], team[0], ...team.slice(3)]);
+  assert.deepEqual([m.view.drag, lines()], [null, []]);
+  // Up from No group: before the row, in its group.
+  pressRow(tree, rowOf(roadmap), m.cx);
+  hoverOn(tree, rowOf(team[2]), true, m.cx);
+  tree = await m.draw();
+  assert.deepEqual(lines(), [[team[2], "top"]]);
+  releaseOn(tree, rowOf(team[2]), m.cx);
+  assert.equal(savedGroups()[1].boards[roadmap].group, "team");
+  tree = await m.draw();
+  assert.deepEqual(boardRowsIn(tree, "fizzy-group-team"), [team[1], roadmap, team[2], team[0], ...team.slice(3)]);
+  // Let go on its own row: nothing saved. A group let go over a row is left to the block around it.
+  pressRow(tree, rowOf(roadmap), m.cx);
+  releaseOn(tree, rowOf(roadmap), m.cx);
+  assert.equal(savedGroups().length, 2);
+  pressRow(tree, "fizzy-group-head-g-2", m.cx);
+  releaseOn(tree, rowOf(roadmap), m.cx);
+  assert.equal(m.view.drag?.kind, "group");
+  m.view.endDrag(m.cx);
+  click(await leaveSettings(m), "fizzy-board", m.cx);
+  const list = listOf((await mountPopup()).tree()), at = [team[1], roadmap, team[2]].map(id => list.indexOf(`board-${id}`));
+  assert.ok(at[0] >= 0 && at[0] < at[1] && at[1] < at[2], "in the boards list's order too");
+  assert.deepEqual(acct.writes(), [], "nothing here writes to Fizzy");
+});
+
 test("⌘/Ctrl-drag a board onto No group saves once: Automatic when no rule picks it, a choice of no group when one does; a board stored in a group by hand and not picked by a rule goes back to Automatic", async () => {
   sampleBoards();
   const [tagged, roadmap, garden, travel] = ["Support rota [team]", "Roadmap", "Garden", "Travel"].map(boardId);
@@ -7146,7 +7574,7 @@ test("a drag left behind is also ended by the insertion line and the empty rows,
   assert.equal(savedGroups().length, saved);
 });
 
-test("the hover and the release are on the blocks, the press is on the headers and board rows; the No group header, the empty rows and the insertion line press without ever picking", async () => {
+test("the hover and the release are on the blocks and the board rows, the press is on the headers and board rows; the No group header, the empty rows and the insertion line press without ever picking", async () => {
   sampleBoards();
   state.shared["fizzy.boardGroups"] = { groups: [...TWO().groups, { id: "g-3", name: "Empty", match: "nobody", hidden: false }], boards: {} };
   const m = await mount();
@@ -7156,12 +7584,14 @@ test("the hover and the release are on the blocks, the press is on the headers a
   tree = await m.draw();
   const page = must(tree, "fizzy-settings");
   const blocks = ["fizzy-group-team", "fizzy-group-g-2", "fizzy-group-g-3", "fizzy-nogroup"];
-  assert.deepEqual(all(page, n => n.handlers.on_hover).map(n => n.id), blocks, "the hover is on the blocks only");
-  assert.deepEqual(all(page, n => n.handlers["on_mouse_up:left"]).map(n => n.id), blocks, "and so is the release");
+  const targets = all(page, n => blocks.includes(n.id) || /^fizzy-board-row-/.test(n.id ?? "")).map(n => n.id);
+  assert.equal(targets.length, blocks.length + SAMPLE_BOARDS.length);
+  assert.deepEqual(all(page, n => n.handlers.on_hover).map(n => n.id), targets, "the hover is on the blocks and the board rows only");
+  assert.deepEqual(all(page, n => n.handlers["on_mouse_up:left"]).map(n => n.id), targets, "and so is the release");
   const picks = all(page, n => n.id && /^fizzy-(?:group-head|board-row)-/.test(n.id));
   assert.equal(picks.length, 3 + SAMPLE_BOARDS.length);
   for (const n of picks) assert.equal(typeof n.handlers["on_mouse_down:left"], "function", n.id);
-  for (const n of picks) assert.deepEqual(["on_hover", "on_mouse_up:left"].filter(h => n.handlers[h]), [], `${n.id}: no hover and no release of its own`);
+  for (const n of picks.filter(p => p.id.startsWith("fizzy-group-head-"))) assert.deepEqual(["on_hover", "on_mouse_up:left"].filter(h => n.handlers[h]), [], `${n.id}: no hover and no release of its own`);
   const pressOnly = ["fizzy-nogroup-head", "fizzy-group-empty-g-2", "fizzy-group-empty-g-3", "fizzy-group-line-team"];
   for (const id of pressOnly) assert.equal(typeof must(tree, id).handlers["on_mouse_down:left"], "function", id);
   // None of them picks anything up, even with ⌘/Ctrl.
@@ -7181,28 +7611,30 @@ const headerOf = tree => must(tree, "fizzy").kids[0];
 const resize = (tree, cx, width) => fire(must(tree, "fizzy"), "on_size_change", { width, height: 600 }, cx);
 const LONG_NAME = "Acme: a long board name that has to be cut short";
 
-test("the header of every list view at the default width: the Fizzy icon, Mine, Inbox and Pins together, a spacer, then Search, Refresh and the gear", async () => {
+test("the header of every list view at the default width: the round Search alone at the left, Fizzy, Mine, Inbox and Pins as one round group in the middle, round Refresh and the gear at the right", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
   for (const view of ["board", "mine", "inbox", "pins"]) {
     if (view !== "board") { click(tree, `fizzy-view-${view}`, cx); tree = await draw(); }
     const head = headerOf(tree);
-    assert.deepEqual([head.style.h, head.style.px, head.style.gap, head.style.border_b, head.style.flex_none], [42, 10, 6, 1, true], `${view}: the header`);
-    assert.equal(head.kids.length, 4, `${view}: the Fizzy button, views, spacer, icon buttons`);
-    const [home, views, spacer, buttons] = head.kids;
-    assert.equal(home.id, "fizzy-home", `${view}: the first place`);
+    assert.deepEqual([head.style.h, head.style.px, head.style.gap, head.style.border_b, head.style.flex_none], [46, 12, 8, 1, true], `${view}: the header`);
+    const [left, views, right] = head.kids;
+    assert.equal(head.kids.length, 3);
+    assert.deepEqual([left.style.flex_1, right.style.flex_1, right.style.justify_end], [true, true, true], `${view}: the sides share the room, so the group is centered`);
+    assert.deepEqual(left.kids.map(k => k.id), ["fizzy-search-open"], `${view}: Search alone`);
+    const home = views.kids[0];
     assert.deepEqual(home.kids.map(k => k.kind), ["svg"], `${view}: the icon alone at this width`);
     const [icon] = home.kids;
     assert.deepEqual([icon.path, icon.style.size, icon.style.flex_none], [LOGO, 14, true], `${view}: the kanban icon, 14 px`);
     assert.deepEqual([icon.id, icon.style.tooltip, Object.keys(icon.handlers)], [null, undefined, []], `${view}: the button holds the click, not the icon`);
     assert.equal(home.style.tooltip, "Board", `${view}: without its word it says what it opens`);
-    assert.deepEqual(views.kids.map(k => k.id), ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"], `${view}: the board-free views, together`);
-    assert.deepEqual([views.style.gap, views.style.flex_none], [2, true]);
-    assert.equal(spacer.style.flex_1, true);
-    assert.deepEqual(buttons.kids.map(k => k.id), ["fizzy-search-open", "fizzy-refresh", "fizzy-open-settings"]);
-    assert.deepEqual([buttons.style.gap, buttons.style.flex_none], [2, true]);
+    assert.equal(views.id, "fizzy-views");
+    assert.deepEqual(views.kids.map(k => k.id), ["fizzy-home", "fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"], `${view}: Fizzy first, then the other views`);
+    assert.deepEqual([views.style.gap, views.style.p, views.style.flex_none, views.style.rounded_full, views.style.border_1], [2, 2, true, true, true], "one round group");
+    assert.deepEqual(right.kids.map(k => k.id), ["fizzy-refresh", "fizzy-open-settings"]);
+    for (const id of ["fizzy-search-open", "fizzy-refresh", "fizzy-open-settings"]) assert.deepEqual([must(tree, id).style.size, must(tree, id).style.rounded_full], [30, true], id);
     assert.match(textOf(must(tree, "fizzy-view-inbox")), /Inbox\s+2/, `${view}: the unread badge stays on the Inbox`);
-    for (const id of ["fizzy-view-board", "fizzy-open-board", "fizzy-board", "fizzy-new"]) assert.equal(find(head, id), null, `${view}: ${id} is not in the header`);
+    for (const id of ["fizzy-view-board", "fizzy-open-board", "fizzy-board"]) assert.equal(find(head, id), null, `${view}: ${id} is not in the header`);
   }
   assert.equal(find(tree, "fizzy-view-board"), null, "there is no Board tab");
 });
@@ -7228,13 +7660,12 @@ test("the board row sits under the header in the Board view only, and the list b
   assert.deepEqual(parts(await draw()), ["fizzy-detail", "fizzy-bar"], "a card: its page and the hand-offs");
 });
 
-test("the list bar per view: on Board the board's own filter, My cards and New card; on Mine and Pins only the filter they share; each filters its list as it is typed into", async () => {
+test("the list bar per view: on Board the board's own filter and its round filters; on Mine and Pins only the filter they share; each filters its list as it is typed into", async () => {
   acct.pins = [acct.card(102), acct.card(201)];
   const { cx, draw } = await mount();
   let tree = await draw();
   const bar = () => must(tree, "fizzy-list-bar");
-  assert.deepEqual(bar().kids.map(k => k.id), ["fizzy-filter", "fizzy-only-mine", "fizzy-new"]);
-  assert.deepEqual([bar().style.bg, bar().style.border_t, bar().style.border_color, bar().style.p, bar().style.gap], ["chrome", 1, "border", 6, 6]);
+  assert.deepEqual(bar().kids.map(k => k.id), ["fizzy-filter", "fizzy-only-mine", "fizzy-only-golden", "fizzy-only-pinned"]);
   assert.equal(inputOf(tree, "fizzy-filter").options.placeholder, "Filter this board…");
   inputOf(tree, "fizzy-filter").edit("changelog", cx);
   tree = await draw();
@@ -7277,26 +7708,26 @@ test("a filter shows every lane that holds a match, folded or not, and leaves th
   assert.equal(JSON.parse(localStorage.getItem("collapsed:b1")).c1, true);
 });
 
-test("the header's views are 26 px buttons: the lit one is the view that shows, and none is lit in the Board view", async () => {
+test("the header's views are pills in their group: the lit one is the view that shows, in medium weight; none is lit in the Board view; each lights on hover", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
-  const look = id => { const b = must(tree, id); return [b.style.h, b.style.px, b.style.rounded, b.style.text_size, b.style.flex_none, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
-  const shape = [26, 6, 6, textPx(12), true];
-  for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.deepEqual(look(id), [...shape, "background", "muted", "hover"], `board: ${id}`);
+  const look = id => { const b = must(tree, id); return [b.style.h, b.style.px, b.style.rounded_full, b.style.text_size, b.style.flex_none, b.style.bg, b.style.text_color, b.style.font_medium, b.hoverStyle]; };
+  const shape = [24, 8, true, textPx(12), true], hover = { bg: "hover", text_color: "foreground" };
+  for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.deepEqual(look(id), [...shape, "background", "muted", undefined, hover], `board: ${id}`);
   for (const lit of ["mine", "inbox", "pins"]) {
     click(tree, `fizzy-view-${lit}`, cx);
     tree = await draw();
     for (const view of ["mine", "inbox", "pins"]) {
-      assert.deepEqual(look(`fizzy-view-${view}`), view === lit ? [...shape, "selected", "foreground", "hover"] : [...shape, "background", "muted", "hover"], `${lit}: ${view}`);
+      assert.deepEqual(look(`fizzy-view-${view}`), view === lit ? [...shape, "selected", "foreground", true, hover] : [...shape, "background", "muted", undefined, hover], `${lit}: ${view}`);
     }
   }
 });
 
-test("the Fizzy button is a 26 px button like the views: lit only in the Board view, and a click shows the Board view from Mine, the Inbox and Pins", async () => {
+test("the Fizzy button is a pill of the view group, shaped as the views: lit only in the Board view, and a click shows the Board view from Mine, the Inbox and Pins", async () => {
   const { view, cx, draw } = await mount();
   let tree = await draw();
-  const look = () => { const b = must(tree, "fizzy-home"); return [b.style.h, b.style.px, b.style.gap, b.style.rounded, b.style.flex_none, b.style.items_center, b.style.cursor_pointer, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
-  const shape = [26, 6, 6, 6, true, true, true];
+  const look = () => { const b = must(tree, "fizzy-home"); return [b.style.h, b.style.px, b.style.gap, b.style.rounded_full, b.style.flex_none, b.style.items_center, b.style.cursor_pointer, b.style.bg, b.style.text_color, b.hoverStyle.bg]; };
+  const shape = [24, 8, 5, true, true, true, true];
   assert.deepEqual(look(), [...shape, "selected", "foreground", "hover"], "lit in the Board view");
   assert.equal(typeof must(tree, "fizzy-home").handlers["on_mouse_down:left"], "function", "the press goes no further, as on the views");
   for (const from of ["mine", "inbox", "pins"]) {
@@ -7326,9 +7757,9 @@ test("with no board yet the Fizzy button still shows the Board view", async () =
   assert.equal(must(tree, "fizzy-home").style.bg, "selected");
 });
 
-const WIDE_HEADER = { word: "Fizzy", homeTip: undefined, tabPx: 8, gap: 8, refresh: true };
-const MIDDLE_HEADER = { word: "", homeTip: "Board", tabPx: 6, gap: 6, refresh: true };
-const NARROW_HEADER = { word: "", homeTip: "Board", tabPx: 6, gap: 6, refresh: false };
+const WIDE_HEADER = { word: "Fizzy", homeTip: undefined, tabPx: 12, gap: 8, refresh: true };
+const MIDDLE_HEADER = { word: "", homeTip: "Board", tabPx: 8, gap: 8, refresh: true };
+const NARROW_HEADER = { word: "", homeTip: "Board", tabPx: 6, gap: 4, refresh: false };
 
 test("the header has three tiers: 440 px and up spells out Fizzy; 340 to 439 keeps the icon; under 340 leaves Refresh out", async () => {
   const { cx, draw } = await mount();
@@ -7345,7 +7776,7 @@ test("the header has three tiers: 440 px and up spells out Fizzy; 340 to 439 kee
     resize(tree, cx, width);
     tree = await draw();
     assert.deepEqual(look(tree), expected, `${width} px`);
-    assert.equal(parentOf(tree, "fizzy-view-mine").style.gap, expected.gap === 8 ? 3 : 2, `${width} px: the gap between the views`);
+    assert.equal(parentOf(tree, "fizzy-view-mine").style.gap, 2, `${width} px: the gap between the views`);
     if (expected.word) {
       const word = must(tree, "fizzy-home").kids.find(k => textOf(k) === "Fizzy");
       assert.deepEqual([word.style.font_semibold, word.style.flex_none], [true, true], `${width} px: the word is semibold and keeps its width`);
@@ -7354,6 +7785,43 @@ test("the header has three tiers: 440 px and up spells out Fizzy; 340 to 439 kee
     assert.equal(tipOf(tree, "fizzy-home"), expected.homeTip);
     for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins"]) assert.equal(must(tree, id).style.px, expected.tabPx, `${width} px: ${id}`);
   }
+});
+
+test("from 560 px the header's left holds the search field alone: Enter searches every board, the results take the list's place under the same header, and Escape, a view or the x close them", async () => {
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  resize(tree, cx, 559);
+  tree = await draw();
+  assert.ok(find(tree, "fizzy-search-open") && !find(tree, "fizzy-search"), "559: the round button");
+  resize(tree, cx, 560);
+  tree = await draw();
+  assert.deepEqual(headerOf(tree).kids[0].kids.map(k => k.id), ["fizzy-search"], "the field itself, no button");
+  const box = must(tree, "fizzy-search"), input = all(box, n => n.kind === "input")[0];
+  assert.deepEqual([box.style.flex_1, box.style.min_w, input.style.h, input.style.rounded_full, input.style.border_color], [true, 0, 30, true, "input"]);
+  assert.deepEqual(iconsIn(tree, "fizzy-search"), ["mods/fizzy/search.svg"]);
+  const search = async () => {
+    const field = inputOf(tree, "fizzy-search");
+    field.edit("login", cx);
+    field.submit(cx);
+    await cx.settle();
+    tree = await draw();
+  };
+  await search();
+  assert.equal(view.search?.q, "login");
+  assert.ok(find(tree, "fizzy-search-head"), "the results");
+  assert.equal(find(tree, "fizzy-search-back"), null, "the header stays as it is");
+  assert.equal(all(must(tree, "fizzy-search"), n => n.kind === "input")[0].style.border_color, "accent", "the field says a search is open");
+  assert.deepEqual(["fizzy-home", "fizzy-view-mine"].map(id => must(tree, id).style.bg), ["background", "background"], "no view is lit over the results");
+  fire(must(tree, "fizzy-search"), "on_key_down", { key: "escape", modifiers: {} }, cx);
+  assert.equal(view.search, null, "Escape");
+  await search();
+  click(tree, "fizzy-view-mine", cx);
+  assert.deepEqual([view.search, view.view], [null, "mine"], "a view");
+  await search();
+  click(tree, "fizzy-search-clear", cx);
+  assert.deepEqual([view.search, view.searchField.value()], [null, ""], "the x, which empties the field");
+  await press(cx, "search");
+  assert.deepEqual([view.search, view.searchField.focused], [null, true], "the search key only puts the focus in the field");
 });
 
 test("the header redraws only when the width crosses 340 or 440, and Refresh stays reachable by its key when the header leaves it out", async () => {
@@ -7380,84 +7848,52 @@ test("the header redraws only when the width crosses 340 or 440, and Refresh sta
   assert.ok(acct.log.length > before, "the refresh key still reads again");
 });
 
-test("New card is a solid primary button at the end of the Board view's list bar: plus and label, 28 px high, the colors of the other primary buttons; a click opens the board picker", async () => {
+test("the list bar in the board row's look: a round field with a search icon, then on Board the round filters My cards, Golden cards and Pinned cards; no New card", async () => {
   const { cx, draw } = await mount();
-  let tree = await draw();
-  const cta = must(tree, "fizzy-new");
-  assert.equal(must(tree, "fizzy-list-bar").kids.at(-1), cta, "the last thing in the list bar");
-  assert.deepEqual([cta.style.h, cta.style.px, cta.style.rounded, cta.style.text_size, cta.style.font_medium, cta.style.gap, cta.style.flex_none, cta.style.items_center, cta.style.justify_center],
-    [28, 10, 7, textPx(12), true, 5, true, true, true], "its shape");
-  assert.deepEqual([cta.style.bg, cta.style.text_color, cta.hoverStyle, cta.style.cursor_pointer], ["solid", "solid_foreground", { opacity: 0.88 }, true], "its colors, hover and pointer");
-  assert.deepEqual(cta.kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), ["mods/fizzy/plus.svg", "New card"], "a plus, then the label");
-  assert.deepEqual([cta.kids[0].style.size, cta.kids[0].style.flex_none], [13, true]);
-  assert.deepEqual(Object.keys(cta.handlers).sort(), ["on_click", "on_mouse_down:left"], "a click, and the press goes no further");
-  for (const view of ["mine", "inbox", "pins"]) {
-    click(tree, `fizzy-view-${view}`, cx);
-    tree = await draw();
-    assert.equal(find(tree, "fizzy-new"), null, `${view}: none`);
+  const tree = await draw();
+  const bar = must(tree, "fizzy-list-bar");
+  assert.deepEqual([bar.style.px, bar.style.py, bar.style.gap, bar.style.bg, bar.style.border_t], [12, 6, 8, undefined, undefined], "the board row's padding, on the panel's own background");
+  const input = must(tree, "fizzy-filter").kids[0];
+  assert.deepEqual([input.style.h, input.style.rounded_full, input.style.border_1, input.style.pl, input.style.pr], [30, true, true, 32, 14]);
+  for (const [id, icon, tip] of [["fizzy-only-mine", "user", "My cards"], ["fizzy-only-golden", "star", "Golden cards"], ["fizzy-only-pinned", "pin", "Pinned cards"]]) {
+    const b = must(tree, id);
+    assert.deepEqual([b.style.size, b.style.rounded_full, b.style.border_1, b.kids.map(k => k.path), tipOf(tree, id), typeof b.handlers.on_click],
+      [30, true, true, [`mods/fizzy/${icon}.svg`], tip, "function"], id);
   }
-  click(tree, "fizzy-home", cx);
-  tree = await draw();
-  const before = calls.openOverlay.length;
-  click(tree, "fizzy-new", cx);
-  const spec = lastPopup();
-  assert.equal(calls.openOverlay.length, before + 1);
-  assert.deepEqual([spec.mod, spec.kind, spec.width], ["fizzy", "popup", 260]);
-  assert.deepEqual(spec.props.menu, { kind: "newCard", current: "b1" });
-  assert.equal(spec.height, Math.min(560, menuHeight(rowsNow(spec.props.menu))));
-  await draw();
-  assert.deepEqual(acct.writes(), [], "choosing a board makes the card, not the click");
+  assert.equal(find(tree, "fizzy-new"), null, "New card is the lanes' + and the new key");
+  inputOf(tree, "fizzy-filter").edit("login", cx);
+  const clear = must(await draw(), "fizzy-filter-clear");
+  assert.deepEqual([clear.style.top, clear.style.right, clear.style.size, clear.style.rounded_full], [5, 5, 20, true], "the x sits round in the round field");
 });
 
-test("My cards in the list bar keeps the cards assigned to the person: outlined in the accent while on", async () => {
+test("the round filters keep the cards they name, and together the cards all of them name; one on is drawn in its color (Golden cards in gold)", async () => {
+  acct.pins = [acct.card(102)];
   const { cx, draw } = await mount();
   let tree = await draw();
-  const look = () => { const b = must(tree, "fizzy-only-mine"); return [b.style.border_color, b.style.bg, b.style.text_color]; };
-  assert.deepEqual(look(), ["input", "background", "muted"]);
-  click(tree, "fizzy-only-mine", cx);
-  tree = await draw();
-  assert.deepEqual(look(), ["accent", "selected", "foreground"]);
-  assert.deepEqual(rowIds(tree), [101]);
-  click(tree, "fizzy-only-mine", cx);
-  tree = await draw();
-  assert.deepEqual(look(), ["input", "background", "muted"]);
-  assert.deepEqual(rowIds(tree), [103, 101, 102]);
-});
-
-test("New card needs a board shown: until then, and with none, it is raised and dim with no click, hover or pointer", async () => {
-  const loading = await mount({ settle: false });
-  let tree = drawn(loading.view, loading.cx);
-  const check = (tree, what) => {
-    const cta = must(tree, "fizzy-new");
-    assert.deepEqual([cta.style.bg, cta.style.text_color, cta.style.cursor_pointer, cta.hover, cta.handlers.on_click], ["raised", "dim", undefined, false, undefined], what);
-    assert.equal(cta.style.h, 28, `${what}: the same shape`);
-  };
-  check(tree, "while the boards load");
-  setup();
-  localStorage.setItem("boards", JSON.stringify([{ id: "b1", name: "Roadmap", url: "https://app.fizzy.do/111/boards/b1" }]));
-  let release;
-  acct.hold = new Promise(resolve => { release = resolve; });
-  const first = await mount({ settle: false });
-  assert.equal(first.view.board, null, "a first start shows no board before config show answers");
-  check(drawn(first.view, first.cx), "the boards known from an earlier run, no board shown yet");
-  release();
-  await first.cx.settle();
-  acct.hold = null;
-  setup();
-  acct.boards.length = 0;
-  const m = await mount();
-  tree = await m.draw();
-  check(tree, "no boards");
-  setup();
-  const ready = await mount();
-  const cta = must(await ready.draw(), "fizzy-new");
-  assert.deepEqual([cta.style.bg, typeof cta.handlers.on_click], ["solid", "function"], "with boards: live");
+  const look = id => { const b = must(tree, id); return [b.style.border_color, b.style.bg, b.style.text_color]; };
+  const toggle = async id => { click(tree, id, cx); tree = await draw(); };
+  for (const id of ["fizzy-only-mine", "fizzy-only-golden", "fizzy-only-pinned"]) assert.deepEqual(look(id), ["input", undefined, "muted"], `${id}: off`);
+  await toggle("fizzy-only-golden");
+  assert.deepEqual(rowIds(tree), [102], "golden");
+  assert.deepEqual(look("fizzy-only-golden"), ["#e5b422", "selected", "#e5b422"]);
+  await toggle("fizzy-only-mine");
+  assert.deepEqual(rowIds(tree), [], "mine and golden: none is both");
+  assert.match(textOf(must(tree, "fizzy-list")), /No cards match/);
+  await toggle("fizzy-only-golden");
+  assert.deepEqual(rowIds(tree), [101], "mine");
+  assert.deepEqual(look("fizzy-only-mine"), ["accent", "selected", "accent"]);
+  await toggle("fizzy-only-mine");
+  await toggle("fizzy-only-pinned");
+  assert.deepEqual(rowIds(tree), [102], "pinned");
+  await toggle("fizzy-only-pinned");
+  assert.deepEqual(rowIds(tree), [103, 101, 102], "all off: every card");
 });
 
 test("the New card picker: 'New card on', the boards, the board shown ticked and highlighted, no Follow row; the arrows move and Enter chooses", async () => {
   const m = await mount(), { cx, draw } = m;
   state.shared["fizzy.board"] = { follow: false, board: "b2", id: "pick" };
-  click(await draw(), "fizzy-new", cx);
+  await draw();
+  await press(cx, "new");
   const popup = await mountPopup();
   assert.deepEqual(listOf(popup.tree()), ["# New card on", "board-b1", "board-b2"]);
   assert.equal(all(must(popup.tree(), "fizzy-menu-board-b2"), n => n.path === "mods/fizzy/check.svg").length, 1, "the board shown is ticked");
@@ -7517,67 +7953,68 @@ test("New card on another board while following the space turns following off an
   click(tree, "fizzy-fresh-done", cx);
   const board = await draw();
   assert.equal(boardName(board), "Personal");
-  assert.equal(must(board, "fizzy-board").kids.length, 3, "and the select no longer says it follows the space");
+  assert.equal(must(board, "fizzy-board").kids.length, 1, "and the name no longer says it follows the space");
 });
 
-test("the board row (Board view): a select over a field, the kanban icon, the name, the chevron, then Open board; 36 px high, right under the header", async () => {
+test("the board row (Board view), as Fizzy's head: who can see the board at the left, the name big and bold in the middle between two rules (a click picks another board), Open board at the right; right under the header", async () => {
   acct.boards[0] = { ...acct.boards[0], name: LONG_NAME };
   const { draw } = await mount();
   const tree = await draw();
   const bar = must(tree, "fizzy-board-bar");
-  assert.deepEqual([bar.style.h, bar.style.px, bar.style.gap, bar.style.flex_none, bar.style.items_center], [36, 10, 6, true, true]);
-  assert.deepEqual(bar.kids.map(k => k.id), ["fizzy-board", "fizzy-open-board"]);
-  const [board, open] = bar.kids;
-  assert.deepEqual([board.style.flex_1, board.style.min_w, board.style.h, board.style.px, board.style.gap, board.style.rounded, board.style.max_w, board.style.flex_none],
-    [true, 0, 28, 8, 7, 7, undefined, undefined], "it takes the room and shrinks");
-  assert.deepEqual([board.style.border_1, board.style.border_color, board.style.bg, board.style.cursor_pointer], [true, "input", "background", true], "like the filter field under it");
-  assert.deepEqual(board.hoverStyle, { bg: "hover" });
-  assert.equal(board.kids.length, 3, "the icon, the name, the chevron: no hint while it does not follow the space");
-  const [icon, name, chevron] = board.kids;
-  assert.deepEqual([icon.kind, icon.path, icon.style.size, icon.style.flex_none, icon.style.text_color], ["svg", LOGO, 14, true, "muted"]);
-  assert.deepEqual([name.style.flex_1, name.style.min_w, name.style.truncate, name.style.text_size, name.style.font_medium, name.style.text_color, textOf(name)],
-    [true, 0, true, textPx(13), true, "foreground", LONG_NAME], "the name is cut by the layout, not by the code");
-  assert.deepEqual([chevron.kind, chevron.path, chevron.style.size, chevron.style.flex_none, chevron.style.text_color], ["svg", "mods/fizzy/chevron-down.svg", 12, true, "dim"], "the select's affordance, at the right end");
+  assert.deepEqual(bar.kids.map(k => k.id ?? "rule"), ["fizzy-board-access", "rule", "fizzy-board", "rule", "fizzy-open-board"]);
+  for (const rule of [bar.kids[1], bar.kids[3]]) assert.deepEqual([rule.style.flex_1, rule.style.h, rule.style.bg], [true, 1, "border"], "a rule each side");
+  const board = must(tree, "fizzy-board"), name = must(tree, "fizzy-board-name");
+  assert.deepEqual([name.style.text_size, name.style.font_bold, name.style.truncate, name.style.min_w, textOf(name)], [textPx(17), true, true, 0, LONG_NAME], "cut by the layout, not by the code");
+  assert.deepEqual(all(board, n => n.kind === "svg").map(n => n.path), ["mods/fizzy/chevron-down.svg"]);
   assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
-  assert.equal(typeof board.handlers.on_click, "function", "the whole select is the click");
-  assert.equal(typeof board.handlers["on_mouse_down:left"], "function", "the press goes no further");
-
-  assert.deepEqual([open.style.w, open.style.h, open.style.rounded, open.style.flex_none, open.style.items_center, open.style.justify_center], [36, 28, 7, true, true, true]);
-  assert.deepEqual([open.style.border_1, open.style.border_color, open.style.bg, open.style.text_color, open.style.cursor_pointer], [true, "input", "background", "muted", true]);
-  assert.deepEqual(open.hoverStyle, { bg: "hover", text_color: "foreground" });
-  assert.deepEqual(open.kids.map(k => [k.path, k.style.size]), [["mods/fizzy/external-link.svg", 14]]);
-  assert.equal(tipOf(tree, "fizzy-open-board"), "Open board in Fizzy");
-  assert.equal(typeof open.handlers["on_mouse_down:left"], "function");
+  assert.deepEqual([typeof board.handlers.on_click, typeof board.handlers["on_mouse_down:left"], board.hoverStyle], ["function", "function", { bg: "hover" }]);
+  for (const [id, icon, tip] of [["fizzy-board-access", "users", "Who can see this board"], ["fizzy-open-board", "external-link", "Open board in Fizzy"]]) {
+    const round = must(tree, id);
+    assert.deepEqual([round.style.size, round.style.rounded_full, round.style.border_1, round.kids[0].path, tipOf(tree, id), typeof round.handlers.on_click],
+      [30, true, true, `mods/fizzy/${icon}.svg`, tip, "function"], id);
+  }
   assert.equal(must(tree, "fizzy").kids[1], bar, "right under the header");
 });
 
-test("the select says 'Following space' and its tooltip 'Following the current space' only while it shows the space's own board, and not when narrow", async () => {
+test("the name says FOLLOWING SPACE under it, and its tooltip 'Following the current space', only while it shows the space's own board", async () => {
   acct.yaml["/work/roadmap"] = "board: b1\n";
   const { cx, draw } = await mount();
   let tree = await draw();
-  const select = () => must(tree, "fizzy-board");
-  assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Roadmap", "Following space", "mods/fizzy/chevron-down.svg"]);
-  const hint = select().kids[2];
-  assert.deepEqual([hint.style.text_size, hint.style.text_color, hint.style.flex_none], [textPx(11), "dim", true]);
+  const under = () => textOf(must(tree, "fizzy-board")).replace(boardName(tree), "").trim();
+  assert.equal(under(), "FOLLOWING SPACE");
   assert.equal(tipOf(tree, "fizzy-board"), "Following the current space");
-  resize(tree, cx, 339);
-  tree = await draw();
-  assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Roadmap", "mods/fizzy/chevron-down.svg"], "narrow: no hint");
-  assert.equal(tipOf(tree, "fizzy-board"), "Following the current space", "but the tooltip says it");
-  resize(tree, cx, 368);
   await press(cx, "board:b2");
   tree = await draw();
-  assert.deepEqual(select().kids.map(k => (k.kind === "svg" ? k.path : textOf(k))), [LOGO, "Personal", "mods/fizzy/chevron-down.svg"], "a board picked: not following");
-  assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
+  assert.deepEqual([boardName(tree), under(), tipOf(tree, "fizzy-board")], ["Personal", "", "Switch board"], "a board picked: not following");
   await press(cx, "follow");
   tree = await draw();
-  assert.equal(boardName(tree), "Roadmap");
-  assert.equal(select().kids.length, 4, "following again");
+  assert.deepEqual([boardName(tree), under()], ["Roadmap", "FOLLOWING SPACE"], "following again");
   state.spaces = [space("s1", "work", { active: true, folder: "/work/other" })];
   tree = await draw();
   tree = await draw();
-  assert.equal(select().kids.length, 3, "following a space that names no board: not its board, no hint");
-  assert.equal(tipOf(tree, "fizzy-board"), "Switch board");
+  assert.deepEqual([under(), tipOf(tree, "fizzy-board")], ["", "Switch board"], "following a space that names no board: not its board");
+});
+
+test("who can see the board: a popup with Everyone on the team (a switch the panel writes, then reads again) and the people who can see it, which, like its last row, open the board in Fizzy", async () => {
+  const { view, cx, draw } = await mount();
+  click(await draw(), "fizzy-board-access", cx);
+  assert.deepEqual(lastPopup().props.menu, { kind: "access", board: "b1", url: B1.url, all: false, ids: ["u-me", "u-bob"] });
+  const popup = await mountPopup();
+  assert.deepEqual(listOf(popup.tree()), ["access-all", "-", "# 2 people can see it", "user-u-me", "user-u-bob", "-", "access-fizzy"]);
+  assert.equal(textOf(must(popup.tree(), "fizzy-menu-access-all")).includes("Everyone on the team"), true);
+  menuClick(popup, "user-u-bob");
+  assert.deepEqual(popup.cx.opened, [B1.url], "a person: the board in Fizzy, where access is changed");
+  const switcher = await mountPopup();
+  menuClick(switcher, "access-all");
+  assert.deepEqual(requestOps().at(-1), { kind: "boardForAll", board: "b1", on: true });
+  await draw();
+  await cx.settle();
+  assert.deepEqual(acct.writes().at(-1), ["board", "update", "b1", "--all_access", "true"]);
+  assert.equal(view.access.get("b1").all, true, "read again: everyone");
+  click(await draw(), "fizzy-board-access", cx);
+  const all = await mountPopup();
+  assert.deepEqual(listOf(all.tree()).slice(0, 3), ["access-all", "-", "# Everyone can see it"]);
+  assert.deepEqual(listOf(all.tree()).filter(id => id.startsWith("user-")), ["user-u-me", "user-u-bob"], "every active person (not the bot, not the one who left)");
 });
 
 test("a click anywhere on the select opens the boards list and changes nothing else", async () => {
@@ -7602,11 +8039,13 @@ test("with no board the select reads No board in dim and still lists the boards;
   tree = await draw();
   const board = must(tree, "fizzy-board");
   assert.equal(boardName(tree), "No board");
-  assert.deepEqual([board.kids[1].style.text_color, board.style.bg], ["dim", "background"]);
+  assert.equal(must(tree, "fizzy-board-name").style.text_color, "dim");
   assert.deepEqual([board.hover, board.style.cursor_pointer, typeof board.handlers.on_click], [true, true, "function"], "live: hover, pointer, click");
-  assert.deepEqual(all(board, n => n.kind === "svg").map(n => n.path), [LOGO, "mods/fizzy/chevron-down.svg"], "the icon and the chevron stay");
-  const open = must(tree, "fizzy-open-board");
-  assert.deepEqual([open.style.text_color, open.handlers.on_click, open.hover, open.style.cursor_pointer], ["dim", undefined, false, undefined], "no url: inert");
+  assert.deepEqual(all(board, n => n.kind === "svg").map(n => n.path), ["mods/fizzy/chevron-down.svg"], "the chevron stays");
+  for (const id of ["fizzy-open-board", "fizzy-board-access"]) {
+    const round = must(tree, id);
+    assert.deepEqual([round.style.text_color, round.handlers.on_click, round.hover, round.style.cursor_pointer], ["dim", undefined, false, undefined], `${id}: no board, inert`);
+  }
   click(tree, "fizzy-board", cx);
   assert.equal(lastPopup().props.menu.kind, "boards", "the only way to pick one");
 });
@@ -7702,14 +8141,14 @@ test("New card (its key) from the Inbox puts the Board view behind the new card;
   assert.deepEqual(cx.opened, ["https://app.fizzy.do/111/boards/b1"]);
 });
 
-test("every list view draws without acting: the header, the board row and New card where they are, and a board chosen while it shows", async () => {
+test("every list view draws without acting: the header, the board row and the board's filters where they are, and a board chosen while it shows", async () => {
   const { view, cx, draw } = await mount();
   let tree = await draw();
   for (const id of ["fizzy-view-mine", "fizzy-view-inbox", "fizzy-view-pins", "fizzy-home"]) {
     click(tree, id, cx);
     tree = await draw();
     assert.equal(Boolean(find(tree, "fizzy-board-bar")), id === "fizzy-home", id);
-    assert.equal(Boolean(find(tree, "fizzy-new")), id === "fizzy-home", `${id}: New card`);
+    assert.equal(Boolean(find(tree, "fizzy-only-golden")), id === "fizzy-home", `${id}: the board's filters`);
   }
   resize(tree, cx, 279);
   tree = await draw();
@@ -8055,27 +8494,37 @@ test("a hand-off chosen in a popup row travels in fizzy.request only until the p
   assert.equal(calls.run.filter(([name]) => name === "terminal.paste").length, 1, "and the panel did it");
 });
 
-test("a card is a tile in its lane's color: a faint tint behind it, a bar in the color at its left, a border a shade stronger and stronger again on hover", async () => {
+test("a card is a plain tile, as Fizzy's: the background, a thin border that strengthens on hover; its number and board sit on a tab in its lane's color at the top left, and the line under the title is in that color too", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
   const c1 = colorOf(acct.columns.b1.find(c => c.id === "c1"));
-  const look = id => { const n = must(tree, id); return [n.style.bg, n.style.border_1, n.style.border_color, n.hoverStyle?.border_color, n.kids[0].style.bg, n.style.rounded]; };
-  assert.deepEqual(look("fizzy-card-103"), [`${MAYBE_BLUE}1f`, true, `${MAYBE_BLUE}4d`, `${MAYBE_BLUE}99`, MAYBE_BLUE, 8], "Maybe?: Fizzy's blue");
-  assert.deepEqual(look("fizzy-card-101"), [`${c1}1f`, true, `${c1}4d`, `${c1}99`, c1, 8], "In progress: its column's color");
+  const look = id => { const n = must(tree, id); return [n.style.bg, n.style.border_1, n.style.border_color, n.hoverStyle?.border_color, n.style.rounded, n.style.overflow_hidden]; };
+  assert.deepEqual(look("fizzy-card-103"), ["background", true, "border", "input", 8, true]);
+  assert.deepEqual(look("fizzy-card-101"), ["background", true, "border", "input", 8, true], "whatever its lane");
+  const tab = id => { const n = must(tree, id); return [n.style.bg, n.style.rounded_br, parentOf(tree, id).kids[0] === n]; };
+  assert.deepEqual(tab("fizzy-card-head-101"), [c1, 6, true], "In progress: its column's color, first in the card's top line");
+  assert.deepEqual(tab("fizzy-card-head-103"), [MAYBE_BLUE, 6, true], "Maybe?: Fizzy's blue");
+  assert.equal(must(tree, "fizzy-card-meta-101").style.text_color, c1);
   click(tree, "fizzy-section-done", cx);
   tree = await draw();
-  assert.deepEqual(look("fizzy-card-105"), [`${DONE_GREEN}1f`, true, `${DONE_GREEN}4d`, `${DONE_GREEN}99`, DONE_GREEN, 8], "Done: green");
-  assert.deepEqual([must(tree, "fizzy-card-title-101").style.whitespace_normal, must(tree, "fizzy-card-title-101").style.font_medium], [true, true], "the whole title, medium");
+  assert.equal(must(tree, "fizzy-card-head-105").style.bg, DONE_GRAY, "a closed card's: Done's light gray");
+  const title = must(tree, "fizzy-card-title-101");
+  assert.deepEqual([title.style.whitespace_normal, title.style.font_bold, title.style.text_size], [true, true, textPx(13)], "the whole title, bold");
+  assert.equal(must(tree, "fizzy-card-meta-101").style.text_size, textPx(10), "the line under it smaller");
 });
 
-test("a golden card has a gold border instead (no hover of its own) and heads its lane; the rest keep Fizzy's order", async () => {
+test("a golden card has the plain border and a faint gold glow under its content, from nothing at the bottom left to the top right, and heads its lane; the rest keep Fizzy's order", async () => {
   acct.cards.push({ ...acct.card(103), id: "id-106", number: 106, title: "Shiny", golden: true }, { ...acct.card(103), id: "id-107", number: 107, title: "Plain" });
   const { draw } = await mount();
   const tree = await draw();
   assert.deepEqual(rowIds(tree).filter(n => lanesOf(tree)[n] === "maybe"), [106, 103, 107], "Fizzy lists 103, 106, 107");
   const golden = must(tree, "fizzy-card-106");
-  assert.deepEqual([golden.style.border_2, golden.style.border_color, golden.style.border_1, golden.hover], [true, "ansi3", undefined, false]);
-  assert.deepEqual([must(tree, "fizzy-card-103").style.border_2, must(tree, "fizzy-card-103").style.border_1], [undefined, true]);
+  assert.deepEqual([golden.style.border_1, golden.style.border_color, golden.style.border_2, golden.style.relative], [true, "border", undefined, true]);
+  const glow = glowOf(golden);
+  assert.equal(golden.kids[0], glow, "under everything else in the card");
+  assert.deepEqual([glow.style.absolute, glow.style.top, glow.style.left, glow.style.size_full], [true, 0, 0, true], "the whole card");
+  assert.deepEqual(glow.background, { kind: "linear-gradient", angle: 45, from: "#e5b42200", to: "#e5b42238" });
+  assert.equal(glowOf(must(tree, "fizzy-card-103")), null);
 });
 
 test("a picked card is drawn as picked whatever it is: the selected background and the accent border, a golden one too", async () => {
@@ -8083,6 +8532,7 @@ test("a picked card is drawn as picked whatever it is: the selected background a
   const tree = await pick(cx, draw, 102);
   const card = must(tree, "fizzy-card-102");
   assert.deepEqual([card.style.bg, card.style.border_1, card.style.border_color, card.style.border_2], ["selected", true, "accent", undefined]);
+  assert.ok(glowOf(card), "and its glow");
 });
 
 test("a pinned card shows a pin before its title, in the accent; the pin list read at start is what says so, in every list", async () => {
@@ -8421,10 +8871,11 @@ test("Settings opens on a list of its pages, each saying what it is set to now; 
   const m = await mount();
   click(await m.draw(), "fizzy-open-settings", m.cx);
   let tree = await m.draw();
-  assert.deepEqual(must(tree, "fizzy-settings").kids.map(k => k.id), ["fizzy-setting-mentions", "fizzy-setting-groups"]);
+  assert.deepEqual(must(tree, "fizzy-settings").kids.map(k => k.id), ["fizzy-setting-mentions", "fizzy-setting-groups", "fizzy-setting-cards"]);
   const line = id => [textOf(must(tree, `fizzy-setting-${id}`).kids[1].kids[0]), textOf(must(tree, `fizzy-setting-${id}-summary`)), ...iconsIn(tree, `fizzy-setting-${id}`)];
   assert.deepEqual(line("mentions"), ["Mentions", "Can tag 0 of 2 people · Finds new ones by itself", "mods/fizzy/user.svg", "mods/fizzy/chevron-right.svg"]);
   assert.deepEqual(line("groups"), ["Board groups", "1 group", "mods/fizzy/kanban.svg", "mods/fizzy/chevron-right.svg"]);
+  assert.deepEqual(line("cards"), ["Cards", "Full", "mods/fizzy/rows-3.svg", "mods/fizzy/chevron-right.svg"]);
   assert.deepEqual([textOf(headerOf(tree)).trim(), tipOf(tree, "fizzy-back")], ["Settings", "Back"]);
   click(tree, "fizzy-setting-mentions", m.cx);
   tree = await m.draw();
@@ -8436,6 +8887,41 @@ test("Settings opens on a list of its pages, each saying what it is set to now; 
   state.shared["fizzy.boardGroups"] = { groups: [], boards: {} };
   assert.equal(textOf(must(await m.draw(), "fizzy-setting-groups-summary")), "No groups");
   assert.deepEqual(savedGroups(), [], "looking saves nothing");
+});
+
+test("Settings > Cards: Compact cards, off at first; switched on (and kept), a card is three short lines: a small tab without the board in its own board's lane, the title, then who has it, when it changed and its comments", async () => {
+  acct.card(102).tags = ["docs"];
+  const m = await mount();
+  const full = await m.draw();
+  assert.ok(find(full, "fizzy-card-added-102") && all(must(full, "fizzy-card-102"), n => n.kind === "text" && n.text === "#docs").length === 1, "full: who made it, and the tags");
+  click(full, "fizzy-open-settings", m.cx);
+  click(await m.draw(), "fizzy-setting-cards", m.cx);
+  let tree = await m.draw();
+  assert.equal(textOf(headerOf(tree)).trim(), "Cards");
+  assert.match(textOf(must(tree, "fizzy-cards-compact")), /^Compact cards/);
+  assert.equal(must(tree, "fizzy-cards-compact-switch").style.bg, "raised", "off");
+  click(tree, "fizzy-cards-compact-switch", m.cx);
+  tree = await m.draw();
+  assert.equal(must(tree, "fizzy-cards-compact-switch").style.bg, "solid", "on");
+  assert.equal(localStorage.getItem("compactCards"), "true", "kept");
+  click(tree, "fizzy-back", m.cx);
+  assert.equal(textOf(must(await m.draw(), "fizzy-setting-cards-summary")), "Compact");
+  click(await m.draw(), "fizzy-back", m.cx);
+  tree = await m.draw();
+  const head = must(tree, "fizzy-card-head-102");
+  assert.deepEqual([textOf(head), head.style.text_size, head.style.py], ["102", textPx(10), 2], "the number alone: the lane is its board's");
+  assert.equal(must(tree, "fizzy-card-title-102").style.text_size, textPx(12));
+  for (const id of ["fizzy-card-added-102", "fizzy-card-creator-102", "fizzy-card-assigned-102"]) assert.equal(find(tree, id), null, `${id}: not in a compact card`);
+  assert.equal(all(must(tree, "fizzy-card-102"), n => n.kind === "text" && n.text === "#docs").length, 0, "no tags");
+  const meta = must(tree, "fizzy-card-meta-102");
+  assert.deepEqual(meta.kids.filter(k => k.id).map(k => k.id), ["fizzy-card-people-102", "fizzy-card-changed-102"], "one line: who has it, then when it changed");
+  assert.equal(must(tree, "fizzy-card-people-102").kids[0].style.size, 16);
+  assert.match(textOf(must(tree, "fizzy-card-changed-102")), /AGO|TODAY|YESTERDAY/);
+  const again = await mount();
+  assert.equal(find(await again.draw(), "fizzy-card-added-102"), null, "compact again after a restart");
+  click(await again.draw(), "fizzy-view-mine", again.cx);
+  const mine = await again.draw();
+  assert.match(textOf(must(mine, "fizzy-card-head-101")), /ROADMAP/, "a list of many boards keeps the board on the tab");
 });
 
 test("Settings > Mentions: how many people can be tagged and who not yet; a card's number in its field learns everyone mentioned on that card, and says how many", async () => {
@@ -8565,19 +9051,21 @@ test("an image in a description is downloaded once into the panel's files, throu
   click(drawn(view, cx), "fizzy-card-101", cx);
   for (let i = 0; i < 50 && !downloads.length; i++) await tick();
   let box = must(drawn(view, cx), "fizzy-desc-html-1");
-  assert.deepEqual([box.style.w, box.style.h, textOf(box)], [320, 240, "shot.png Loading image…"], "a box of its size: as wide as the text (360 - 40), at 800 by 600");
+  assert.deepEqual([box.style.w, box.style.h, textOf(box)], [290, 218, "shot.png Loading image…"], "a box of its size: as wide as the text (360 - 70), at 800 by 600");
   release();
   await cx.settle();
   assert.deepEqual(acct.asked("card", "attachments"), [
     ["card", "attachments", "show", "101", "--include-comments"],
     ["card", "attachments", "download", "101", "2", "--include-comments", "-o", `${state.appHome}/${FILE_DIR}/${file}`],
   ], "its sgid is the second of the card's");
+  assert.deepEqual(execOptions("card").filter(o => o.timeout), [{ cwd: state.home, timeout: FILE_TIMEOUT }], "the download alone may outlast Herdr's 30 s");
   assert.deepEqual(calls.exec.filter(c => c.command === "mkdir").map(c => c.args), [["-p", `${state.appHome}/${FILE_DIR}`]]);
   assert.deepEqual(JSON.parse(localStorage.getItem("files")), { [key]: file }, "kept between runs");
   const tree = await draw();
   box = must(tree, "fizzy-desc-html-1");
   assert.deepEqual(box.kids.map(k => [k.kind, k.path]), [["image", `${FILE_DIR}/${file}`]]);
-  assert.deepEqual([box.style.w, box.style.h, box.style.tooltip], [320, 240, "shot.png"]);
+  assert.deepEqual([box.style.w, box.style.h, box.style.tooltip], [290, 218, "shot.png"]);
+  assert.deepEqual(box.dragPaths, [`${state.appHome}/${FILE_DIR}/${file}`], "dragged into a terminal, it drops its file");
   assert.equal(textOf(parentOf(tree, "fizzy-desc-html-1")).trim(), "The bug", "its caption under it");
   click(tree, "fizzy-desc-html-1", cx);
   await cx.settle();
@@ -8617,6 +9105,17 @@ test("an image from the web in a comment is fetched by its address into the pane
   assert.deepEqual([box.kids[0].kind, box.kids[0].path, box.style.tooltip], ["image", `${FILE_DIR}/${key}.png`, "Cat"]);
 });
 
+test("a web image that won't download is a file chip that opens its address in the browser", async () => {
+  acct.webImageFails = () => true;
+  acct.comments[101][1].body.html = '<div><p><img src="https://example.com/cat.png" alt="Cat"></p></div>';
+  const { cx, draw } = await openDetail();
+  const tree = await draw();
+  const chip = must(tree, "fizzy-comment-html-cm2-0");
+  assert.deepEqual([all(chip, n => n.kind === "svg")[0]?.path, chip.style.tooltip], ["mods/fizzy/paperclip.svg", "Open in the browser"]);
+  click(tree, "fizzy-comment-html-cm2-0", cx);
+  assert.deepEqual(cx.opened, ["https://example.com/cat.png"]);
+});
+
 test("a file that is not an image is a chip with a paperclip, its name and size; a click saves it in Downloads under a name that is free there, and shows it in its folder", async () => {
   acct.card(101).description_html = '<div><action-text-attachment sgid="sgid-doc" content-type="application/pdf" filename="spec.pdf" filesize="3145728"></action-text-attachment>'
     + '<action-text-attachment sgid="sgid-gone" content-type="application/zip" filename="old.zip"></action-text-attachment></div>';
@@ -8648,6 +9147,7 @@ test("files dropped on the comment box are uploaded one after another, each put 
   assert.equal(textOf(must(drawn(view, cx), "fizzy-uploading-comment")), "Uploading shot.png…");
   await cx.settle();
   assert.deepEqual(acct.asked("upload"), [["upload", "file", `${state.home}/shot.png`], ["upload", "file", `${state.home}/spec.pdf`]]);
+  assert.deepEqual(execOptions("upload"), Array(2).fill({ cwd: state.home, timeout: FILE_TIMEOUT }), "an upload may outlast Herdr's 30 s");
   assert.deepEqual(spans(box).map(([text]) => text), ["🖼 shot.png", "📎 spec.pdf"]);
   assert.ok(spans(box).every(([, id]) => /^file:sgid-upload-\d+$/.test(id)));
   assert.equal(box.value(), "Here: 🖼 shot.png 📎 spec.pdf ");

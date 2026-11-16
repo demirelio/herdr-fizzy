@@ -1,71 +1,78 @@
-// Your Fizzy board in the side panel: look at it, work it, and hand cards to your coding agents without leaving
-// Herdr. It talks to the local `fizzy` CLI. Right-clicks, the "…" buttons and the pickers open this same mod as a
-// popup (props().menu), so the exported class is both the panel and its menus. A popup never writes to Fizzy
-// itself: it leaves a request in shared state and the panel, which stays alive, does it.
-import { View, div, svg, image } from "gpui-kit";
+// The exported class is both the panel and its popups (props().menu). A popup never writes to Fizzy itself: it closes at once,
+// so it leaves a request in shared state for the panel.
+import { View, div, svg, image, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
-import { exec, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
+import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import { textPx } from "./text.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
-  columnOf, fullCard, noteCard, inactivity,
+  columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, labelFile, labelBox, labelSvg,
   filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
-  FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
-  targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, activePeople,
-  groupsConfig, groupOf, boardGroups, ownHidden, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, placeBoard, moveGroup, setBoardHidden,
+  FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, FILE_TIMEOUT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
+  WRITE_SCRIPT, cardFile, cardMarkdown,
+  targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, ROW, activePeople,
+  groupsConfig, groupOf, boardGroups, ownHidden, addGroup, renameGroup, setMatch, setGroupHidden, removeGroup, placeBoard, placeBoardAt, listedBoards, moveGroup, setBoardHidden,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
 } from "./lib.js";
 
-// Descriptions and comments are HTML, drawn by richText; with this off the plain text is shown instead.
-const RICH = true;
-// Every hand-off to an agent borrows the clipboard (the terminal pastes from it). Put the old text back a moment later.
-const RESTORE_CLIPBOARD = true;
 // new-menu's cache of the agents each machine reported last, shown at once while knownAgents asks again.
 const KNOWN = "new-menu.agents";
 const VIEWS = [["board", "Board"], ["mine", "Mine"], ["inbox", "Inbox"], ["pins", "Pins"]];
 const HEADER_VIEWS = VIEWS.filter(([id]) => id !== "board");
 // The theme color each avatar hue index draws with.
 const AVATARS = ["ansi1", "ansi2", "ansi3", "ansi4", "ansi5", "ansi6", "ansi9", "ansi12"];
-// A popup is only as tall as its rows, and never taller than this (the rows scroll).
 const MAX_MENU = 560, INPUT_ROW = 40;
-// The popups with a field over their rows: Tags (a new tag's name), and the pickers, whose field narrows their rows and takes
-// Enter itself: Mention (the people by name) and Card reference (the cards by number or title).
+// Pickers' fields filter their rows and take Enter themselves.
 const PICKERS = new Set(["mention", "cardref"]);
 const FIELD_MENUS = new Set(["tags", ...PICKERS]);
 // The most cards a "#" popup is handed, and how long (ms) after the typing stops it looks up a number it was not handed.
 const CARD_REFS = 300, LOOKUP_DELAY = 300;
-// The bottom bars: one line of controls, each as high as BAR_BUTTON. Below NARROW px of panel width (its narrowest is
-// 280) the hand-off buttons drop their icons and keep their labels, My cards and New card shrink to their icons, and
-// the header drops Refresh (an Inbox badge leaves no room for it), so each still fits in one line. Below WIDE px the
-// header tightens its buttons and gaps and drops its "Fizzy" word, which at 340 would leave under 1 px beside a
-// three-digit badge.
-const BAR_BUTTON = 28, NARROW = 340, WIDE = 440;
+// Panel widths (px; the narrowest is 280) below which the header and bars shed icons, Refresh and the "Fizzy" word:
+// beside a three-digit Inbox badge they would not fit on one line otherwise.
+const NARROW = 340, WIDE = 440;
+const ROUND = 30;
+// At SEARCH_WIDE the centered views leave the inline search field about 130 px.
+const SEARCH_WIDE = 560;
+const BOARD_FILTERS = [{ key: "mine", icon: "user", tip: "My cards" }, { key: "golden", icon: "star", tip: "Golden cards" }, { key: "pinned", icon: "pin", tip: "Pinned cards" }];
 // Transparent, not the background color: a background-colored border would show as a frame inside a highlighted block.
 const CLEAR = "#00000000";
 // The Done lane is read at most this many pages deep in one go (the CLI's pages are short).
 const DONE_PAGES = 40;
-// Find mentions reads at most this many activity pages (15 events each). On its own the panel runs it while someone can't be
-// tagged yet, at most once per MENTION_SCAN_EVERY ms.
+// Activity pages hold 15 events each.
 const MENTION_SCAN_PAGES = 40, MENTION_SCAN_EVERY = 7 * 86400000;
-// Settings opens on this list; each entry opens a page of its own.
-const SETTINGS = [{ id: "mentions", title: "Mentions", icon: "user" }, { id: "groups", title: "Board groups", icon: "kanban" }];
-// The lanes Fizzy gives no column color: Maybe? in Fizzy's own blue, Not Now gray, Done green; a column whose color
-// is not known is gray too.
-const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#3fa65b" }, NO_COLOR = "#8a8f98";
+const SETTINGS = [{ id: "mentions", title: "Mentions", icon: "user" }, { id: "groups", title: "Board groups", icon: "kanban" }, { id: "cards", title: "Cards", icon: "rows-3" }];
+// Fizzy gives Maybe?, Not Now and Done no column color; these match its web UI.
+const LANE_COLORS = { maybe: "#4f8ef7", "not-now": "#8a8f98", done: "#9aa0aa" }, NO_COLOR = "#8a8f98";
+// Elements take a gradient only through window.paint_path, so the golden glow is a layer under the card's content.
+const GOLD = "#e5b422";
+const CARD_SHAPE = PathBuilder.fill().move_to("0%", "0%").line_to("100%", "0%").line_to("100%", "100%").line_to("0%", "100%").close().build();
+const GOLD_GLOW = Background.linear_gradient(45, `${GOLD}00`, `${GOLD}38`);
 // The title a card New card makes carries until its own is saved (Fizzy requires one).
 const NEW_TITLE = "New card";
 const EDITOR_HINT = "(@ mention, # card, drop or paste images)";
 // How much narrower than the panel the description's and the comments' text is (px): their padding, and the scrollbar.
-const DESC_INSET = 40, COMMENT_INSET = 66;
-// A lane's color at a given opacity (two hex digits): the tints behind its header and its cards, and their borders.
+const DESC_INSET = 70, COMMENT_INSET = 86, COMMENT_AVATAR = 28;
+// A card page's title is its lane's color this much of the way to white, as Fizzy's.
+const TITLE_LIGHT = 0.55;
+// `alpha`: two hex digits.
 const tint = (color, alpha) => `${color}${alpha}`;
+// Text on a lane's color (a card's tab): dark, as Fizzy's, which reads on every lane color in a light theme and a dark one.
+const ON_LANE = "#15171c";
 const WATCH_KEPT = 200;
+// TWO_OPEN leaves each of two open columns about 300 px. PILL/PILL_LIT: two-hex-digit alphas for the pill's top, foot and line.
+const SIDE_BY_SIDE = 480, TWO_OPEN = 760, OPEN_MAX = 380, FOLDED = 36, PILL_STEP = 28, PILL_MAX = 480, PILL_GRAY = "#8a8f98";
+const PILL = { top: "b3", foot: "1a", line: "4d" }, PILL_LIT = { top: "e6", foot: "33", line: "80" };
+const pillShape = height => {
+  const r = FOLDED / 2;
+  return PathBuilder.fill().move_to(0, r).arc_to(r, r, 0, false, true, FOLDED, r)
+    .line_to(FOLDED, height - r).arc_to(r, r, 0, false, true, 0, height - r).close().build();
+};
+const COUNT_PARALLEL = 3, COUNTS_KEPT = 400;
 
 const why = e => String(e?.message ?? e);
 const stop = (_e, cx) => cx.stop_propagation();
-// ⌘/Ctrl held with a click or a press.
 const cmdHeld = e => Boolean(e?.modifiers?.platform || e?.modifiers?.control);
 const unique = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const read = (key, fallback) => {
@@ -74,21 +81,29 @@ const read = (key, fallback) => {
     return raw == null ? fallback : JSON.parse(raw);
   } catch { return fallback; }
 };
+// Herdr rewrites its whole store on each setItem, so an unchanged value is not written again.
 const keep = (key, value) => {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* a full or missing store only costs the cache */ }
+  try {
+    const text = JSON.stringify(value);
+    if (localStorage.getItem(key) !== text) localStorage.setItem(key, text);
+  } catch { /* a full or missing store only costs the cache */ }
 };
-// The signed-in user as an earlier run read them: { account, id }, or null.
 const keptMe = () => {
   const kept = read("me", null);
   return typeof kept?.id === "string" && kept.id ? { account: kept.account ?? null, id: kept.id } : null;
 };
 const watchEntries = raw => (Array.isArray(raw) ? raw.filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "boolean").map(([n, on]) => [n, on]) : []);
+const orNull = v => (Number.isInteger(v) && v >= 0 ? v : null);
+// Kept counts, [[number, at, done, total, comments]] -> Map entries (see `counts` in init).
+const countEntries = raw => (Array.isArray(raw) ? raw : []).filter(e => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === "string")
+  .slice(-COUNTS_KEPT).map(([n, at, done, total, comments]) => [n, { at, done: orNull(done), total: orNull(total), comments: orNull(comments) }]);
 
 // Asks the CLI. Always from the home folder, so that no .fizzy.yaml beside the shell changes what it reads
 // (a default board would narrow the boardless Mine read).
-async function fizzy(args) {
+// `timeout` (ms) replaces Herdr's 30 s limit, which a file upload or download on a slow link can outlast.
+async function fizzy(args, { timeout } = {}) {
   let result;
-  try { result = await exec("fizzy", withJson(args), { cwd: home() }); }
+  try { result = await exec("fizzy", withJson(args), timeout ? { cwd: home(), timeout } : { cwd: home() }); }
   catch (e) { throw execFailure(e); }
   return parseResult(result);
 }
@@ -101,25 +116,23 @@ function slim(card) {
     board: card.board ? { id: card.board.id, name: card.board.name } : undefined,
     tags: (card.tags ?? []).map(t => (typeof t === "string" ? t : t.title)),
     assignees: (card.assignees ?? []).map(u => ({ id: u.id, name: u.name })),
+    creator: card.creator ? { id: card.creator.id, name: card.creator.name } : undefined, created_at: card.created_at,
     last_active_at: card.last_active_at, description: String(card.description ?? "").slice(0, 300),
   };
 }
-// A card whose title and link are known. The stub a card opened by its number shows (openCard) has neither: a
-// card is only handed to an agent once it is whole. A board (what the bar hands over when no card is) always is.
+// A stub (a card opened by its number) has no title or link yet: hand-offs read it whole first. A board always is whole.
 const whole = card => card?.kind === "board" || Boolean(card?.url);
 const slimColumn = c => ({ id: c.id, name: c.name, kind: c.kind, pseudo: c.pseudo, color: c.color });
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-// Shared with the popups, which only see shared state and their props: boards, people (users, tags, me, mentionable: the ids of
-// the users the panel can mention; their mention ids stay in the panel).
+// fizzy.people for the popups: users, tags, me, and `mentionable` (user ids only; the mention ids stay in the panel).
+// Every setShared redraws every mod, so shared state is only ever set when it changed.
 function sharePeople(patch) {
   const was = shared("fizzy.people") ?? {}, next = { ...was, ...patch };
   if (!sameJson(was, next)) setShared("fizzy.people", next);
 }
 const people = () => shared("fizzy.people") ?? {};
 
-// The people, shared as the menus use them, and handed back as the CLI listed them (with their photos' addresses). One read
-// at a time: whoever asks while it is out gets the same answer.
 const usersRead = { pending: null };
 function readUsers() {
   usersRead.pending ??= fizzy(cmd.users()).then(raw => {
@@ -130,9 +143,7 @@ function readUsers() {
   return usersRead.pending;
 }
 
-// Users and tags are read the first time a card or a menu needs them (tags again, `fresh`, after a card is tagged).
-// Answers the user list when this call read it (with their photos' addresses), else null: the panel hands it to `meet`, so
-// that photos missed by the read at start are fetched now. A popup ignores it (only the panel fetches photos).
+// Answers the user list only when this call read it (the panel `meet`s it to fetch photos the start-up read missed), else null.
 async function loadPeople(fresh = false) {
   const have = people(), patch = {};
   let read = null;
@@ -144,7 +155,6 @@ async function loadPeople(fresh = false) {
   return read;
 }
 
-// The place the person is working: the shown space's machine and its first terminal's folder (else where it was made).
 function whereNow() {
   const space = spaces().find(s => s.active);
   if (!space) return null;
@@ -153,7 +163,6 @@ function whereNow() {
   return { machine: space.machine ?? "", folder };
 }
 
-// Nothing to copy (no card): the clipboard is left alone, never emptied.
 function copyText(text, cx) {
   if (!text) return false;
   cx.write_to_clipboard(text);
@@ -167,10 +176,8 @@ function copyText(text, cx) {
 const clip = { saved: undefined, pending: 0, at: 0 };
 const CLIP_WINDOW = 500, CLIP_STALE = 3000;
 
-// Into an agent's input, never submitted (the person presses Enter): Herdr's paste reads the clipboard, so the text goes
-// there for a moment. The agent's pane is focused first; `bring`: its space and tab are brought to the front before that
-// (Send picks a session that may be anywhere). With no agent to paste into the text is only copied, and `none` says so.
-// The hand-offs (copyText, pasteInto, insertText) take the cx of the click, or of the panel.
+// Herdr's paste reads the clipboard, so the text goes there for a moment; it is never submitted. `bring`: the agent's
+// space and tab come to the front first (Send's session may be anywhere).
 function pasteInto(text, cx, agent, { bring = false, none = "Copied — no agent here" } = {}) {
   if (!text) return false;
   if (!agent) {
@@ -191,12 +198,11 @@ function pasteInto(text, cx, agent, { bring = false, none = "Copied — no agent
   clip.pending++;
   cx.timer.after(CLIP_WINDOW, cx2 => {
     clip.pending = Math.max(0, clip.pending - 1);
-    if (!clip.pending && RESTORE_CLIPBOARD && typeof clip.saved === "string") cx2.write_to_clipboard(clip.saved);
+    if (!clip.pending && typeof clip.saved === "string") cx2.write_to_clipboard(clip.saved);
   });
   return true;
 }
 
-// Insert: the current chat, the agent in view (the focused pane's, else the focused agent block's, else the newest in the tab).
 const insertText = (text, cx) => pasteInto(text, cx, targetAgent({ agents: agents(), focused: focused() }));
 
 const MARKDOWN_MOD = "herdr-inline-markdown";
@@ -212,14 +218,12 @@ function showMarkdown(file) {
   else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
 }
 
-// Everything the menu rows depend on, read live (the caller adds what it looks up itself).
 function live(extra) {
   const p = people();
   return { agents: agents(), focused: focused(), boards: shared("fizzy.boards") ?? [], groups: shared("fizzy.boardGroups"), users: p.users, tags: p.tags, me: p.me, mentionable: p.mentionable, ...extra };
 }
 
-// The height a popup asks for, which is the most it can be. Rows that arrive after it opens (agents being asked,
-// people being read) need room, and past MAX_MENU the rows scroll. The popup works this out again to know its most.
+// A popup cannot grow after it opens: room is reserved for rows that arrive later (agents, people), capped at MAX_MENU.
 function menuSize(menu) {
   const rows = menuRows(menu, live({ known: [], checking: true }));
   const spare = menu.kind === "start" ? AGENTS - 1 : ["users", "tags", "mention", "cardref"].includes(menu.kind) ? 8 : 0;
@@ -246,9 +250,9 @@ function perform(act, cx) {
   else if (act.menu) openMenu(act.menu);
 }
 
-// The color of a card's lane: a real column's; Maybe?, Not Now and Done have none.
 const laneColor = card => LANE_COLORS[laneOf(card)] ?? colorOf(card.column) ?? NO_COLOR;
 const sectionColor = section => section.color ?? LANE_COLORS[section.key] ?? NO_COLOR;
+const takesCards = section => section.kind === "column" || section.kind === "maybe";
 const now = () => Date.now();
 
 // Moves a local copy of a card where `target` puts it, before Fizzy has said so.
@@ -279,7 +283,7 @@ export default class Fizzy extends View {
     const config = read("config", null);
     this.fallback = config?.board ?? null; this.configKnown = config != null;
     this.account = undefined; this.me = null; this.meAccount = undefined;
-    this.yamls = new Map(); // "machine\0folder" -> { at, board }: the board a folder's .fizzy.yaml names
+    this.yamls = new Map(); // "machine\0folder" -> { at, board, loading, answered }: the board a folder's .fizzy.yaml names
     this.board = null;
     this.columns = new Map(); this.cards = new Map(); this.lazy = new Map(); this.collapsed = {};
     this.stalled = new Map(); // board id -> the numbers of the cards Fizzy lists as stalled
@@ -296,11 +300,11 @@ export default class Fizzy extends View {
     this.busy = new Set(); this.again = new Map(); // key -> the task to run once more when the read in flight ends
     this.reading = new Map(); // card number -> its `card show` in flight (shared by whoever asks meanwhile)
     this.selected = new Set();
-    this.onlyMine = false;
+    this.only = new Set(); // the keys of the BOARD_FILTERS that are on
     this.detail = null; this.editing = null; this.armedComment = null;
     // Fizzy tells no one whether a card is watched: this is only what the panel set itself (card number -> on), newest last.
     this.watching = new Map(watchEntries(read("watching", [])).slice(-WATCH_KEPT));
-    this.activityOpen = false; // the card's Activity group (Fizzy's own lines): folded until opened, kept for the session
+    this.activityOpen = false; // stays as set across cards, for the session
     // What is being edited in the detail view (`editing`: "title", "desc", "step" or "comment"): the step's or comment's id.
     this.editId = null;
     // `fresh`: the number of the card New card just made, while it is open (its foot offers Discard); `creating`: its create is on its way.
@@ -316,7 +320,8 @@ export default class Fizzy extends View {
     // The session Start is waiting for: { name, text, agent, before (the addresses that ran before it), at, found: { address, at } }.
     // One at a time: a newer Start replaces it. Looked at by the request timer (see takeStart), never by a draw.
     this.starting = null;
-    this.narrow = false; this.wide = false; // the panel is narrower than NARROW px, or at least WIDE px (the default width is neither)
+    this.narrow = false; this.wide = false;
+    this.inlineSearch = false;
     // Profile photos: { [user id]: { file, at } } is kept between runs, `paths` is what is drawn from it ({ [user id]: image path }),
     // `wanted` the users still to fetch (id -> photo address), `fetching` the ones being fetched, `failedAt` when a failed one may
     // be tried again. Only this panel fetches (see takeAvatars); popups read the paths from shared state.
@@ -345,9 +350,19 @@ export default class Fizzy extends View {
     if (files && typeof files === "object") for (const [key, file] of Object.entries(files)) if (isCachedFile(file) && file.startsWith(`${key}.`)) this.files[key] = file;
     this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map(); this.savedMarkdown = new Map();
     this.width = null; // the panel's, in px, once drawn
+    // Side by side, the open columns of each board (board id -> lane keys, the last opened last); Maybe? when none is kept.
+    const opened = read("openColumns", {});
+    this.openCols = opened && typeof opened === "object" && !Array.isArray(opened) ? opened : {};
+    this.hoverCol = null; this.hoverStep = null; // the folded column and the step under the pointer (see setHover)
+    // A card's step progress and comment count: card number -> { at: the last_active_at they were read for, done, total, comments }
+    // (null where the read failed). Kept between runs; read again only for a card that changed (see wantCounts).
+    this.counts = new Map(countEntries(read("counts", [])));
+    this.countWanted = new Map(); this.countBusy = new Set(); this.countsLanded = false;
+    this.access = new Map(); // board id -> who can see it: { all, ids, watching } (see JQ.accesses)
+    // The folded columns' names as SVG files (see labelSvg): the ones written this run, wanted by a draw, being written.
+    this.labels = new Set(); this.labelWanted = new Set(); this.labelBusy = new Set();
 
     // Input states are made here and in handlers, never in render.
-    // The Board view's filter, and the one Mine and Pins share: each list filters as it is typed into.
     this.boardFilter = InputState.new({ placeholder: "Filter this board…" });
     this.filter = InputState.new({ placeholder: "Filter cards…" });
     for (const field of [this.boardFilter, this.filter]) field.on("change", (_e, cx) => cx.notify());
@@ -361,7 +376,7 @@ export default class Fizzy extends View {
       if (!(pasted && this.jumpToCard(cx))) cx.notify(); // the clear button shows only while it has words
     });
     this.searchField.on("submit", (_e, cx) => { if (!this.jumpToCard(cx)) this.searchAll(cx); });
-    this.stepInput = InputState.new({ placeholder: "Add a step" });
+    this.stepInput = InputState.new({ placeholder: "Add a step…" });
     this.stepInput.on("submit", (_e, cx) => this.addStep(cx));
     this.commentArea = TextareaState.new({ placeholder: `Write a comment… ${EDITOR_HINT}`, rows: 3 });
     this.watchRefs(this.commentArea, "comment");
@@ -370,38 +385,40 @@ export default class Fizzy extends View {
     // Settings: shown or not, the new-group field open, the one name or rule being changed in place ({ id, field: "name" | "match" }),
     // and the group whose delete has been asked for once. The groups themselves are shared state (`fizzy.boardGroups`).
     // `drag`: a row picked up with ⌘/Ctrl held, { kind: "group" | "board", id, over: the block under the pointer that takes it ({ to }: a group's id,
-    // null for No group) or null }. `folds`: the ids of the folded groups; `foldNone`: No group is folded. Both are kept.
+    // null for No group) or null, row: the board row a dragged board is over }. `folds`: the ids of the folded groups; `foldNone`: No group is folded. Both are kept.
     this.settingsOpen = false; this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
     this.mentionAuto = read("mentionAuto", true) !== false; // Settings > Mentions: the background scan for people who can't be tagged yet
+    this.compactCards = read("compactCards", false) === true;
     const folded = read("folds", null);
     this.folds = new Set(Array.isArray(folded?.ids) ? folded.ids.filter(id => typeof id === "string") : []);
     this.foldNone = folded?.none === true;
     this.groupNew = InputState.new({ placeholder: "New group" });
     this.groupNew.on("submit", (_e, cx) => this.newGroup(cx));
+    // `herdr-app check` runs init for real: no Fizzy reads, downloads or timers there.
+    if (checking()) return;
 
     if (this.boards) this.shareBoards();
-    this.loadConfig(cx); // and with the account, the person
+    this.loadConfig(cx);
     this.fetchBoards(cx);
     this.pollUnread(cx);
-    this.loadUsers(cx); // the people's photos are fetched once their list is in (and again, once a day: see below)
+    this.loadUsers(cx);
     this.loadPins(cx); // the lists mark pinned cards, and it is the Pins view's own read
     this.pruneFiles(cx);
     this.spaceBoard(cx); // the space's board is asked now, so it is likely known by the first draw
-    // The board's own read follows once its board is known (syncBoard); Mine reads now, the Inbox's read being the unread poll above.
+    // Board reads once syncBoard knows its board; Inbox and Pins are read above.
     if (this.view === "mine") this.refreshList(cx);
-    // Every view but the Inbox is read again now and then, only while it shows and nothing is being typed into a card.
     cx.timer.every(POLL_VIEW, cx => { if (fizzyVisible(layout())) this.poll(cx); });
     // The unread notifications are asked even while the panel is hidden (the Inbox's list, the toasts, and fizzy.unread for other mods).
     cx.timer.every(POLL_INBOX, cx => this.pollUnread(cx));
     // A hidden copy is never drawn, so render cannot see the panel go away. Note it here, so the first draw
     // after it shows again knows it is back and reads again.
     cx.timer.every(1000, () => { if (!fizzyVisible(layout())) this.shown = false; });
-    // A popup's request is also looked for on a timer: a popup that was left open when the panel was hidden (a hidden
-    // copy is not drawn) has no draw to hand its request to, and must not wait until the panel shows again.
-    // The same timer looks for a toast's click that had to bring the panel up first, for the new session that Start
-    // is waiting for, and for photos to fetch (never a draw's work).
-    cx.timer.every(REQUEST_EVERY, cx => { this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); });
-    // The people are read again every day: new people, and photos older than a week are fetched again.
+    // A popup's request is also polled here: a popup left open while the panel is hidden has no draw to hand it to.
+    // The other take* calls do work a draw must not start.
+    cx.timer.every(REQUEST_EVERY, cx => {
+      this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); this.takeLabels(cx); this.takeCounts(cx);
+      if (this.countsLanded) { this.countsLanded = false; cx.notify(); }
+    });
     cx.timer.every(AVATAR_EVERY, cx => this.loadUsers(cx));
     // Key commands ("<key>": "fizzy.<command>" in keys.json) and Herdr's `fizzy.<command>` run: panel copies only.
     // Herdr delivers a command to shown copies only, so none comes while the panel is hidden.
@@ -476,11 +493,13 @@ export default class Fizzy extends View {
   fetchBoards(cx) {
     this.load("boards", cx, async cx => {
       try {
+        const had = this.boards?.map(b => b.id).join();
         this.boards = ((await fizzy(cmd.boards())) ?? []).map(b => ({ id: b.id, name: b.name, url: b.url, period: b.auto_postpone_period_in_days }));
         this.errors.boards = null;
         keep("boards", this.boards);
         this.shareBoards();
-        if (this.view === "mine") this.loadMine(cx); // Mine needs the boards: it waited for them
+        // Mine reads every board: again only when the list changed (the kept list may have started it already).
+        if (this.view === "mine" && had !== this.boards.map(b => b.id).join()) this.loadMine(cx);
       } catch (e) { this.errors.boards = e; }
     });
   }
@@ -490,7 +509,6 @@ export default class Fizzy extends View {
     if (!sameJson(shared("fizzy.boards"), boards)) setShared("fizzy.boards", boards);
   }
 
-  // `identity show`'s own id is the login's: assignees and authors carry the account's user, which meFrom finds.
   fetchMe(cx) {
     if (this.account === undefined) return; // the config's arrival asks
     this.load("me", cx, async cx => {
@@ -505,8 +523,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The people list, read (once at start, then daily) so that their photos are known, and whom the panel can't tag yet.
-  // A failure costs nothing: the initials stay.
   loadUsers(cx) {
     this.load("users", cx, async cx => {
       try { this.meet(await readUsers()); } catch { return; /* the next menu or card reads them again (and meets them), else tomorrow */ }
@@ -520,22 +536,20 @@ export default class Fizzy extends View {
     for (const { id, url } of photosIn(data)) if (this.photoDue(id)) this.wanted.set(id, url);
   }
 
-  // Does this user's photo need fetching now? Not while one is being fetched for them, nor within AVATAR_BACKOFF of a failure.
   photoDue(id) {
     if (this.fetching.has(id) || (this.failedAt.get(id) ?? 0) > now()) return false;
     const have = this.photos[id];
     return !have || now() - have.at > AVATAR_TTL;
   }
 
-  // Called by the request timer (and when a fetch ends): starts the photos that are wanted, AVATAR_PARALLEL at a time, each user
-  // once. When the last of a batch is done the shared map is brought up to date, once for all of them.
+  // The photos are kept and the shared map set once per batch, not per photo.
   takeAvatars(cx) {
     for (const [id, url] of this.wanted) {
       if (this.fetching.size >= AVATAR_PARALLEL) break;
       this.wanted.delete(id);
       if (this.photoDue(id)) this.fetchPhoto(id, url, cx);
     }
-    if (this.unshared && !this.fetching.size && !this.wanted.size) { this.unshared = false; this.shareAvatars(); }
+    if (this.unshared && !this.fetching.size && !this.wanted.size) { this.unshared = false; keep("avatars", this.photos); this.shareAvatars(); }
   }
 
   // One photo, by AVATAR_SCRIPT: it prints the new file's name, and deletes the user's older files.
@@ -553,26 +567,22 @@ export default class Fizzy extends View {
       if (file) {
         this.photos[id] = { file, at: now() };
         this.failedAt.delete(id);
-        keep("avatars", this.photos);
         this.syncPaths();
-        this.unshared = true; // the popups hear of it when the batch ends (takeAvatars)
+        this.unshared = true; // kept and shared with the popups when the batch ends (takeAvatars)
       } else this.failedAt.set(id, now() + AVATAR_BACKOFF);
       this.takeAvatars(cx);
       cx.notify();
     });
   }
 
-  // What the panel draws from (`paths`), as the photos on disk are now.
   syncPaths() {
     this.paths = Object.fromEntries(Object.entries(this.photos).map(([id, p]) => [id, `${AVATAR_DIR}/${p.file}`]));
   }
 
-  // What the popups draw from: set only when it changed (every mod redraws on a change).
   shareAvatars() {
     if (!sameJson(shared("fizzy.avatars") ?? {}, this.paths)) setShared("fizzy.avatars", this.paths);
   }
 
-  // The unread count, shared as fizzy.unread for other mods; set only when it changed (every mod redraws on a change).
   noteUnread(list) {
     const n = list.filter(x => !x.read).length;
     this.unread = n;
@@ -593,8 +603,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // A toast for each unread notification not seen before (oldest first, three at most: more than that, the three
-  // newest and one "N more"). The first poll of a copy with nothing seen only learns what is there.
   announce(unread) {
     const seen = new Set(this.seen), fresh = oldestFirst(unread.filter(n => !n.read && n.id != null && !seen.has(n.id)));
     const seeding = !this.seeded;
@@ -606,8 +614,7 @@ export default class Fizzy extends View {
     if (fresh.length > TOASTS) notify({ title: "Fizzy", body: `${fresh.length - TOASTS} more in Fizzy`, level: "info", timeout: TOAST_FOR });
   }
 
-  // Notifications that are not news: announced, or touched in the panel (marked read or unread), so a toast
-  // never announces one the person has handled. Kept at SEEN_CAP, the newest last, and persisted.
+  // Notifications announced or handled in the panel, so a toast never announces one the person has handled.
   markSeen(ids) {
     const have = new Set(this.seen), add = [...new Set(ids)].filter(id => id != null && !have.has(id));
     if (!add.length) return;
@@ -615,7 +622,6 @@ export default class Fizzy extends View {
     keep("seenNotes", this.seen);
   }
 
-  // Posts one notification's toast; its click opens the card in the panel (see noteAction).
   toastNote(note) {
     const { action, before } = noteAction(layout(), note);
     // Only a toast that has to bring the panel up leaves a wait, and the newest such toast wins. One that opens at once
@@ -640,8 +646,6 @@ export default class Fizzy extends View {
     } catch (e) { notify({ title: "Fizzy", body: why(e), level: "error" }); }
   }
 
-  // Marks a notification read because its card was opened from its toast. The Inbox's own copy of it, when it is
-  // there, goes through markRead (a refusal puts it back); either way the unread count is read again afterwards.
   readNote(id, cx) {
     const note = this.inbox?.find(n => n.id === id);
     if (note) { this.markRead(note, cx); return; }
@@ -673,7 +677,6 @@ export default class Fizzy extends View {
     return hit?.answered ? hit.board : undefined;
   }
 
-  // The board shown follows the space (when asked to), else the pick, else the CLI's own default.
   syncBoard(cx) {
     const choice = shared("fizzy.board");
     if (choice?.id && choice.id !== this.choiceSeen) {
@@ -691,10 +694,11 @@ export default class Fizzy extends View {
         else if (this.view !== "board" || this.search) this.setView("board", cx);
       });
     }
-    const space = this.spaceBoard(cx);
+    // Not following, the space is not asked: each ask copies Herdr's spaces and panes, and subscribes the panel to them.
+    const space = this.follow ? this.spaceBoard(cx) : null;
     // Following, the space's own answer is waited for: reading the default board meanwhile would be wasted
     // (and the panel would flash it).
-    if (space === undefined && this.follow) return;
+    if (space === undefined) return;
     if (!this.configKnown) return;
     const next = chooseBoard({ boards: this.boards ?? [], follow: this.follow, spaceBoard: space ?? null, picked: this.picked, fallback: this.fallback });
     if (next !== this.board) this.switchBoard(next, cx);
@@ -711,7 +715,7 @@ export default class Fizzy extends View {
   }
 
   lazyOf(board) {
-    if (!this.lazy.has(board)) this.lazy.set(board, { notNow: null, done: null, stale: false, page: 0, end: false, shown: CARD_PAGE, errors: {} });
+    if (!this.lazy.has(board)) this.lazy.set(board, { columnsRead: false, notNow: null, done: null, stale: false, page: 0, end: false, shown: CARD_PAGE, errors: {} });
     return this.lazy.get(board);
   }
 
@@ -732,46 +736,48 @@ export default class Fizzy extends View {
   }
 
   unfolded(kind) {
-    return !this.collapsedNow({ key: kind, kind });
+    return this.sideBySide() ? this.openKeys(this.board).includes(kind) : !this.collapsedNow({ key: kind, kind });
   }
 
-  // The board's open cards. The columns are read when they are not known yet or `columns` asks (Refresh), and when an open card
-  // names one that is not among them. An unfolded Not Now or Done lane is read when it has no data yet or is stale (Refresh or a
-  // write came since it was read, see refreshAll); a folded lane never is.
+  // Cached columns only stand in for the first draw. Not Now and Done are read only while unfolded, and again once stale
+  // (see refreshAll).
   loadBoard(cx, { columns = false } = {}) {
     const board = this.board;
     if (!board) return;
-    this.load(`board:${board}`, cx, async () => {
+    this.load(`board:${board}`, cx, async cx => {
       try {
-        const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !known, stale = lazy.stale;
+        const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !lazy.columnsRead, stale = lazy.stale;
         lazy.stale = false;
-        // The stalled cards change over days: they are read with the columns, and a failure only costs their labels.
-        const [listed, open, notNow, done, stalled] = await Promise.all([
+        // The stalled cards and who can see and watch the board change slowly: they are read with the columns, and a failure
+        // only costs what shows them.
+        const [listed, open, notNow, done, stalled, access] = await Promise.all([
           wantColumns ? fizzy(cmd.columns(board)) : null, fizzy(cmd.open(board)),
           this.unfolded("not-now") && (stale || !lazy.notNow) ? fizzy(cmd.notNow(board)) : null,
           this.unfolded("done") && (stale || !lazy.done) ? this.doneCards(board, null, lazy.shown, lazy.page) : null,
           wantColumns ? fizzy(cmd.stalled(board)).catch(() => null) : null,
+          wantColumns ? fizzy(cmd.accesses(board)).catch(() => null) : null,
         ]);
         if (stalled) this.stalled.set(board, new Set(stalled));
+        if (access) this.access.set(board, access);
         let read = wantColumns ? listed ?? [] : null;
         if (!read && (open ?? []).some(c => c.column?.id && !known.some(k => k.id === c.column.id))) read = (await fizzy(cmd.columns(board))) ?? [];
         this.meet([open, notNow]);
         if (notNow) { lazy.notNow = notNow.map(slim); lazy.errors["not-now"] = null; }
         if (done) { Object.assign(lazy, { done: done.cards, page: done.page, end: done.end }); lazy.errors.done = null; }
-        if (read) this.columns.set(board, read.map(slimColumn));
+        if (read) { this.columns.set(board, read.map(slimColumn)); lazy.columnsRead = true; }
         this.cards.set(board, (open ?? []).map(slim));
         keep(`data:${board}`, { columns: this.columns.get(board), open: this.cards.get(board) });
         if (this.board === board) { this.errors.board = null; this.prune(); }
+        this.wantCounts([...this.cards.get(board), ...(notNow ? lazy.notNow : []), ...(done ? lazy.done : [])]);
       } catch (e) { if (this.board === board) this.errors.board = e; }
     });
   }
 
-  // Not Now and Done are read each time they are unfolded.
   loadLane(kind, cx) {
     const board = this.board;
     if (!board) return;
     const lazy = this.lazyOf(board);
-    this.load(`lane:${kind}:${board}`, cx, async () => {
+    this.load(`lane:${kind}:${board}`, cx, async cx => {
       try {
         if (kind === "done") {
           const d = await this.doneCards(board, null, lazy.shown);
@@ -782,11 +788,11 @@ export default class Fizzy extends View {
           lazy.notNow = cards.map(slim);
         }
         lazy.errors[kind] = null;
+        this.wantCounts(kind === "done" ? lazy.done : lazy.notNow);
       } catch (e) { lazy.errors[kind] = e; }
     });
   }
 
-  // "Show more": another page's worth of Done cards, read after the ones already here.
   moreDone(cx) {
     const board = this.board, lazy = this.lazyOf(board);
     lazy.shown += CARD_PAGE;
@@ -854,8 +860,7 @@ export default class Fizzy extends View {
     } catch (e) { this.errors.mine = e; }
   }
 
-  // The search field's words on every board and in comments: one `fizzy search`, its cards grouped by board. It runs on
-  // Enter only, as the CLI allows 300 searches an hour, shared with the agents. A newer search, or closing it, drops what it found.
+  // Enter only: the CLI allows 300 searches an hour, shared with the agents.
   searchAll(cx) {
     const q = this.searchField.value().trim();
     if (!q || !(this.boards ?? []).length) return;
@@ -874,7 +879,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The search field holding only `#<number>`: the search closes and that card opens, from any board. False when it holds anything else.
   jumpToCard(cx) {
     const n = Number(/^\s*#(\d+)\s*$/.exec(this.searchField.value())?.[1]);
     if (!n) return false;
@@ -885,10 +889,9 @@ export default class Fizzy extends View {
     return true;
   }
 
-  // The header turns into the search field, its results replace the list of any view. The field keeps its words.
   openSearch(cx) {
     this.goBack(cx);
-    this.search ??= { q: null, found: new Map(), count: 0, error: null, waiting: false };
+    if (!this.inlineSearch) this.search ??= { q: null, found: new Map(), count: 0, error: null, waiting: false };
     this.searchField.focus();
     cx.timer.after(200, () => this.searchField.focus());
   }
@@ -910,8 +913,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // A card read whole. One `card show` per card at a time: the detail's read and a hand-off that needs the same
-  // card meanwhile (`open:<n>` then `copy`) share it.
   readCard(number) {
     let read = this.reading.get(number);
     if (!read) {
@@ -926,8 +927,7 @@ export default class Fizzy extends View {
     return read;
   }
 
-  // The open card and its comments, asked together, then the reactions of the comments not read yet (`reactions`: all of them
-  // again), and (`pins`) the pin list, which is where its pin state comes from: the poll leaves it alone.
+  // `pins`: the card's pin state comes only from the pin list, which the poll leaves alone.
   loadCard(cx, pins = true, reactions = false) {
     const d = this.detail;
     if (!d) return;
@@ -936,8 +936,12 @@ export default class Fizzy extends View {
         const [card, comments] = await Promise.all([this.readCard(d.number), fizzy(cmd.comments(d.number))]);
         this.meet(comments);
         this.learnMentions((comments ?? []).map(cm => cm.body?.html));
+        // The card's lanes (laneStrip) are its board's columns; a failed read only leaves its own lane shown.
+        const board = card?.board?.id;
+        if (board && !this.columns.has(board)) await this.columnsFor(board).catch(() => null);
         if (this.detail !== d) return;
         d.card = card; d.comments = comments ?? []; d.error = null;
+        if (card?.last_active_at) { this.setCounts(d.number, card.last_active_at, card.steps, d.comments.length); this.keepCounts(); }
         this.loadReactions(d.number, d.comments, reactions, cx);
         this.wantImages(d.number, [card?.description_html, ...d.comments.map(cm => cm.body?.html)], cx);
       } catch (e) { if (this.detail === d) d.error = e; }
@@ -945,8 +949,6 @@ export default class Fizzy extends View {
     if (pins) this.loadPins(cx);
   }
 
-  // The images in a card's description and comments that are not on disk yet are downloaded, FILE_PARALLEL at a time. One that
-  // failed, or is over IMAGE_MAX, is left alone: it is drawn as a file.
   wantImages(number, htmls, cx) {
     for (const html of htmls) {
       for (const { file } of richLines(html)) {
@@ -957,8 +959,129 @@ export default class Fizzy extends View {
     this.takeFiles(cx);
   }
 
-  // Everything in FILE_DIR saved over FILE_DAYS days ago is deleted at start, and its images forgotten: a card shown again
-  // downloads them again.
+  // Fizzy's card lists carry no step progress or comment count: each card costs a `card show` and a `comment list`, so
+  // they are read only when its last_active_at changed.
+  wantCounts(cards) {
+    for (const c of cards ?? []) {
+      if (c?.last_active_at && this.counts.get(c.number)?.at !== c.last_active_at && !this.countBusy.has(c.number)) this.countWanted.set(c.number, c.last_active_at);
+    }
+  }
+
+  takeCounts(cx) {
+    for (const [n, at] of this.countWanted) {
+      if (this.countBusy.size >= COUNT_PARALLEL) break;
+      this.countWanted.delete(n);
+      this.countBusy.add(n);
+      cx.spawn(async cx => {
+        try {
+          const [card, comments] = await Promise.all([this.readCard(n), fizzy(cmd.commentCount(n))]);
+          this.setCounts(n, card?.last_active_at ?? at, card?.steps, comments);
+        } catch { this.setCounts(n, at, null, null); } // not read again until the card changes
+        this.countBusy.delete(n);
+        this.takeCounts(cx);
+        // A board's first view reads every card's counts: one redraw per request tick, one store write per batch.
+        this.countsLanded = true;
+        if (!this.countBusy.size) this.keepCounts();
+      });
+    }
+  }
+
+  setCounts(n, at, steps, comments) {
+    const done = Array.isArray(steps) ? steps.filter(s => s.completed).length : null;
+    this.counts.delete(n);
+    this.counts.set(n, { at, done, total: Array.isArray(steps) ? steps.length : null, comments: orNull(comments) });
+    while (this.counts.size > COUNTS_KEPT) this.counts.delete(this.counts.keys().next().value);
+  }
+
+  keepCounts() {
+    keep("counts", [...this.counts].map(([k, v]) => [k, v.at, v.done, v.total, v.comments]));
+  }
+
+  sideBySide() {
+    return (this.width ?? 0) >= SIDE_BY_SIDE;
+  }
+
+  openKeys(board) {
+    const kept = this.openCols[board];
+    const keys = Array.isArray(kept) && kept.length ? kept : ["maybe"];
+    return keys.slice(-((this.width ?? 0) >= TWO_OPEN ? 2 : 1));
+  }
+
+  // A folded column opens (the one opened longest ago folds when no more fit); an open one folds, unless it is the only one.
+  toggleColumn(section, cx) {
+    const board = this.board, open = this.openKeys(board);
+    let next;
+    if (open.includes(section.key)) {
+      if (open.length === 1) return;
+      next = open.filter(k => k !== section.key);
+    } else next = [...open, section.key];
+    this.openCols = { ...this.openCols, [board]: next };
+    keep("openColumns", this.openCols);
+    if (!open.includes(section.key) && (section.kind === "not-now" || section.kind === "done")) this.loadLane(section.kind, cx);
+    cx.notify();
+  }
+
+  // Side by side at last (the board's first read can come before the panel's width is known): an open Not Now or Done not
+  // read yet is read now.
+  loadOpenLanes(cx) {
+    if (!this.board) return;
+    const lazy = this.lazyOf(this.board), open = this.openKeys(this.board);
+    if (open.includes("not-now") && !lazy.notNow) this.loadLane("not-now", cx);
+    if (open.includes("done") && !lazy.done) this.loadLane("done", cx);
+  }
+
+  toggleWatching(cx) {
+    const board = this.board, me = this.me, access = this.access.get(board), ids = access?.watching ?? [];
+    if (!board || !me || !access) return null;
+    const on = !ids.includes(me);
+    return this.changeAccess(board, { ...access, watching: on ? [...ids, me] : ids.filter(id => id !== me) }, cmd.watchBoard(board, on), cx);
+  }
+
+  // Access's Everyone on the team: every member of the team can see the board, or only the people given it.
+  setBoardForAll(board, on, cx) {
+    const access = this.access.get(board);
+    return access ? this.changeAccess(board, { ...access, all: on }, cmd.boardForAll(board, on), cx) : null;
+  }
+
+  changeAccess(board, shown, argv, cx) {
+    this.access.set(board, shown);
+    cx.notify();
+    return this.job(cx, async cx => {
+      try { await fizzy(argv); }
+      catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
+      const read = await fizzy(cmd.accesses(board)).catch(() => null);
+      if (read) this.access.set(board, read);
+      cx.notify();
+    });
+  }
+
+  accessMenu() {
+    const board = this.boards?.find(b => b.id === this.board), access = this.access.get(this.board);
+    if (board && access) openMenu({ kind: "access", board: board.id, url: board.url, all: access.all, ids: access.ids });
+  }
+
+  // A folded column's name as an SVG file, once it is written (a draw asks for it, the request timer writes it); else null.
+  label(text) {
+    if (this.labels.has(text)) return labelFile(text);
+    this.labelWanted.add(text);
+    return null;
+  }
+
+  takeLabels(cx) {
+    for (const text of this.labelWanted) {
+      this.labelWanted.delete(text);
+      if (this.labels.has(text) || this.labelBusy.has(text)) continue;
+      this.labelBusy.add(text);
+      cx.spawn(async cx => {
+        const r = await exec("sh", ["-c", WRITE_SCRIPT, "fizzy", `${appHome()}/${labelFile(text)}`, labelSvg(text)]).catch(() => null);
+        if (r?.code !== 0) return; // left busy: not tried again this run, and the column shows its count alone
+        this.labelBusy.delete(text);
+        this.labels.add(text);
+        cx.notify();
+      });
+    }
+  }
+
   pruneFiles(cx) {
     cx.spawn(async () => {
       let r;
@@ -994,7 +1117,7 @@ export default class Fizzy extends View {
           const index = await this.attachmentIndex(number, file.sgid);
           await exec("mkdir", ["-p", dir]);
           if (index) {
-            await fizzy(cmd.download(number, index, `${dir}/${file.key}.${file.ext}`));
+            await fizzy(cmd.download(number, index, `${dir}/${file.key}.${file.ext}`), { timeout: FILE_TIMEOUT });
             name = `${file.key}.${file.ext}`;
           }
         }
@@ -1017,7 +1140,6 @@ export default class Fizzy extends View {
     return at(await this.attachmentList(number));
   }
 
-  // Read once and shared by whoever asks while it is out; a failed read is forgotten.
   attachmentList(number) {
     let list = this.attachmentLists.get(number);
     if (!list) {
@@ -1028,9 +1150,6 @@ export default class Fizzy extends View {
     return list;
   }
 
-  // A file's click: it is saved in Downloads under its own name (" (2)" and so on when that is taken), and shown in its folder;
-  // a markdown file opens beside the focused pane instead, and its copy there opens again on the next click while it exists.
-  // A file with no sgid (an image from the web that would not load) opens in the browser.
   saveFile(file, cx) {
     const number = this.detail?.number;
     if (!file.sgid) return file.url ? this.openLink(file.url, cx) : null;
@@ -1045,7 +1164,7 @@ export default class Fizzy extends View {
       const r = await exec("sh", ["-c", FREE_NAME_SCRIPT, "fizzy", `${home()}/Downloads`, base, ext]);
       const path = r?.code === 0 ? String(r.stdout ?? "") : "";
       if (!path) throw "Couldn't save the file to Downloads";
-      await fizzy(cmd.download(number, index, path));
+      await fizzy(cmd.download(number, index, path), { timeout: FILE_TIMEOUT });
       if (markdown) {
         this.savedMarkdown.set(file.key, path);
         showMarkdown(path);
@@ -1058,21 +1177,18 @@ export default class Fizzy extends View {
     return this.job(cx, async () => { await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", "open", path]); });
   }
 
-  // Files dropped on an editor are uploaded one after another, each put in at the cursor as a token.
   attach(field, target, paths, cx) {
     const files = (paths ?? []).filter(p => typeof p === "string" && p);
     if (!files.length) return null;
     return this.job(cx, async cx => { for (const path of files) await this.upload(field, target, path, cx); });
   }
 
-  // Uploads one file and puts its token in `field` while that editor is still open; answers the attachment's sgid. `target`
-  // names the editor, as in watchRefs.
   async upload(field, target, path, cx) {
     const name = path.split("/").pop();
     this.uploading.set(target, name);
     cx.notify();
     try {
-      const sgid = (await fizzy(cmd.upload(path)))?.attachable_sgid;
+      const sgid = (await fizzy(cmd.upload(path), { timeout: FILE_TIMEOUT }))?.attachable_sgid;
       if (!sgid) throw `Fizzy took ${name} but gave nothing to embed it with`;
       if (this.editorOpen(field)) { field.replace_with_token(fileToken(sgid, name)); field.replace(" "); }
       return sgid;
@@ -1086,7 +1202,6 @@ export default class Fizzy extends View {
     return field === this.commentArea || (field === this.descArea && this.editing === "desc") || (field === this.commentEdit && this.editing === "comment");
   }
 
-  // A paste with no text: the clipboard's image is saved as a PNG in FILE_DIR and uploaded, and stays there as that image's copy.
   pasteImage(field, target, cx) {
     return this.job(cx, async cx => {
       const dir = `${appHome()}/${FILE_DIR}`, at = new Date(), two = n => String(n).padStart(2, "0");
@@ -1108,8 +1223,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The reactions of the people's comments (not Fizzy's own lines), CONCURRENCY at a time. A read that fails leaves that comment
-  // with none, and it is not asked again until Refresh.
   loadReactions(number, comments, fresh, cx) {
     this.load(`reactions:${number}`, cx, async cx => {
       const todo = comments.filter(cm => cm.creator?.role !== "system" && (fresh || !this.reactions.has(cm.id)));
@@ -1117,7 +1230,7 @@ export default class Fizzy extends View {
       const worker = async () => {
         for (let cm = todo[next++]; cm; cm = todo[next++]) {
           try { this.reactions.set(cm.id, (await fizzy(cmd.reactions(number, cm.id))) ?? []); }
-          catch { this.reactions.set(cm.id, this.reactions.get(cm.id) ?? []); }
+          catch { this.reactions.set(cm.id, this.reactions.get(cm.id) ?? []); } // not retried until Refresh
           cx.notify();
         }
       };
@@ -1125,7 +1238,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The mention ids in Fizzy's HTML (a description, comments) that the panel has not learned yet.
   learnMentions(htmls) {
     let learned = false;
     for (const html of htmls) {
@@ -1136,12 +1248,10 @@ export default class Fizzy extends View {
     sharePeople({ mentionable: Object.keys(this.mentionIds) });
   }
 
-  // The active people the panel has no mention id for (nobody while the people are not known).
   untaggable() {
     return activePeople(people().users ?? [], this.me).filter(u => !this.mentionIds[u.id]);
   }
 
-  // One look for mention ids at a time; a second ask while one runs does nothing. `body` learns from what it reads.
   scanMentions(cx, scan, body) {
     if (this.mentionScan?.busy) return;
     const s = this.mentionScan = { page: 0, card: null, note: null, error: null, ...scan };
@@ -1157,7 +1267,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // The activity feed, newest first, until everyone can be tagged, the feed ends, or MENTION_SCAN_PAGES pages were read.
   findMentions(cx) {
     if (this.mentionScan?.busy) return;
     keep("mentionScanAt", now());
@@ -1172,7 +1281,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // A card's description and comments: "#12" or "12" from the Settings field, or the number Retry asks again.
   learnFromCard(cx, number = Number(this.mentionCard.value().trim().replace(/^#/, ""))) {
     if (!Number.isInteger(number) || number <= 0) return;
     this.scanMentions(cx, { busy: "card", card: number, retry: cx => this.learnFromCard(cx, number) }, async () => {
@@ -1197,16 +1305,13 @@ export default class Fizzy extends View {
     if (this.detail) this.loadCard(cx, this.view !== "pins", Boolean(fresh?.reactions));
   }
 
-  // The poll: the card when one is open, else the list; nothing while a title, description, step or comment is edited.
-  // Mine is read every other time on the timer; `force`: at once. The Inbox is not read here: the unread poll fills it.
   poll(cx, force = false) {
     if (this.editing) return;
     if (this.detail) this.loadCard(cx, false);
     else if (this.view !== "inbox" && (this.view !== "mine" || force || ++this.ticks % 2 === 0)) this.refreshList(cx);
   }
 
-  // Refresh and Retry: the boards too (a new one may have been made), the config and the person (the account may have
-  // changed), then whatever shows, columns, unfolded lanes and reactions included, and the images that would not download.
+  // Also reads the boards (one may be new) and the config (the account may have changed).
   retry(cx) {
     this.fileFailed.clear();
     this.fetchBoards(cx);
@@ -1215,7 +1320,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // Selected cards that left the lists (moved, closed elsewhere, deleted) leave the selection.
   prune() {
     for (const n of [...this.selected]) if (!this.find(n)) this.selected.delete(n);
   }
@@ -1256,7 +1360,6 @@ export default class Fizzy extends View {
     if (this.watching.get(number) === false) this.rememberWatch(number, undefined);
   }
 
-  // A card that left (deleted, or moved to another board): gone from every list, and from the screen.
   forget(number) {
     const cut = list => list?.filter(c => c.number !== number) ?? list;
     for (const [b, list] of this.cards) this.cards.set(b, cut(list));
@@ -1265,18 +1368,14 @@ export default class Fizzy extends View {
     this.pins = cut(this.pins);
     for (const [b, list] of this.search?.found ?? []) this.search.found.set(b, cut(list));
     this.selected.delete(number);
-    if (this.detail?.number === number) { this.detail = null; this.editing = null; }
   }
 
-  // A card's columns, read when a card of another board (Mine, Pins) needs its menu.
   async columnsFor(board) {
     if (!this.columns.has(board)) this.columns.set(board, ((await fizzy(cmd.columns(board))) ?? []).map(slimColumn));
     return this.columns.get(board);
   }
 
-  // Runs the commands in order, tells the person when one fails, and always reads again afterwards (that is also
-  // how an optimistic change that did not happen goes away). A promise: `cx` is the one of a task (see job), and
-  // an event handler starts it there, with `this.job(cx, cx => this.write(...))`.
+  // Always reads again afterwards: that is how an optimistic change that failed goes away. `cx` must be a task's (see job).
   async write(lists, cx, refresh = true) {
     try { for (const argv of lists) await fizzy(argv); }
     catch (e) { notify({ title: "Fizzy", body: explain(e), level: "error" }); }
@@ -1290,14 +1389,15 @@ export default class Fizzy extends View {
     const later = (...lists) => this.job(cx, cx => this.write(lists, cx));
     switch (op.kind) {
       case "insert": return insertText(op.text, cx);
-      // The Send popup's choice: that session comes to the front, and the text is pasted into it.
+      // A tab bar's `search:fizzy`: it shows the page, and the search opens here, whether the panel was shown or not.
+      case "search": this.openSearch(cx); cx.notify(); return null;
+      case "boardForAll": return this.setBoardForAll(op.board, Boolean(op.on), cx);
       case "paste": {
         const to = agents().find(a => a.address === op.address);
         if (!to) { notify({ title: "Fizzy", body: "That session is gone", level: "info", timeout: 3000 }); return null; }
         return pasteInto(op.text, cx, to, { bring: true });
       }
-      // The Start popup's choice: a new tab with that agent (no first message), then the text goes in once it is up.
-      case "start": return this.beginStart(op, cx);
+      case "start": return this.beginStart(op);
       case "move": {
         // A card that no list holds (it just left them) is looked at first: where it is decides what has to be done.
         if (!card) return this.job(cx, async cx => { this.apply(op, cx, slim(await fizzy(cmd.card(n)))); });
@@ -1361,18 +1461,21 @@ export default class Fizzy extends View {
           this.meet(await loadPeople(true));
         });
       }
+      // The card leaves the lists; open, it stays open, on its new board.
       case "moveBoard": {
+        const to = this.boards?.find(b => b.id === op.board);
         this.forget(n);
+        if (to) this.patch(n, c => { c.board = { id: to.id, name: to.name, url: to.url }; });
         cx.notify();
         return later(cmd.moveBoard(n, op.board));
       }
       case "remove": {
         this.forget(n);
+        if (this.detail?.number === n) { this.detail = null; this.editing = null; }
         cx.notify();
         return later(cmd.remove(n));
       }
       case "react": return this.toggleReaction(n, op.comment, op.content, cx);
-      // The Mention or Card popup's choice goes into the editor it was opened from, while that editor is still open.
       case "mention": case "cardref": {
         const field = { comment: this.detail && this.commentArea, commentEdit: this.editing === "comment" && this.commentEdit, desc: this.editing === "desc" && this.descArea }[op.target];
         if (!field) return null;
@@ -1405,11 +1508,24 @@ export default class Fizzy extends View {
     else this.openCard(card.number, card, cx);
   }
 
-  // Mouse released over a lane (its header, or one of its cards): the card that was pressed goes there.
   drop(lane, cx) {
     const from = this.pressed;
     this.pressed = null;
-    if (from && lane && from.lane !== lane) this.apply({ kind: "move", number: from.number, target: lane }, cx);
+    if (!from || !lane) return;
+    if (from.column) this.moveColumn(from.column, lane, cx);
+    else if (from.lane !== lane) this.apply({ kind: "move", number: from.number, target: lane }, cx);
+  }
+
+  // The lanes take their new order at once; Fizzy moves the column one place at a time, and the columns are read again after.
+  moveColumn(id, target, cx) {
+    const board = this.board, moved = reorderColumns(this.columns.get(board) ?? [], id, target);
+    if (!moved) return null;
+    this.columns.set(board, moved.columns);
+    cx.notify();
+    return this.job(cx, async cx => {
+      await this.write(moved.steps, cx, false);
+      this.loadBoard(cx, { columns: true });
+    });
   }
 
   collapsedNow(section) {
@@ -1424,10 +1540,8 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // New card, in lane `key` of the board shown: Fizzy's API publishes a card the moment it is made (it has no drafts), so
-  // the card is made at once under a stand-in title and opens in the card page with its title being written, for
-  // everything else at once; Discard, at its foot, deletes it again. In a real column it is made in Maybe? and moved:
-  // the CLI cannot say where a new card goes.
+  // Fizzy has no drafts: a card is published the moment it is made, so it gets a stand-in title and Discard deletes it.
+  // The CLI cannot create into a column: the card is made in Maybe? and moved.
   newCard(key, cx) {
     const board = this.board;
     if (!board || this.creating) return null;
@@ -1455,7 +1569,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The fresh card's Discard: it goes from Fizzy, and the page closes.
   discardFresh(cx) {
     const n = this.fresh;
     if (n == null) return;
@@ -1463,8 +1576,6 @@ export default class Fizzy extends View {
     this.apply({ kind: "remove", number: n }, cx);
   }
 
-  // Runs `open` with the card's board's columns: at once when they are known, else once they are read (a card
-  // of another board, from Mine or Pins).
   withColumns(card, cx, open) {
     const board = card.board?.id ?? this.board, known = this.columns.get(board);
     if (known) { open(known); return; }
@@ -1479,9 +1590,6 @@ export default class Fizzy extends View {
     return Promise.all(list.map(async c => (whole(c) ? c : slim(await this.readCard(c.number)))));
   }
 
-  // What the hand-offs act on: the open card (a stub until it is read), else the picked cards (in number order), else, in the
-  // Board view, the board being shown (one item, { kind: "board", id, name, url }: its reference is a board's, see boardRef).
-  // In Mine, Inbox and Pins with nothing open or picked there is nothing.
   subject() {
     const d = this.detail;
     if (d) return [slim(d.card ?? d.summary)];
@@ -1491,13 +1599,6 @@ export default class Fizzy extends View {
     return board ? [{ kind: "board", id: board.id, name: board.name, url: board.url }] : [];
   }
 
-  // Hands cards (or the board, see subject) to an agent, as the bar's buttons do. Nothing is ever submitted: the person presses Enter. kind is
-  //   "insert"  pasted into the current chat (copied, with a word, when there is no agent here)
-  //   "send"    opens the popup of the running sessions: the one picked is brought to the front and gets the paste
-  //   "start"   opens the popup of the agents to start: the one picked starts in a new tab (named after the card or board) and gets the paste once it is up
-  //   "copy"    the reference to the clipboard
-  // With nothing to hand over nothing happens. A card that is not whole yet (a stub: `open:<n>`, a notification) is read first, in a
-  // task; if that fails the error is told and nothing is handed over.
   handOff(kind, list, cx) {
     if (!list.length) return null;
     const go = (cards, cx) => {
@@ -1513,9 +1614,8 @@ export default class Fizzy extends View {
     return this.job(cx, async cx => go(await this.loaded(list), cx));
   }
 
-  // Start's choice: a new tab with that agent, named after the card, with no first message. The session it makes is not
-  // known yet: the addresses that run now are remembered, and takeStart looks for the one that is new.
-  beginStart(op, cx) {
+  // tab.new does not return the session it makes: the addresses running now are kept, and takeStart looks for the new one.
+  beginStart(op) {
     if (!op.text || !Array.isArray(op.argv)) return null;
     const before = new Set(agents().map(a => a.address));
     run("tab.new", { name: op.name, argv: op.argv });
@@ -1579,9 +1679,31 @@ export default class Fizzy extends View {
     openMenu({ kind: "newCard", current: this.board });
   }
 
-  // The picked cards (⌘/Ctrl-click), by number.
   picks() {
-    return [...this.selected].sort((a, b) => a - b).map(n => this.find(n)).filter(Boolean).map(slim);
+    return this.pickedNumbers().map(n => this.find(n)).filter(Boolean).map(slim);
+  }
+
+  pickedNumbers() {
+    return [...this.selected].sort((a, b) => a - b);
+  }
+
+  // What a drag of these cards into a terminal takes: the fullest copy held of each (the open card's own read has its steps).
+  dragged(numbers) {
+    return numbers.map(n => (this.detail?.number === n && this.detail.card) || this.find(n)).filter(Boolean);
+  }
+
+  dragCards(el, cards) {
+    return cards.length ? el.drag_paths(cards.map(c => `${appHome()}/${cardFile(c)}`)) : el;
+  }
+
+  // Each card's file, written at the press that may start a drag, so it is there before any drop.
+  writeCardFiles(cards, cx) {
+    for (const card of cards) {
+      cx.spawn(async () => {
+        const r = await exec("sh", ["-c", WRITE_SCRIPT, "fizzy", `${appHome()}/${cardFile(card)}`, cardMarkdown(card)]).catch(() => null);
+        if (r?.code !== 0) notify({ title: "Fizzy", body: `Couldn't write #${card.number}'s file to drag`, level: "error" });
+      });
+    }
   }
 
   openCard(number, summary, cx) {
@@ -1595,6 +1717,16 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
+  showBoardOf(board, cx) {
+    if (board !== this.board) {
+      this.follow = false; this.picked = board;
+      keep("follow", false); keep("board", board);
+      this.switchBoard(board, cx);
+    }
+    this.goBack(cx);
+    this.setView("board", cx);
+  }
+
   goBack(cx) {
     this.detail = null; this.editing = null; this.armedComment = null; this.fresh = null;
     this.leaveSettings();
@@ -1605,7 +1737,6 @@ export default class Fizzy extends View {
     return groupsConfig(shared("fizzy.boardGroups"));
   }
 
-  // Every change is kept at once, and only when it changed (every mod redraws on a change).
   saveGroups(next, cx) {
     if (!sameJson(this.groups(), next)) setShared("fizzy.boardGroups", next);
     cx.notify();
@@ -1624,7 +1755,6 @@ export default class Fizzy extends View {
     this.settingsOpen = false; this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
   }
 
-  // Back in Settings: from a setting's own page to the list of settings, from the list out of Settings.
   settingsBack(cx) {
     if (!this.settingsPage) return this.goBack(cx);
     this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
@@ -1670,8 +1800,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // A group's name or rule: click it, change it in place, Enter saves, the x (or Escape) leaves it as it was. An empty rule is no rule;
-  // an empty name is not taken.
   editGroup(id, field, cx) {
     const group = this.groups().groups.find(g => g.id === id);
     if (!group) return;
@@ -1706,7 +1834,7 @@ export default class Fizzy extends View {
     this.saveGroups(next, cx);
   }
 
-  // Two clicks: the first only asks. A deleted group's id can be given to the next new group, so its fold goes with it.
+  // A deleted group's id can go to the next new group, so its fold is dropped with it.
   dropGroup(id, cx) {
     if (this.groupArmed !== id) { this.groupArmed = id; cx.notify(); return; }
     this.groupArmed = null;
@@ -1727,9 +1855,7 @@ export default class Fizzy extends View {
     this.saveGroups(setBoardHidden(config, id, !ownHidden(id, config)), cx);
   }
 
-  // ⌘/Ctrl-drag in Settings: a left press with ⌘/Ctrl held on a group's header or a board's row picks it up; letting go over a block
-  // drops it there (see dropOn), letting go anywhere else, pressing outside the panel or leaving Settings ends it with nothing changed.
-  // Without ⌘/Ctrl a press is only a press (and ends a drag that was left behind).
+  // A press with ⌘/Ctrl picks the row up (see dropOn); any other press ends a drag left behind.
   pickRow(kind, id, e, cx) {
     this.disarm(cx);
     if (!cmdHeld(e)) { this.endDrag(cx); return; }
@@ -1784,6 +1910,34 @@ export default class Fizzy extends View {
     const groups = this.groups().groups, from = groups.findIndex(g => g.id === d.id), at = groups.findIndex(g => g.id === id);
     if (from < 0 || at < 0 || from === at) return null;
     return from > at ? "top" : "bottom";
+  }
+
+  hoverRow(id, hovered, cx) {
+    const d = this.drag;
+    if (d?.kind !== "board") return;
+    const was = d.row ?? null, next = hovered ? (id === d.id ? null : id) : was === id ? null : was;
+    if (next === was) return;
+    d.row = next;
+    cx.notify();
+  }
+
+  // Which edge of the row the line is drawn at while a board is dragged over it, as placeBoardAt lands it.
+  rowLine(id) {
+    const d = this.drag;
+    if (d?.kind !== "board" || d.row !== id) return null;
+    const ids = listedBoards(this.boards ?? [], this.groups()).map(b => b.id), from = ids.indexOf(d.id), at = ids.indexOf(id);
+    if (from < 0 || at < 0 || from === at) return null;
+    return from > at ? "top" : "bottom";
+  }
+
+  // A board let go over another board's row lands beside it; a group goes on to the block around the row.
+  dropRow(target, cx) {
+    const d = this.drag;
+    if (d?.kind !== "board") return;
+    cx.stop_propagation();
+    this.drag = null;
+    const board = (this.boards ?? []).find(b => b.id === d.id), config = this.groups();
+    this.saveGroups(board ? placeBoardAt(config, this.boards, board, target) : config, cx);
   }
 
   dropOn(to, cx) {
@@ -1841,13 +1995,10 @@ export default class Fizzy extends View {
     return this.job(cx, cx => this.write([cmd.update(d.number, { html })], cx));
   }
 
-  // The people as textToHtml takes them, each with the mention id the panel has learned for them, if any.
   mentionPeople() {
     return (people().users ?? []).filter(u => u.role !== "system").map(u => ({ id: u.id, name: u.name, sgid: this.mentionIds[u.id] }));
   }
 
-  // An editor's content as the HTML to save: a person's token (or "@<name>" typed) is their mention, a card's token a link to
-  // it. A person whose mention id is not learned yet stays text, and says so.
   toHtml({ text, tokens }) {
     const all = this.mentionPeople(), named = new Set(tokens.map(s => /^user:(.+)$/.exec(s.token.id)?.[1]));
     const missing = [...mentionsOf(text, all), ...all.filter(p => named.has(p.id))].filter(p => !p.sgid).map(p => p.name);
@@ -1855,8 +2006,7 @@ export default class Fizzy extends View {
     return textToHtml(text, all, tokens, n => cardUrl(this.detail?.card?.url, n));
   }
 
-  // An "@" or "#" typed where a mention or a card reference starts opens the people or the cards picker for this editor
-  // (`target`: "comment", "commentEdit" or "desc", see apply); a paste with no text puts in the clipboard's image.
+  // `target`: "comment", "commentEdit" or "desc" (see apply).
   watchRefs(field, target) {
     field.on("paste_other", (_e, cx) => this.pasteImage(field, target, cx));
     let was = field.content().text;
@@ -1869,8 +2019,6 @@ export default class Fizzy extends View {
     });
   }
 
-  // The token takes the place of the "@" or "#" (`mark`) that opened the popup, when it is still there, else goes in at the
-  // cursor; a space follows it.
   putToken(field, token, mark) {
     const at = this.typing?.field === field ? this.typing.index : -1;
     this.typing = null;
@@ -1882,7 +2030,6 @@ export default class Fizzy extends View {
     field.replace(" ");
   }
 
-  // The cards a "#" popup offers: the board shown (its Not Now and Done lanes as far as read), Mine, Pins and the search's.
   knownCards() {
     const lazy = this.lazy.get(this.board), out = new Map();
     for (const list of [this.cards.get(this.board), lazy?.notNow, lazy?.done, ...this.mine.values(), this.pins, ...(this.search?.found.values() ?? [])]) {
@@ -1912,7 +2059,6 @@ export default class Fizzy extends View {
     return this.job(cx, cx => this.write([cmd.addStep(d.number, text)], cx));
   }
 
-  // A step's text: click it, change it in place, Enter saves, the x (or Escape) leaves it as it was.
   editStep(step, cx) {
     this.stepEdit = InputState.new({ value: step.content ?? "" });
     this.stepEdit.on("submit", (_e, cx) => this.saveStep(cx));
@@ -1949,7 +2095,6 @@ export default class Fizzy extends View {
     return htmlToText(comment.body?.html ?? "", people().users) || comment.body?.plain_text || "";
   }
 
-  // The person's own comment, as text in a box (people and cards as tokens): Save sends it back as HTML.
   editComment(comment, cx) {
     const content = htmlToContent(comment.body?.html ?? "", people().users);
     this.commentEdit = TextareaState.new({ rows: 4, placeholder: `Write a comment… ${EDITOR_HINT}` });
@@ -1971,7 +2116,6 @@ export default class Fizzy extends View {
     return this.job(cx, cx => this.write([cmd.editComment(d.number, id, html)], cx));
   }
 
-  // Your reaction with that emoji on a comment: shown (or taken away) at once, put back when Fizzy refuses.
   toggleReaction(number, comment, content, cx) {
     const was = this.reactions.get(comment) ?? [], own = was.find(r => r.content === content && this.ownReaction(r));
     const added = own ? null : { id: null, content, reacter: { id: this.me, name: people().users?.find(u => u.id === this.me)?.name ?? "" } };
@@ -2003,7 +2147,6 @@ export default class Fizzy extends View {
   }
 
   dropComment(comment, cx) {
-    // Two clicks: the first only asks.
     if (this.armedComment !== comment.id) { this.armedComment = comment.id; cx.notify(); return null; }
     this.armedComment = null;
     this.detail.comments = this.detail.comments.filter(c => c.id !== comment.id);
@@ -2018,8 +2161,6 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
-  // Marks one note read: it leaves the Inbox at once, Fizzy's answer follows. A refusal puts it back, and either way
-  // the inbox and the unread count are read again.
   markRead(note, cx) {
     this.inbox = (this.inbox ?? []).filter(n => n !== note);
     this.markSeen([note.id]); // touched here: the next poll must not announce it as new
@@ -2097,7 +2238,6 @@ export default class Fizzy extends View {
       }
       case "back": if (this.settingsOpen) this.settingsBack(cx); else if (d) this.goBack(cx); else this.search = null; break;
       case "settings": this.openSettings(cx); break;
-      // As the bar's buttons: the open card, else the selection, else (Board view) the board. send and start open their popups of sessions and agents.
       case "insert": case "copy": case "send": case "start": this.handOff(name, this.subject(), cx); break;
       case "new": if (this.board) this.newCardMenu(); break;
       case "search": this.openSearch(cx); break;
@@ -2121,18 +2261,10 @@ export default class Fizzy extends View {
     }
   }
 
-  iconButton(t, id, icon, action, enabled = true, tip = null, size = 26) {
-    return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded(6)
-      .text_color(enabled ? t.muted : t.dim).on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
-      .when(enabled, el => el.hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().on_click(action))
-      .when(Boolean(tip), el => el.tooltip(tip))
-      .child(svg(icon).size(14));
-  }
-
-  // state: "on" | "off" | "unknown" (not known, still clickable) | "inert" (not known, does nothing).
+  // A round toggle. state: "on" | "off" | "unknown" (not known, still clickable) | "inert" (not known, does nothing).
   toggleButton(t, id, icon, state, tip, action, onColor = t.accent) {
-    return div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6)
-      .text_color(state === "on" ? onColor : state === "off" ? t.muted : t.dim)
+    return div().id(id).size(ROUND).flex_none().flex().items_center().justify_center().rounded_full().border_1()
+      .border_color(state === "on" ? onColor : t.input).text_color(state === "on" ? onColor : state === "off" ? t.muted : t.dim)
       .when(state === "on", el => el.bg(t.selected))
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
       .when(state !== "inert", el => el.cursor_pointer().tooltip(tip).on_click(action)
@@ -2141,20 +2273,18 @@ export default class Fizzy extends View {
   }
 
   textButton(t, id, icon, label, action, primary = false) {
-    return h_flex().id(id).h(30).px(10).gap(6).flex_none().items_center().rounded(7).cursor_pointer().text_size(textPx(12)).font_medium()
+    return h_flex().id(id).h(30).px(14).gap(6).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12)).font_medium()
       .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground)
       .hover(s => s.opacity(0.88)).on_mouse_down("left", stop).on_click(action)
       .when(Boolean(icon), el => el.child(svg(icon).size(13).flex_none()))
       .child(label);
   }
 
-  // The photo a user has in the cache (a path as image() takes it), else null. The panel knows its own; a popup reads the shared map.
   photoPath(user) {
     const id = user?.id ?? people().users?.find(u => u.name === user?.name)?.id; // a creator that comes with no id: found by name
-    return (id != null && (this.paths ?? shared("fizzy.avatars"))?.[id]) || null;
+    return (id != null && this.paths?.[id]) || null;
   }
 
-  // A person: their photo, round, when it is cached; else a circle with their initials (the color is steady per person).
   avatar(t, user, size = 16) {
     const path = this.photoPath(user);
     if (path) return image(path).size(size).flex_none().rounded_full();
@@ -2166,7 +2296,6 @@ export default class Fizzy extends View {
     return div().flex_none().max_w(extra.max ?? 110).truncate().px(6).py(1).rounded(5).bg(extra.bg ?? t.raised).text_size(textPx(11)).text_color(t.muted).child(text);
   }
 
-  // A dim line of text, with Retry under an error.
   // `again`: what Retry does (else everything is read again); `id`: its id, when there can be several.
   status(t, text, cx, error = false, again = null, id = "fizzy-retry") {
     return v_flex().flex_none()
@@ -2176,7 +2305,6 @@ export default class Fizzy extends View {
         .child(svg(ICON("refresh")).size(14).flex_none().text_color(t.muted)).child("Retry")));
   }
 
-  // An agent's icon as the agents popup draws it: a tinted one follows the text color, the others are images.
   agentIcon(t, program, size = 14) {
     const path = program?.icon ?? "icons/agent.svg";
     return program?.tint ? svg(path).size(size).flex_none().text_color(t.muted) : image(path).size(size).flex_none();
@@ -2185,87 +2313,98 @@ export default class Fizzy extends View {
   header(t, cx) {
     if (this.settingsOpen) {
       const page = SETTINGS.find(s => s.id === this.settingsPage);
-      return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .child(this.iconButton(t, "fizzy-back", ICON("arrow-left"), (_e, cx) => this.settingsBack(cx), true, page ? "Settings" : "Back"))
+      return h_flex().h(46).flex_none().px(12).gap(10).items_center().border_b(1).border_color(t.border)
+        .child(this.roundButton(t, "fizzy-back", "arrow-left", page ? "Settings" : "Back", cx => this.settingsBack(cx)))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(page?.title ?? "Settings"));
     }
     if (this.detail) {
-      const d = this.detail, c = d.card ?? d.summary, n = d.number, board = c.board?.name ?? "";
+      const d = this.detail, c = d.card ?? d.summary, n = d.number;
       const pinned = this.pinOf(n), watching = this.watchOf(n), golden = c.golden;
-      return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .child(this.iconButton(t, "fizzy-back", ICON("arrow-left"), (_e, cx) => this.goBack(cx), true, "Back"))
-        .child(div().id("fizzy-detail-number").flex_none().text_size(textPx(12)).text_color(t.dim).child(`#${n}`))
-        .child(div().id("fizzy-detail-board").flex_1().min_w(0).truncate().text_size(textPx(12)).text_color(t.dim).when(Boolean(board), el => el.tooltip(board)).child(board))
-        .child(h_flex().flex_none().gap(2)
-          .child(this.toggleButton(t, "fizzy-pin", ICON("pin"), pinned == null ? "inert" : pinned ? "on" : "off", pinned ? "Unpin" : "Pin",
-            (_e, cx) => this.apply({ kind: "pin", number: n, on: !pinned }, cx)))
-          .child(this.toggleButton(t, "fizzy-watch", ICON(watching === false ? "eye-off" : "eye"), watching === undefined ? "unknown" : watching ? "on" : "off", watching ? "Unwatch" : "Watch",
-            (_e, cx) => this.apply({ kind: "watch", number: n, on: watching !== true }, cx)))
-          .child(this.toggleButton(t, "fizzy-golden", ICON("star"), typeof golden === "boolean" ? (golden ? "on" : "off") : "inert", golden ? "Remove golden" : "Mark golden",
-            (_e, cx) => this.apply({ kind: "golden", number: n, on: !golden }, cx), t.ansi3)))
-        .child(h_flex().flex_none().gap(2)
-          .when(!this.narrow, el => el.child(this.iconButton(t, "fizzy-act-open", ICON("external-link"), (_e, cx) => cx.open_url(c.url), Boolean(c.url), "Open in Fizzy")))
-          .child(this.iconButton(t, "fizzy-card-menu", ICON("more"), (_e, cx) => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx)), true, "More")));
+      const board = c.board?.id ? c.board : null;
+      return h_flex().h(46).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
+        .child(this.roundButton(t, "fizzy-back", "arrow-left", "Back", cx => this.goBack(cx)))
+        .when(Boolean(board?.name), el => el.child(h_flex().id("fizzy-to-board").min_w(0).h(ROUND).px(12).gap(6).items_center().rounded_full().border_1().border_color(t.input)
+          .cursor_pointer().text_size(textPx(12)).font_medium().text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
+          .tooltip(`Show the ${board.name} board`).on_mouse_down("left", stop).on_click((_e, cx) => this.showBoardOf(board.id, cx))
+          .child(svg(ICON("kanban")).size(13).flex_none())
+          .child(div().min_w(0).truncate().child(board.name))))
+        .child(div().flex_1())
+        .child(this.toggleButton(t, "fizzy-golden", ICON("star"), typeof golden === "boolean" ? (golden ? "on" : "off") : "inert", golden ? "Remove golden" : "Mark golden",
+          (_e, cx) => this.apply({ kind: "golden", number: n, on: !golden }, cx), GOLD))
+        .child(this.toggleButton(t, "fizzy-watch", ICON(watching === false ? "bell-off" : "bell"), watching === undefined ? "unknown" : watching ? "on" : "off", watching ? "Stop watching" : "Watch",
+          (_e, cx) => this.apply({ kind: "watch", number: n, on: watching !== true }, cx)))
+        .child(this.toggleButton(t, "fizzy-pin", ICON("pin"), pinned == null ? "inert" : pinned ? "on" : "off", pinned ? "Unpin" : "Pin",
+          (_e, cx) => this.apply({ kind: "pin", number: n, on: !pinned }, cx)))
+        .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-act-open", "external-link", "Open in Fizzy", c.url ? cx => cx.open_url(c.url) : null)))
+        .child(this.roundButton(t, "fizzy-card-menu", "more", "More", cx => this.withCard(cx, (card, cx) => this.showCardMenu(card, cx))));
     }
-    if (this.search) {
-      const field = this.searchField;
-      return h_flex().h(42).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
-        .on_key_down((e, cx) => { if (e.key === "escape") this.closeSearch(cx); })
-        .child(this.iconButton(t, "fizzy-search-back", ICON("arrow-left"), (_e, cx) => this.closeSearch(cx), true, "Back"))
-        .child(div().id("fizzy-search").relative().flex_1().min_w(0)
-          .child(Input.new(field).h(BAR_BUTTON).pl(8).pr(field.value() ? 28 : 8).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
-          .when(field.value() !== "", el => el.child(this.clearButton(t, "fizzy-search-clear", cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); }))));
+    if (this.search && !this.inlineSearch) {
+      return h_flex().h(46).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
+        .child(this.roundButton(t, "fizzy-search-back", "arrow-left", "Back", cx => this.closeSearch(cx)))
+        .child(this.searchBox(t));
     }
-    return h_flex().h(42).flex_none().px(10).gap(this.wide ? 8 : 6).items_center().border_b(1).border_color(t.border)
-      .child(this.homeButton(t))
-      .child(h_flex().flex_none().gap(this.wide ? 3 : 2).children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
-      .child(div().flex_1())
-      .child(h_flex().flex_none().gap(2)
-        .child(this.iconButton(t, "fizzy-search-open", ICON("search"), (_e, cx) => this.openSearch(cx), true, "Search all boards"))
-        .when(!this.narrow, el => el.child(this.iconButton(t, "fizzy-refresh", ICON("refresh"), (_e, cx) => this.retry(cx), true, "Refresh")))
-        .child(this.iconButton(t, "fizzy-open-settings", ICON("settings"), (_e, cx) => this.openSettings(cx), true, "Settings")));
+    // Both sides flex equally, so the view group stays centered while they fit.
+    return h_flex().h(46).flex_none().px(this.narrow ? 10 : 12).gap(this.narrow ? 4 : 8).items_center().border_b(1).border_color(t.border)
+      .child(h_flex().flex_1().items_center()
+        .child(this.inlineSearch ? this.searchBox(t) : this.roundButton(t, "fizzy-search-open", "search", "Search all boards", cx => this.openSearch(cx))))
+      .child(h_flex().id("fizzy-views").flex_none().p(2).gap(2).items_center().rounded_full().border_1().border_color(t.input)
+        .child(this.homeButton(t))
+        .children(HEADER_VIEWS.map(([id, label]) => this.viewButton(t, id, label))))
+      .child(h_flex().flex_1().gap(6).items_center().justify_end()
+        .when(!this.narrow, el => el.child(this.roundButton(t, "fizzy-refresh", "refresh", "Refresh", cx => this.retry(cx))))
+        .child(this.roundButton(t, "fizzy-open-settings", "settings", "Settings", cx => this.openSettings(cx))));
+  }
+
+  searchBox(t) {
+    const field = this.searchField, words = field.value() !== "";
+    return div().id("fizzy-search").relative().flex_1().min_w(0)
+      .on_key_down((e, cx) => { if (e.key === "escape") this.closeSearch(cx); })
+      .child(Input.new(field).h(ROUND).pl(32).pr(words ? ROUND : 14).rounded_full().border_1().border_color(this.search ? t.accent : t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
+      .child(svg(ICON("search")).absolute().left(12).top(8).size(14).text_color(t.dim))
+      .when(words, el => el.child(this.clearButton(t, "fizzy-search-clear", ROUND, cx => { field.set_value(""); this.searchLength = 0; this.closeSearch(cx); })));
+  }
+
+  viewPill(t, id, view) {
+    const shown = this.view === view && !this.search;
+    return h_flex().id(id).h(ROUND - 6).px(this.narrow ? 6 : this.wide ? 12 : 8).gap(5).flex_none().items_center().rounded_full().cursor_pointer().text_size(textPx(12))
+      .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted).when(shown, el => el.font_medium())
+      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
+      .on_click((_e, cx) => this.setView(view, cx));
   }
 
   homeButton(t) {
-    const shown = this.view === "board";
-    return h_flex().id("fizzy-home").h(26).px(this.wide ? 8 : 6).gap(6).flex_none().items_center().rounded(6).cursor_pointer()
-      .bg(shown ? t.selected : t.background).text_color(shown ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => this.setView("board", cx))
+    return this.viewPill(t, "fizzy-home", "board")
       .when(!this.wide, el => el.tooltip("Board"))
       .child(svg(ICON("kanban")).size(14).flex_none())
       .when(this.wide, el => el.child(div().flex_none().font_semibold().child("Fizzy")));
   }
 
-  newCardButton(t) {
-    const enabled = Boolean(this.board), label = !this.narrow;
-    return h_flex().id("fizzy-new").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).text_size(textPx(12)).font_medium()
-      .bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim)
-      .when(label, el => el.px(10))
-      .when(!label, el => el.w(BAR_BUTTON).tooltip("New card"))
-      .on_mouse_down("left", stop)
-      .when(enabled, el => el.hover(s => s.opacity(0.88)).cursor_pointer().on_click(() => this.newCardMenu()))
-      .child(svg(ICON("plus")).size(13).flex_none())
-      .when(label, el => el.child("New card"));
+  // `action` null: dim, no click. `on`: a filter that is on, drawn in `color`.
+  roundButton(t, id, icon, tip, action, { on = false, color = t.accent, size = ROUND } = {}) {
+    return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded_full().border_1()
+      .border_color(on ? color : t.input).text_color(on ? color : action ? t.muted : t.dim).tooltip(tip).on_mouse_down("left", stop)
+      .when(on, el => el.bg(t.selected))
+      .when(Boolean(action), el => el.cursor_pointer().hover(s => (on ? s.bg(t.hover) : s.bg(t.hover).text_color(t.foreground))).on_click((_e, cx) => action(cx)))
+      .child(svg(ICON(icon)).size(14).flex_none());
   }
 
-  mineToggle(t) {
-    const on = this.onlyMine, label = !this.narrow;
-    return h_flex().id("fizzy-only-mine").h(BAR_BUTTON).flex_none().gap(5).items_center().justify_center().rounded(7).cursor_pointer().text_size(textPx(12))
-      .border_1().border_color(on ? t.accent : t.input).bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => { this.onlyMine = !on; cx.notify(); })
-      .when(label, el => el.px(8))
-      .when(!label, el => el.w(BAR_BUTTON).tooltip("My cards"))
-      .child(svg(ICON("user")).size(13).flex_none())
-      .when(label, el => el.child("My cards"));
+  boardFilterButton(t, { key, icon, tip }) {
+    const on = this.only.has(key);
+    return this.roundButton(t, `fizzy-only-${key}`, icon, tip, cx => { if (on) this.only.delete(key); else this.only.add(key); cx.notify(); },
+      { on, color: key === "golden" ? GOLD : t.accent });
+  }
+
+  boardFilters() {
+    const pinned = this.only.has("pinned") ? new Set((this.pins ?? []).map(p => p.number)) : null;
+    return { mine: this.only.has("mine"), me: this.me, golden: this.only.has("golden"), pinned };
+  }
+
+  boardFiltering() {
+    return Boolean(this.boardFilter.value().trim()) || this.only.size > 0;
   }
 
   viewButton(t, id, label) {
-    return h_flex().id(`fizzy-view-${id}`).h(26).px(this.wide ? 8 : 6).gap(5).flex_none().items_center().rounded(6).cursor_pointer().text_size(textPx(12))
-      .bg(this.view === id ? t.selected : t.background).text_color(this.view === id ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click((_e, cx) => this.setView(id, cx))
+    return this.viewPill(t, `fizzy-view-${id}`, id)
       .child(label)
       .when(id === "inbox" && this.unread > 0, el => el.child(div().min_w(16).h(16).px(4).flex().items_center().justify_center().rounded_full().bg(t.accent).text_size(textPx(10)).text_color(t.accent_foreground).child(String(this.unread))));
   }
@@ -2273,89 +2412,130 @@ export default class Fizzy extends View {
   boardBar(t, cx) {
     const current = this.boards?.find(b => b.id === this.board);
     const following = Boolean(this.follow && this.board && this.spaceBoard(cx) === this.board);
-    return h_flex().id("fizzy-board-bar").h(36).flex_none().px(10).gap(6).items_center()
-      .child(h_flex().id("fizzy-board").flex_1().min_w(0).h(28).px(8).gap(7).items_center().rounded(7).border_1().border_color(t.input).bg(t.background)
-        .cursor_pointer().hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click((_e, cx) => this.boardsMenu(cx))
+    const rule = () => div().flex_1().min_w(8).h(1).bg(t.border);
+    return h_flex().id("fizzy-board-bar").flex_none().px(12).py(6).gap(10).items_center()
+      .child(this.roundButton(t, "fizzy-board-access", "users", "Who can see this board", current && this.access.has(current.id) ? () => this.accessMenu() : null))
+      .child(rule())
+      .child(v_flex().id("fizzy-board").min_w(0).px(8).py(2).items_center().rounded(8).cursor_pointer().hover(s => s.bg(t.hover))
+        .on_mouse_down("left", stop).on_click((_e, cx) => this.boardsMenu(cx))
         .tooltip(following ? "Following the current space" : "Switch board")
-        .child(svg(ICON("kanban")).size(14).flex_none().text_color(t.muted))
-        .child(div().flex_1().min_w(0).truncate().text_size(textPx(13)).font_medium().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
-        .when(following && !this.narrow, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child("Following space")))
-        .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
-      .child(h_flex().id("fizzy-open-board").w(36).h(28).flex_none().items_center().justify_center().rounded(7).border_1().border_color(t.input).bg(t.background)
-        .text_color(current?.url ? t.muted : t.dim).tooltip("Open board in Fizzy").on_mouse_down("left", stop)
-        .when(Boolean(current?.url), el => el.hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer().on_click((_e, cx) => cx.open_url(current.url)))
-        .child(svg(ICON("external-link")).size(14).flex_none()));
+        .child(h_flex().min_w(0).max_w_full().gap(6).items_center()
+          .child(div().id("fizzy-board-name").min_w(0).truncate().text_size(textPx(17)).font_bold().text_color(this.board ? t.foreground : t.dim).child(current?.name ?? (this.boards ? "No board" : "…")))
+          .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)))
+        .when(following, el => el.child(div().text_size(textPx(10)).font_medium().text_color(t.dim).child("FOLLOWING SPACE"))))
+      .child(rule())
+      .child(this.roundButton(t, "fizzy-open-board", "external-link", "Open board in Fizzy", current?.url ? cx => cx.open_url(current.url) : null));
   }
 
   filterOf(view) {
     return view === "board" ? this.boardFilter : this.filter;
   }
 
-  // The x at the right end inside a field with words: one click empties it.
-  clearButton(t, id, clear) {
-    return div().id(id).absolute().right(4).top(4).size(20).flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
+  clearButton(t, id, height, clear) {
+    const inset = (height - 20) / 2;
+    return div().id(id).absolute().right(inset).top(inset).size(20).flex().items_center().justify_center().rounded_full().cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("Clear")
       .on_mouse_down("left", stop).on_click((_e, cx) => clear(cx))
       .child(svg(ICON("x")).size(12));
   }
 
-  // The foot of the Board, Mine and Pins lists while nothing is picked: the filter, and in the Board view My cards and New card.
   listBar(t) {
     const field = this.filterOf(this.view), words = field.value() !== "";
-    return h_flex().id("fizzy-list-bar").flex_none().p(6).gap(6).items_center().bg(t.chrome).border_t(1).border_color(t.border)
+    return h_flex().id("fizzy-list-bar").flex_none().px(12).py(6).gap(8).items_center()
       .child(div().id("fizzy-filter").relative().flex_1().min_w(0)
-        .child(Input.new(field).h(BAR_BUTTON).pl(28).pr(words ? 28 : 8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
-        .child(svg(ICON("search")).absolute().left(9).top(7).size(14).text_color(t.dim))
-        .when(words, el => el.child(this.clearButton(t, "fizzy-filter-clear", cx => { field.set_value(""); field.focus(); cx.notify(); }))))
-      .when(this.view === "board", el => el.child(this.mineToggle(t)).child(this.newCardButton(t)));
+        .child(Input.new(field).h(ROUND).pl(32).pr(words ? ROUND : 14).rounded_full().border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))
+        .child(svg(ICON("search")).absolute().left(12).top(8).size(14).text_color(t.dim))
+        .when(words, el => el.child(this.clearButton(t, "fizzy-filter-clear", ROUND, cx => { field.set_value(""); field.focus(); cx.notify(); }))))
+      .when(this.view === "board", el => el.children(BOARD_FILTERS.map(f => this.boardFilterButton(t, f))));
   }
 
-  // A card as a tile in its lane's `color` (a tint behind it, a bar at its left), a gold border when golden: a pin when
-  // pinned, its whole title, then its number, tags, people, Fizzy's inactivity warning and its age.
   cardRow(t, card, lane, color) {
-    const n = card.number, picked = this.selected.has(n);
+    const n = card.number, picked = this.selected.has(n), dragged = picked ? this.dragged(this.pickedNumbers()) : [card];
+    const compact = this.compactCards;
     const quick = (id, icon, tip, action) => div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip(tip)
       .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
       .child(svg(icon).size(13));
     const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board;
+    const boardName = card.board?.name ?? this.boards?.find(b => b.id === board)?.name ?? "";
     const warn = inactivity(card, { period: this.boards?.find(b => b.id === board)?.period, stalled: Boolean(this.stalled.get(board)?.has(n)), now: now() });
     const warnColor = warn?.kind === "closing" ? t.ansi3 : t.blocked;
-    return h_flex().id(`fizzy-card-${n}`).flex_none().items_stretch().gap(9).pl(7).pr(6).py(8).rounded(8).cursor_pointer()
-      .bg(picked ? t.selected : tint(color, "1f"))
-      .when(card.golden && !picked, el => el.border_2().border_color(t.ansi3))
-      .when(!card.golden || picked, el => el.border_1().border_color(picked ? t.accent : tint(color, "4d")).hover(s => s.border_color(tint(color, "99"))))
-      .on_mouse_down("left", () => { this.pressed = { number: n, lane }; })
+    const counts = this.counts.get(n), steps = counts?.total > 0 ? counts : null, comments = counts?.comments ?? 0;
+    const added = card.created_at ? daysAgo(card.created_at, now()) : "", changed = daysAgo(card.last_active_at, now());
+    const upper = text => String(text ?? "").toUpperCase();
+    const ruled = el => el.pb(2).border_b(1).border_color(t.border);
+    const line = (id, icon, text) => h_flex().id(id).min_w(0).gap(4).items_center()
+      .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(10).flex_none())).child(div().min_w(0).truncate().child(text));
+    const head = h_flex().id(`fizzy-card-head-${n}`).min_w(0).gap(7).items_center().px(compact ? 7 : 9).py(compact ? 2 : 4).rounded_br(compact ? 5 : 6).bg(color)
+      .text_size(textPx(compact ? 10 : 11)).font_semibold().text_color(ON_LANE)
+      .child(div().flex_none().child(String(n)))
+      .when(Boolean(boardName) && !(compact && lane != null), el => el.child(div().w(1).h(11).flex_none().bg(tint(ON_LANE, "59")))
+        .child(div().min_w(0).truncate().child(upper(boardName))));
+    const commentCount = size => h_flex().id(`fizzy-card-comments-${n}`).flex_none().gap(4).items_center().text_size(textPx(size - 3)).text_color(t.foreground)
+      .child(svg(ICON("message-square-text")).size(size).flex_none().text_color(color)).child(String(comments));
+    const meta = compact
+      ? h_flex().id(`fizzy-card-meta-${n}`).gap(6).items_center().min_w(0).text_size(textPx(10)).font_medium().text_color(color)
+        .when(who.length > 0, el => el.child(h_flex().id(`fizzy-card-people-${n}`).flex_none().gap(2).children(who.slice(0, 3).map(u => this.avatar(t, u, 16)))))
+        .child(line(`fizzy-card-changed-${n}`, "refresh", upper(changed)))
+        .child(div().flex_1())
+        .when(comments > 0, el => el.child(commentCount(12)))
+      : h_flex().id(`fizzy-card-meta-${n}`).gap(7).items_center().min_w(0).text_size(textPx(10)).text_color(color)
+        .when(Boolean(card.creator), el => el.child(this.avatar(t, card.creator, 20)))
+        .child(v_flex().min_w(0).gap(2)
+          .child(ruled(line(`fizzy-card-added-${n}`, null, upper(added ? `added ${added}` : "added"))))
+          .child(line(`fizzy-card-creator-${n}`, null, upper(card.creator?.name ?? ""))))
+        .child(div().w(1).h(26).flex_none().bg(t.border))
+        .child(v_flex().min_w(0).gap(2)
+          .child(ruled(line(`fizzy-card-changed-${n}`, "refresh", upper(changed))))
+          .child(line(`fizzy-card-assigned-${n}`, "arrow-right", who.length ? upper(who.map(u => u.name).join(", ")) : "")))
+        .when(who.length > 0, el => el.child(h_flex().id(`fizzy-card-people-${n}`).flex_none().gap(2).children(who.slice(0, 2).map(u => this.avatar(t, u, 20)))))
+        .child(div().flex_1())
+        .when(comments > 0, el => el.child(commentCount(14)));
+    return this.dragCards(v_flex().id(`fizzy-card-${n}`), dragged).relative().flex_none().rounded(8).overflow_hidden().cursor_pointer()
+      .bg(picked ? t.selected : t.background)
+      .border_1().border_color(picked ? t.accent : t.border).hover(s => s.border_color(t.input))
+      .when(Boolean(card.golden), el => el.child(window.paint_path(CARD_SHAPE, GOLD_GLOW).absolute().top(0).left(0).size_full()))
+      .on_mouse_down("left", (_e, cx) => { this.pressed = { number: n, lane }; this.writeCardFiles(dragged, cx); })
       .on_mouse_up("left", (_e, cx) => this.drop(lane, cx))
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.cardMenu(card, cx); })
       .on_click((e, cx) => this.clickCard(card, e, cx))
-      .child(div().w(3).flex_none().rounded(2).bg(color))
-      .child(v_flex().flex_1().min_w(0).gap(7)
-        .child(h_flex().gap(6).items_start().min_w(0)
-          .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(13).mt(2).flex_none().text_color(t.accent)))
-          .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).mt(1).whitespace_normal().font_medium().child(card.title ?? ""))
+      .child(h_flex().gap(6).items_start().min_w(0)
+        .child(head)
+        .child(h_flex().flex_1().min_w(0).gap(6).items_center().pt(compact ? 0 : 3).pr(5)
+          .when(lane == null, el => el.child(h_flex().id(`fizzy-card-lane-${n}`).flex_none().gap(4).items_center().text_size(textPx(10)).font_medium().text_color(color)
+            .child(div().size(6).rounded_full().bg(color)).child(upper(laneName(card)))))
+          .child(div().flex_1())
+          .when(Boolean(steps), el => el.child(h_flex().id(`fizzy-card-steps-${n}`).flex_none().gap(4).items_center().text_size(textPx(11)).font_medium()
+            .child(svg(ICON("circle-check")).size(12).flex_none().text_color(steps.done === steps.total ? t.done : color)).child(`${steps.done}/${steps.total}`)))
+          .when(Boolean(warn), el => el.child(div().id(`fizzy-card-warn-${n}`).h(16).px(5).flex_none().flex().items_center().rounded(4)
+            .border_1().border_color(warnColor).text_color(warnColor).text_size(textPx(10)).font_medium().child(warn.label)))
           .child(h_flex().flex_none().gap(1)
             .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
-            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
-        .child(h_flex().gap(6).items_center().min_w(0).text_size(textPx(11)).text_color(t.dim)
-          .child(div().flex_none().child(`#${n}`))
-          .child(h_flex().flex_1().min_w(0).gap(4).items_center().overflow_hidden()
-            .children(tags.slice(0, 3).map(tag => this.chip(t, tag, { max: 150, bg: t.background })))
-            .when(tags.length > 3, el => el.child(div().flex_none().child(`+${tags.length - 3}`))))
-          .when(who.length > 0, el => el.child(h_flex().flex_none().gap(2).children(who.slice(0, 3).map(u => this.avatar(t, u, 18)))))
-          .when(Boolean(warn), el => el.child(div().id(`fizzy-card-warn-${n}`).h(16).px(5).flex_none().flex().items_center().rounded(4)
-            .border_1().border_color(warnColor).text_color(warnColor).font_medium().child(warn.label)))
-          .child(div().flex_none().child(ago(card.last_active_at, now())))));
+            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx))))))
+      .child(v_flex().gap(compact ? 4 : 7).px(compact ? 10 : 11).pt(compact ? 3 : 6).pb(compact ? 7 : 10)
+        .child(h_flex().gap(6).items_start().min_w(0)
+          .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(compact ? 12 : 13).mt(2).flex_none().text_color(t.accent)))
+          .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).whitespace_normal().font_bold().text_size(textPx(compact ? 12 : 13)).child(card.title ?? "")))
+        .when(!compact && tags.length > 0, el => el.child(h_flex().gap(4).items_center().min_w(0).overflow_hidden()
+          .children(tags.slice(0, 3).map(tag => this.chip(t, `#${tag}`, { max: 150 })))
+          .when(tags.length > 3, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(`+${tags.length - 3}`)))))
+        .child(meta));
   }
 
-  // A lane's header: its color as a dot and a tint behind the row; its name, its count in a pill, and + for a new card.
+  // A lane's +: a new card there at once.
+  addButton(t, section) {
+    return div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
+      .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
+      .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.newCard(section.key, cx); })
+      .child(svg(ICON("plus")).size(13));
+  }
+
   sectionHeader(t, section, count, closed) {
-    const addable = section.kind === "column" || section.kind === "maybe", color = sectionColor(section);
+    const color = sectionColor(section);
     return h_flex().id(`fizzy-section-${section.key}`).h(34).flex_none().pl(10).pr(6).gap(8).items_center().cursor_pointer()
       .bg(tint(color, "26")).hover(s => s.bg(tint(color, "40")))
-      // A press here starts no drag, and ends a stale one (a card pressed earlier and released away from the panel).
-      .on_mouse_down("left", () => { this.pressed = null; })
+      // Any press here also clears a stale `pressed` (a card released away from the panel).
+      .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
       .on_click((_e, cx) => this.toggleSection(section, cx))
       .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
       .child(svg(ICON(closed ? "chevron-right" : "chevron-down")).size(12).flex_none().text_color(t.dim))
@@ -2364,15 +2544,11 @@ export default class Fizzy extends View {
       .when(count != null, el => el.child(div().h(18).min_w(18).px(6).flex_none().flex().items_center().justify_center().rounded_full()
         .bg(t.raised).text_size(textPx(11)).text_color(t.muted).child(String(count))))
       .child(div().flex_1())
-      .when(addable, el => el.child(div().id(`fizzy-add-${section.key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).text_color(t.dim)
-        .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("New card here")
-        .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); this.newCard(section.key, cx); })
-        .child(svg(ICON("plus")).size(13))));
+      .when(takesCards(section), el => el.child(this.addButton(t, section)));
   }
 
-  // The foot of a card New card just made: Discard deletes it, Done keeps it and goes back to the list.
   freshBar(t) {
-    return h_flex().id("fizzy-fresh-bar").flex_none().p(6).gap(6).items_center().bg(t.chrome).border_t(1).border_color(t.border)
+    return h_flex().id("fizzy-fresh-bar").flex_none().px(12).py(8).gap(6).items_center()
       .child(this.textButton(t, "fizzy-fresh-discard", ICON("trash"), "Discard", (_e, cx) => this.discardFresh(cx)))
       .child(div().flex_1())
       .child(this.textButton(t, "fizzy-fresh-done", ICON("check"), "Done", (_e, cx) => this.goBack(cx), true));
@@ -2383,38 +2559,138 @@ export default class Fizzy extends View {
     if (!board) return [this.status(t, this.errors.boards ? explain(this.errors.boards) : this.boards ? "No boards" : "Loading…", cx, Boolean(this.errors.boards))];
     if (!columns) return [this.status(t, this.errors.board ? explain(this.errors.board) : "Loading…", cx, Boolean(this.errors.board))];
     const lazy = this.lazyOf(board), query = this.boardFilter.value(), out = [];
-    const filtering = Boolean(query.trim()) || this.onlyMine;
-    // A failed read keeps what was read before on screen, under the message.
+    const filtering = this.boardFiltering();
     if (this.errors.board) out.push(this.status(t, explain(this.errors.board), cx, true));
     let total = 0;
-    for (const section of sections(columns, this.cards.get(board) ?? [], { notNow: lazy.notNow ?? undefined, done: lazy.done ?? undefined })) {
-      const loaded = section.kind === "not-now" ? Boolean(lazy.notNow) : section.kind === "done" ? Boolean(lazy.done) : true;
-      // Golden cards head their lane; the rest keep Fizzy's order (the sort is stable).
-      const cards = filterCards(section.cards, query, { mine: this.onlyMine, me: this.me }).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
-      // A filter shows every lane that holds a match, folded or not; the fold kept for the lane is left as it is.
+    for (const section of this.boardSections(board)) {
+      const { loaded, cards, shown } = this.laneCards(section, lazy, query);
       const closed = this.collapsedNow(section) && !(filtering && cards.length);
-      // Each lane is a block: a press let go anywhere in it, between its cards too, moves the card pressed there.
       const color = sectionColor(section);
       const lane = v_flex().id(`fizzy-lane-${section.key}`).flex_none().rounded(10).overflow_hidden().border_1().border_color(tint(color, "33"))
+        // Mouse-up anywhere in the lane, between cards too, drops the pressed card here.
         .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
         .child(this.sectionHeader(t, section, loaded ? cards.length : null, closed));
       out.push(lane);
       if (closed) continue;
-      const body = [];
-      const shown = section.kind === "done" ? cards.slice(0, lazy.shown) : cards;
       total += shown.length;
-      for (const card of shown) body.push(this.cardRow(t, card, section.key, color));
-      const onDemand = section.kind === "done" || section.kind === "not-now";
-      if (onDemand && lazy.errors[section.kind]) body.push(this.status(t, explain(lazy.errors[section.kind]), cx, true, cx => this.loadLane(section.kind, cx), `fizzy-retry-${section.key}`));
-      else if (onDemand && !loaded) body.push(this.status(t, "Loading…", cx));
-      if (section.kind === "done" && loaded && (!lazy.end || cards.length > lazy.shown)) {
-        body.push(h_flex().id("fizzy-more-done").h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
-          .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.moreDone(cx)).child("Show more"));
-      }
-      if (body.length) lane.child(v_flex().px(6).pt(2).pb(6).gap(6).children(body));
+      const body = [
+        ...(section.kind === "maybe" ? [this.watchBox(t)] : []),
+        ...shown.map(card => this.cardRow(t, card, section.key, color)),
+        ...this.laneFoot(t, section, cards, loaded, lazy, cx),
+      ];
+      lane.child(v_flex().px(6).pt(2).pb(6).gap(6).children(body));
     }
     if (!total) out.push(this.status(t, filtering ? "No cards match" : "No cards", cx));
     return out;
+  }
+
+  boardSections(board) {
+    const lazy = this.lazyOf(board);
+    return sections(this.columns.get(board) ?? [], this.cards.get(board) ?? [], { notNow: lazy.notNow ?? undefined, done: lazy.done ?? undefined });
+  }
+
+  // Golden first; the stable sort keeps Fizzy's order otherwise. `shown`: Done's first pages only.
+  laneCards(section, lazy, query) {
+    const loaded = section.kind === "not-now" ? Boolean(lazy.notNow) : section.kind === "done" ? Boolean(lazy.done) : true;
+    const cards = filterCards(section.cards, query, this.boardFilters()).sort((a, b) => Number(Boolean(b.golden)) - Number(Boolean(a.golden)));
+    return { loaded, cards, shown: section.kind === "done" ? cards.slice(0, lazy.shown) : cards };
+  }
+
+  laneFoot(t, section, cards, loaded, lazy, cx) {
+    const out = [], onDemand = section.kind === "done" || section.kind === "not-now";
+    if (onDemand && lazy.errors[section.kind]) out.push(this.status(t, explain(lazy.errors[section.kind]), cx, true, cx => this.loadLane(section.kind, cx), `fizzy-retry-${section.key}`));
+    else if (onDemand && !loaded) out.push(this.status(t, "Loading…", cx));
+    if (section.kind === "done" && loaded && (!lazy.end || cards.length > lazy.shown)) {
+      out.push(h_flex().id("fizzy-more-done").h(28).flex_none().px(8).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
+        .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.moreDone(cx)).child("Show more"));
+    }
+    return out;
+  }
+
+  boardColumns(t, cx) {
+    const board = this.board;
+    if (!board || !this.columns.get(board)) return v_flex().id("fizzy-list").flex_1().min_h(0).p(8).gap(8).children(this.boardList(t, cx));
+    const lazy = this.lazyOf(board), query = this.boardFilter.value(), lanes = this.boardSections(board);
+    const kept = this.openKeys(board).filter(key => lanes.some(s => s.key === key)), open = kept.length ? kept : ["maybe"];
+    return v_flex().id("fizzy-board").flex_1().min_h(0)
+      .when(Boolean(this.errors.board), el => el.child(this.status(t, explain(this.errors.board), cx, true)))
+      .child(h_flex().id("fizzy-columns").flex_1().min_h(0).items_stretch().justify_center().gap(8).p(8)
+        .children(lanes.map(section => {
+          const { loaded, cards, shown } = this.laneCards(section, lazy, query);
+          return open.includes(section.key)
+            ? this.openColumn(t, section, { cards, shown, loaded, lazy }, cx)
+            : this.foldedColumn(t, section, loaded ? cards.length : null);
+        })));
+  }
+
+  openColumn(t, section, { cards, shown, loaded, lazy }, cx) {
+    const color = sectionColor(section);
+    const body = [
+      ...(section.kind === "maybe" ? [this.watchBox(t)] : []),
+      ...shown.map(card => this.cardRow(t, card, section.key, color)),
+      ...this.laneFoot(t, section, cards, loaded, lazy, cx),
+    ];
+    if (loaded && !shown.length && section.kind !== "maybe") body.push(this.status(t, this.boardFiltering() ? "No cards match" : "No cards", cx));
+    return v_flex().id(`fizzy-col-${section.key}`).flex_1().min_w(0).max_w(OPEN_MAX).min_h(0).gap(6)
+      .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
+      .child(h_flex().id(`fizzy-col-head-${section.key}`).h(30).flex_none().gap(8).px(8).items_center().justify_center().rounded(7)
+        .when(this.openKeys(this.board).length > 1, el => el.cursor_pointer().hover(s => s.bg(t.hover)))
+        .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
+        .on_click((_e, cx) => this.toggleColumn(section, cx))
+        .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
+        .when(section.kind !== "done", el => el.child(div().size(10).flex_none().rounded_full().bg(color)))
+        .child(div().min_w(0).truncate().text_size(textPx(13)).font_semibold().child(section.name.toUpperCase()))
+        .when(takesCards(section), el => el.child(this.addButton(t, section))))
+      .child(v_flex().id(`fizzy-col-cards-${section.key}`).flex_1().min_h(0).overflow_y_scrollbar().gap(8).pr(4).children(body));
+  }
+
+  foldedColumn(t, section, count) {
+    const base = section.kind === "not-now" || section.kind === "done" ? PILL_GRAY : sectionColor(section);
+    const text = section.name.toUpperCase(), label = this.label(text), [w, h] = labelBox(text);
+    const height = count == null ? PILL_MAX : Math.min(FOLDED + count * PILL_STEP, PILL_MAX);
+    const lineTop = Math.round(10 + textPx(13) * 1.4 + 8 + textPx(h) + 6), look = this.hoverCol === section.key ? PILL_LIT : PILL;
+    return v_flex().id(`fizzy-col-${section.key}`).relative().w(FOLDED).flex_none().items_center().gap(8).pt(10).overflow_hidden()
+      .cursor_pointer().tooltip(section.name)
+      .on_hover((hovered, cx) => this.setHover("hoverCol", section.key, hovered, cx))
+      .on_mouse_down("left", () => { this.pressed = section.kind === "column" ? { column: section.key } : null; })
+      .on_click((_e, cx) => this.toggleColumn(section, cx))
+      .on_mouse_up("left", (_e, cx) => this.drop(section.key, cx))
+      .child(div().id(`fizzy-col-line-${section.key}`).absolute().top(lineTop).bottom(0).left(FOLDED / 2).w(1).bg(tint(base, look.line)))
+      .child(window.paint_path(pillShape(height), Background.linear_gradient(180, tint(base, look.top), tint(base, look.foot)))
+        .absolute().top(0).left(0).w(FOLDED).h(height))
+      .child(div().id(`fizzy-col-count-${section.key}`).text_size(textPx(13)).font_semibold().child(count == null ? "" : String(count)))
+      .when(Boolean(label), el => el.child(svg(label).w(textPx(w)).h(textPx(h)).flex_none().text_color(t.foreground)));
+  }
+
+  // Leaving an element that is not the current one changes nothing, so entering the next before leaving the last never
+  // ends with none set.
+  setHover(field, key, hovered, cx) {
+    const next = hovered ? key : this[field] === key ? null : this[field];
+    if (next === this[field]) return;
+    this[field] = next;
+    cx.notify();
+  }
+
+  watchBox(t) {
+    const ids = this.access.get(this.board)?.watching, me = this.me, watching = Boolean(me && ids?.includes(me));
+    const users = people().users ?? [], watchers = (ids ?? []).map(id => users.find(u => u.id === id)).filter(Boolean);
+    return v_flex().id("fizzy-watch").flex_none().items_center().gap(10).px(12).py(14).rounded(8).border_1().border_color(t.border)
+      .child(h_flex().id("fizzy-watch-add").h(30).px(14).gap(6).items_center().rounded_full().cursor_pointer().bg(t.solid).text_color(t.solid_foreground)
+        .text_size(textPx(13)).font_semibold().hover(s => s.opacity(0.88)).on_mouse_down("left", stop)
+        .on_click((_e, cx) => this.newCard("maybe", cx))
+        .child(svg(ICON("plus")).size(14).flex_none()).child("Add a card"))
+      .when(ids != null, el => el
+        .child(h_flex().w_full().gap(8).items_center()
+          .child(div().flex_1().h(1).bg(t.border))
+          .child(div().flex_none().text_size(textPx(11)).font_semibold().text_color(t.muted).child(watchers.length ? "WATCHING FOR NEW CARDS" : "NOBODY WATCHES FOR NEW CARDS"))
+          .child(div().flex_1().h(1).bg(t.border)))
+        .when(watchers.length > 0, el => el.child(h_flex().id("fizzy-watchers").gap(4).items_center().justify_center()
+          .children(watchers.slice(0, 8).map(u => this.avatar(t, u, 28)))
+          .when(watchers.length > 8, el => el.child(div().text_size(textPx(11)).text_color(t.muted).child(`+${watchers.length - 8}`)))))
+        .when(Boolean(me), el => el.child(h_flex().id("fizzy-watch-toggle").h(26).px(8).gap(6).items_center().rounded(6).cursor_pointer()
+          .text_size(textPx(12)).font_semibold().text_color(t.accent).hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
+          .on_click((_e, cx) => this.toggleWatching(cx))
+          .child(svg(ICON(watching ? "bell-off" : "bell")).size(14).flex_none()).child(watching ? "STOP WATCHING" : "WATCH FOR NEW CARDS"))));
   }
 
   mineList(t, cx) {
@@ -2434,7 +2710,6 @@ export default class Fizzy extends View {
     return out;
   }
 
-  // What the search of every board found: a section per board, the cards as everywhere else.
   searchList(t, cx) {
     const hunt = this.search, out = [];
     if (hunt.q == null) return [this.status(t, "Press Enter to search every board, comments included.", cx)];
@@ -2471,7 +2746,6 @@ export default class Fizzy extends View {
       .child(h_flex().id("fizzy-read-all").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer().text_size(textPx(12)).text_color(t.muted).hover(s => s.bg(t.hover))
         .on_click((_e, cx) => this.readAll(cx)).child(svg(ICON("check")).size(13).flex_none()).child("Mark all read")));
     if (!this.inbox) { if (!this.errors.inbox) out.push(this.status(t, "Loading…", cx)); return out; }
-    // Only what's new: the unread notifications, newest first. A note marked read leaves the list.
     if (!this.inbox.length) out.push(this.status(t, "You're all caught up", cx));
     for (const note of this.inbox) {
       const meta = [noteCard(note) ? `#${note.card.number}` : null, note.card?.board_name, note.creator?.name, ago(note.created_at, now())].filter(Boolean).join(" · ");
@@ -2487,33 +2761,37 @@ export default class Fizzy extends View {
     return out;
   }
 
-  // One of the bar's four buttons: an icon (left out when the panel is narrow), a label, and, for the two that open a menu,
-  // a small chevron after the label. `action` null: the button is dim and inert (no hover, no tooltip). The label is what
-  // gives way when the room runs out.
-  barButton(t, id, icon, label, action, menu = false) {
+  barButton(t, id, icon, label, tip, action, menu = false) {
     const on = Boolean(action);
-    return h_flex().id(id).h(BAR_BUTTON).flex_1().min_w(0).px(6).gap(4).items_center().justify_center().overflow_hidden().rounded(7).text_size(textPx(12)).font_medium()
-      .bg(t.raised).text_color(on ? t.foreground : t.dim)
-      .when(on, el => el.cursor_pointer().hover(s => s.bg(t.hover)).on_mouse_down("left", stop).on_click(action))
+    return h_flex().id(id).h(ROUND).flex_1().min_w(0).px(8).gap(5).items_center().justify_center().overflow_hidden().rounded_full().border_1().border_color(t.input)
+      .text_size(textPx(12)).font_medium().text_color(on ? t.foreground : t.dim)
+      .when(on, el => el.cursor_pointer().tooltip(tip).hover(s => s.bg(t.hover)).on_mouse_down("left", stop).on_click(action))
       .when(!this.narrow, el => el.child(svg(icon).size(13).flex_none()))
       .child(div().min_w(0).truncate().child(label))
       .when(menu, el => el.child(svg(ICON("chevron-down")).size(11).flex_none()));
   }
 
-  // The bar at the foot of the card view, and of a list with cards picked (⌘/Ctrl-click): one line, four buttons, nothing
-  // else. They act on the open card, else on the picked cards. Nothing here ever submits:
-  //   Insert   pastes into the current chat
-  //   Send ▾   opens the running sessions; the one picked is brought to the front and gets the paste
-  //   Start ▾  opens the agents to start; the one picked starts in a new tab and gets the paste once it is up
-  //   Copy     copies the reference
+  ruleLabel(t, id, ...parts) {
+    const rule = () => div().flex_1().min_w(8).h(1).bg(t.border);
+    return h_flex().id(id).flex_none().gap(10).items_center()
+      .child(rule())
+      .child(h_flex().flex_none().gap(5).items_center().text_size(textPx(10)).font_semibold().text_color(t.dim).children(parts))
+      .child(rule());
+  }
+
   handBar(t) {
-    const has = this.subject().length > 0;
+    const subject = this.subject(), has = subject.length > 0;
     const act = kind => (has ? (_e, cx) => this.handOff(kind, this.subject(), cx) : null);
-    return h_flex().id("fizzy-bar").flex_none().p(6).gap(4).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(textPx(12))
-      .child(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", act("insert")))
-      .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", act("send"), true))
-      .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", act("start"), true))
-      .child(this.barButton(t, "fizzy-bar-copy", ICON("copy"), "Copy", act("copy")));
+    const cards = this.dragged(subject.filter(c => c.kind !== "board").map(c => c.number));
+    const what = this.detail || subject.length < 2 ? "THIS CARD" : `${subject.length} CARDS`;
+    return v_flex().id("fizzy-bar").flex_none().px(12).pt(4).pb(8).gap(6)
+      .child(this.ruleLabel(t, "fizzy-bar-label", `HAND ${what} TO AN AGENT`))
+      .child(h_flex().gap(6).items_center()
+        .child(this.dragCards(this.barButton(t, "fizzy-bar-insert", ICON("insert"), "Insert", "Paste into the chat in view, or drag into a terminal", act("insert")), cards)
+          .when(cards.length > 0, el => el.on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); this.writeCardFiles(cards, cx); })))
+        .child(this.barButton(t, "fizzy-bar-send", ICON("send"), "Send", "Paste into a running session", act("send"), true))
+        .child(this.barButton(t, "fizzy-bar-start", ICON("bot"), "Start", "Start a new agent session with it", act("start"), true))
+        .child(this.barButton(t, "fizzy-bar-copy", ICON("copy"), "Copy", "Copy the reference", act("copy"))));
   }
 
   // GPUI gives a click to every handler on the path: stop it here, or the header the button sits in folds as well.
@@ -2590,11 +2868,16 @@ export default class Fizzy extends View {
 
   boardRow(t, b, config) {
     const hidden = ownHidden(b.id, config), dim = hidden || Boolean(groupOf(b, config)?.hidden);
-    const picked = this.drag?.kind === "board" && this.drag.id === b.id;
-    return h_flex().id(`fizzy-board-row-${b.id}`).h(28).flex_none().pl(31).pr(8).gap(6).items_center().rounded(7).border_1().border_color(picked ? t.accent : CLEAR)
+    const picked = this.drag?.kind === "board" && this.drag.id === b.id, line = this.rowLine(b.id);
+    return h_flex().id(`fizzy-board-row-${b.id}`).relative().h(28).flex_none().pl(31).pr(8).gap(6).items_center().rounded(7).border_1().border_color(picked ? t.accent : CLEAR)
       .when(picked, el => el.bg(t.raised))
       .when(!this.drag, el => el.hover(s => s.bg(t.hover)))
       .on_mouse_down("left", (e, cx) => this.pickRow("board", b.id, e, cx))
+      .on_hover((hovered, cx) => this.hoverRow(b.id, hovered, cx))
+      .on_mouse_up("left", (_e, cx) => this.dropRow(b, cx))
+      .when(Boolean(line), el => el.child(div().id(`fizzy-board-line-${b.id}`).absolute().left(8).right(8).h(2).rounded(1).bg(t.accent)
+        .when(line === "top", l => l.top(-2))
+        .when(line === "bottom", l => l.bottom(-2))))
       .child(div().id(`fizzy-board-name-${b.id}`).flex_1().min_w(0).truncate().tooltip(b.name).text_color(dim ? t.dim : t.foreground).child(b.name))
       .child(this.rowButton(t, `fizzy-board-hide-${b.id}`, ICON(hidden ? "eye-off" : "eye"), (_e, cx) => this.toggleBoard(b.id, cx), hidden ? "Show" : "Hide", hidden));
   }
@@ -2637,12 +2920,12 @@ export default class Fizzy extends View {
         : [this.emptyRow(t, "fizzy-nogroup-empty")]));
   }
 
-  // Settings: the list of settings, each with what it is set to now; a click opens that setting's page.
   settingsView(t, cx) {
     const body = v_flex().id("fizzy-settings").flex_1().min_h(0).overflow_y_scrollbar().p(10).pb(14).gap(8)
       .when(Boolean(this.drag), el => el.cursor_grabbing());
     if (this.settingsPage === "mentions") return body.child(this.mentionsPage(t, cx));
     if (this.settingsPage === "groups") return body.child(this.groupsPage(t, cx));
+    if (this.settingsPage === "cards") return body.child(this.cardsPage(t));
     return body.children(SETTINGS.map(s => h_flex().id(`fizzy-setting-${s.id}`).min_h(52).flex_none().px(12).py(8).gap(12).items_center()
       .rounded(9).border_1().border_color(t.border).bg(t.surface).cursor_pointer().hover(st => st.border_color(t.input))
       .on_click((_e, cx) => { this.settingsPage = s.id; cx.notify(); })
@@ -2653,8 +2936,8 @@ export default class Fizzy extends View {
       .child(svg(ICON("chevron-right")).size(14).flex_none().text_color(t.dim))));
   }
 
-  // What a setting is set to, for its line in the list.
   settingSummary(id) {
+    if (id === "cards") return this.compactCards ? "Compact" : "Full";
     if (id === "groups") {
       const n = this.groups().groups.length;
       return n ? `${n} group${n === 1 ? "" : "s"}` : "No groups";
@@ -2679,7 +2962,15 @@ export default class Fizzy extends View {
     return section;
   }
 
-  // A block of the Mentions page: a title, what it says, and its controls.
+  cardsPage(t) {
+    return v_flex().id("fizzy-cards").flex_none().gap(10)
+      .child(this.settingBlock(t, "fizzy-cards-compact", "Compact cards",
+        "The board, Mine, Pins and search results draw each card in three short lines: its number, its title, then who has it and when it last changed. Off, a card shows all Fizzy shows on it.",
+        h_flex().gap(10).items_center()
+          .child(this.switchView(t, "fizzy-cards-compact-switch", this.compactCards, cx => { this.compactCards = !this.compactCards; keep("compactCards", this.compactCards); cx.notify(); }))
+          .child(div().text_size(textPx(12)).text_color(t.muted).child(this.compactCards ? "On" : "Off"))));
+  }
+
   settingBlock(t, id, title, note, ...controls) {
     return v_flex().id(id).flex_none().p(12).gap(8).rounded(9).border_1().border_color(t.border).bg(t.surface)
       .child(div().font_medium().child(title))
@@ -2687,7 +2978,6 @@ export default class Fizzy extends View {
       .children(controls.filter(Boolean));
   }
 
-  // An on/off switch: `solid` and its knob at the right when on.
   switchView(t, id, on, toggle) {
     return h_flex().id(id).w(34).h(20).flex_none().px(2).items_center().rounded_full().cursor_pointer()
       .bg(on ? t.solid : t.raised).when(on, el => el.justify_end())
@@ -2720,111 +3010,155 @@ export default class Fizzy extends View {
           .child(div().id("fizzy-mentions-card").w(140).flex_none().child(Input.new(this.mentionCard).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground)))));
   }
 
-  // `open` null: the card is a notification's stub, which doesn't carry this field, so the line shows no values and does nothing.
-  pickerRow(t, id, label, items, empty, open) {
-    return h_flex().id(id).min_h(30).flex_none().px(8).py(3).gap(8).items_start().rounded(7)
-      .when(Boolean(open), el => el.cursor_pointer().hover(s => s.bg(t.hover))
-        .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => open(cx)))
-      .child(div().w(52).h(24).flex_none().flex().items_center().text_size(textPx(12)).text_color(t.dim).child(label))
-      .child(h_flex().flex_1().min_w(0).min_h(24).flex_wrap().gap(4).items_center()
-        .children(!open ? [] : items.length ? items : [div().h(24).flex().items_center().text_size(textPx(12)).text_color(t.dim).child(empty)]))
-      .child(div().w(22).h(24).flex_none().flex().items_center().justify_center().text_color(t.dim).child(svg(ICON("chevron-down")).size(12)));
-  }
-
-  sectionHead(t, id, label, count, action = null) {
-    return h_flex().id(`${id}-head`).h(30).flex_none().px(8).gap(6).items_center()
-      .child(div().flex_none().text_size(textPx(12)).font_medium().text_color(t.muted).child(label))
-      .when(Boolean(count), el => el.child(div().id(`${id}-count`).flex_none().text_size(textPx(11)).text_color(t.dim).child(count)))
-      .child(div().flex_1())
-      .when(Boolean(action), el => el.child(action));
-  }
-
   detailView(base, cx) {
-    const t = { ...base, mono: cx.theme?.()?.typography?.mono }; // the code font, for richText
+    // For richText: the code font, and the people read once per draw (each shared() read copies the whole list).
+    const t = { ...base, mono: cx.theme?.()?.typography?.mono, users: people().users };
     const d = this.detail, c = d.card ?? d.summary, full = d.card;
     const read = Boolean(full && d.comments);
     const bare = !read && (Boolean(d.error) || (!full && !whole(d.summary)));
-    const body = v_flex().id("fizzy-detail").flex_1().min_h(0).overflow_y_scrollbar().p(6).pb(14).gap(12);
-    if (!bare) body.child(this.cardTop(t, c)).child(this.cardMeta(t, c));
+    const body = v_flex().id("fizzy-detail").flex_1().min_h(0).overflow_y_scrollbar().p(10).pb(16).gap(12);
+    if (!bare) body.child(this.cardPage(t, c, read ? full : null));
     if (!read || d.error) body.child(this.status(t, d.error ? explain(d.error) : "Loading…", cx, Boolean(d.error)));
-    if (read) body.child(this.descSection(t, full)).child(this.stepsSection(t, full)).child(this.commentsSection(t, d));
+    if (read) body.children(this.cardActions(full)).child(this.commentsSection(t, d));
     return body;
   }
 
-  cardTop(t, c) {
+  cardPage(t, c, full) {
     const color = laneColor(c);
-    const editing = this.editing === "title";
-    const title = editing
-      ? h_flex().id("fizzy-title-edit").min_h(38).flex_1().min_w(0).gap(6).items_center()
+    return div().id("fizzy-card-frame").flex_none().p(8).rounded(12).bg(tint(color, "33"))
+      .child(v_flex().id("fizzy-card-page").relative().rounded(8).overflow_hidden().bg(t.background)
+        .when(Boolean(c.golden), el => el.child(window.paint_path(CARD_SHAPE, GOLD_GLOW).absolute().top(0).left(0).size_full()))
+        .child(this.cardTab(t, c, color))
+        .child(v_flex().px(14).pt(10).pb(14).gap(14)
+          .child(this.cardTop(t, c, color))
+          .when(Boolean(full), el => el.child(this.descSection(t, full)).child(this.stepsSection(t, full, color)))
+          .child(this.cardMeta(t, c, color))));
+  }
+
+  cardTab(t, c, color) {
+    const board = c.board?.name ?? "";
+    return h_flex().gap(8).items_center()
+      .child(h_flex().id("fizzy-card-tab").min_w(0).h(28).pl(10).pr(4).gap(6).items_center().rounded_br(8).bg(color)
+        .text_size(textPx(12)).font_semibold().text_color(ON_LANE)
+        .child(h_flex().id("fizzy-detail-number").flex_none().gap(3).child(div().opacity(0.7).child("No.")).child(String(c.number)))
+        .when(Boolean(board), el => el.child(div().w(1).h(14).flex_none().bg(tint(ON_LANE, "59")))
+          .child(h_flex().id("fizzy-detail-board").min_w(0).h(22).px(4).gap(3).items_center().rounded(5).cursor_pointer().hover(s => s.bg(tint(ON_LANE, "1f")))
+            .tooltip(`${board}: move to another board`)
+            .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click(() => openMenu({ kind: "moveBoard", card: slim(c) }))
+            .child(div().min_w(0).truncate().child(board.toUpperCase()))
+            .child(svg(ICON("chevron-down")).size(11).flex_none()))))
+      .child(this.roundButton(t, "fizzy-tags", "tag", "Tags", Array.isArray(c.tags) ? () => openMenu({ kind: "tags", card: slim(c) }) : null, { size: 26 }));
+  }
+
+  cardTop(t, c, color) {
+    const size = textPx(this.wide ? 20 : 17), tags = c.tags ?? [];
+    const title = this.editing === "title"
+      ? h_flex().id("fizzy-title-edit").min_w(0).gap(6).items_center()
         .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
-        .child(div().id("fizzy-title-input").flex_1().min_w(0).child(Input.new(this.titleInput).h(34).px(7).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(15)).text_color(t.foreground)))
+        .child(div().id("fizzy-title-input").flex_1().min_w(0).child(Input.new(this.titleInput).h(38).px(8).rounded(8).border_1().border_color(t.accent).bg(t.background).text_size(size).text_color(t.foreground)))
         .child(this.rowButton(t, "fizzy-title-cancel", ICON("x"), (_e, cx) => this.cancelEdit(cx), "Cancel"))
-      : div().id("fizzy-title").flex_1().min_w(0).px(8).py(4).rounded(7).text_size(textPx(15)).font_semibold().whitespace_normal().text_color(t.foreground).cursor_pointer()
+      : div().id("fizzy-title").min_w(0).rounded(6).text_size(size).font_bold().whitespace_normal().text_color(lighten(color, TITLE_LIGHT)).cursor_pointer()
         .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.editTitle(cx)).child(c.title ?? "");
-    return h_flex().id("fizzy-detail-top").flex_none().gap(8).items_start()
+    return v_flex().id("fizzy-detail-top").flex_none().gap(10)
       .child(title)
-      .child(h_flex().id("fizzy-lane").h(26).mt(editing ? 6 : 2).mr(8).px(8).gap(6).flex_none().items_center().rounded(6).bg(t.raised).cursor_pointer().text_size(textPx(12)).hover(s => s.bg(t.hover))
-        .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
-        .on_click((_e, cx) => this.withCard(cx, (card, cx) => this.laneMenu(card, cx)))
-        .child(div().size(8).flex_none().rounded_full().bg(color ?? t.dim)).child(div().min_w(0).max_w(this.narrow ? 96 : 140).truncate().child(laneName(c)))
-        .child(svg(ICON("chevron-down")).size(12).flex_none().text_color(t.dim)));
+      .child(this.laneStrip(c, color))
+      .when(tags.length > 0, el => el.child(h_flex().id("fizzy-tag-list").flex_wrap().gap(4).children(tags.map(tag => this.chip(t, `#${tag}`, { max: 160 })))));
   }
 
-  cardMeta(t, c) {
-    const person = u => h_flex().h(24).pr(6).gap(6).items_center().child(this.avatar(t, u, 20)).child(div().min_w(0).max_w(160).truncate().child(u.name));
-    const tag = name => div().h(24).flex().items_center().child(this.chip(t, name, { max: 160 }));
-    const picker = (known, kind) => (known ? () => openMenu({ kind, card: slim(c) }) : null);
-    return v_flex().id("fizzy-detail-meta").flex_none().gap(2)
-      .child(this.pickerRow(t, "fizzy-people", "People", (c.assignees ?? []).map(person), "Nobody", picker(Array.isArray(c.assignees), "users")))
-      .child(this.pickerRow(t, "fizzy-tags", "Tags", (c.tags ?? []).map(tag), "No tags", picker(Array.isArray(c.tags), "tags")));
+  laneStrip(c, color) {
+    const here = laneOf(c), known = lanes(this.columns.get(c.board?.id ?? this.board) ?? []);
+    const all = known.some(l => l.key === here) ? known : [{ key: here, name: laneName(c) }, ...known];
+    const pill = (id, name) => div().id(id).h(24).px(10).flex_none().flex().items_center().rounded_full().text_size(textPx(11)).font_semibold().child(name.toUpperCase());
+    return h_flex().id("fizzy-lanes").flex_wrap().gap(4)
+      .children(all.map(l => (l.key === here
+        ? pill("fizzy-lane", l.name).bg(color).text_color(ON_LANE)
+        : pill(`fizzy-lane-${l.key}`, l.name).text_color(color).cursor_pointer().hover(s => s.bg(tint(color, "26"))).tooltip(`Move to ${l.name}`)
+          .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
+          .on_click((_e, cx) => this.apply({ kind: "move", number: c.number, target: l.key }, cx)))));
   }
 
-  // Description: Fizzy's own HTML, or its plain text; editing is text with people and cards as tokens, and says so when that
-  // loses formatting.
+  cardMeta(t, c, color) {
+    const who = c.assignees ?? [], upper = text => String(text ?? "").toUpperCase();
+    const added = c.created_at ? daysAgo(c.created_at, now()) : "", changed = daysAgo(c.last_active_at, now());
+    const line = (id, icon, label, value) => h_flex().id(id).min_w(0).gap(4).items_center()
+      .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(11).flex_none()))
+      .child(div().flex_none().child(label)).child(div().min_w(0).truncate().font_bold().child(upper(value)));
+    const pick = Array.isArray(c.assignees) ? () => openMenu({ kind: "users", card: slim(c) }) : null;
+    return h_flex().id("fizzy-detail-meta").flex_wrap().gap(10).items_center().text_size(textPx(11)).text_color(color)
+      .child(h_flex().min_w(0).gap(8).items_center()
+        .when(Boolean(c.creator), el => el.child(this.avatar(t, c.creator, 28)))
+        .child(v_flex().min_w(0).gap(4)
+          .child(line("fizzy-detail-added", null, "ADDED", added))
+          .child(line("fizzy-detail-creator", null, "BY", c.creator?.name ?? ""))))
+      .child(v_flex().min_w(0).gap(4).pl(10).border_l(1).border_color(t.border)
+        .child(line("fizzy-detail-changed", "refresh", "UPDATED", changed))
+        .child(line("fizzy-detail-assigned", "arrow-right", "ASSIGNED TO", who.length ? who.map(u => u.name).join(", ") : pick ? "nobody" : "")))
+      .child(h_flex().id("fizzy-people").flex_none().gap(2).items_center().rounded_full()
+        .when(Boolean(pick), el => el.cursor_pointer().tooltip("Assign").on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click(() => pick()))
+        .children(who.map(u => this.avatar(t, u, 26)))
+        .child(div().size(26).flex_none().flex().items_center().justify_center().rounded_full().border_1().border_color(tint(color, "80")).text_color(color)
+          .child(svg(ICON("user-plus")).size(13))));
+  }
+
   descSection(t, full) {
     const text = full.description?.trim() || htmlToText(full.description_html ?? "");
-    const editing = this.editing === "desc";
-    const shown = editing
+    const shown = this.editing === "desc"
       ? v_flex().id("fizzy-desc-editor").flex_none().gap(6)
         .on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); })
         .child(div().id("fizzy-desc-input").w_full().on_drop((e, cx) => this.attach(this.descArea, "desc", e.paths, cx))
-          .child(Textarea.new(this.descArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
+          .child(Textarea.new(this.descArea).w_full().px(8).py(6).rounded(8).border_1().border_color(t.accent).bg(t.background).text_size(textPx(14)).text_color(t.foreground).token(this.tokenView(t))))
         .when(this.uploading.has("desc"), el => el.child(this.uploadNote(t, "desc")))
-        .when(formatted(full.description_html), el => el.child(div().id("fizzy-desc-lossy").px(8).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
+        .when(formatted(full.description_html), el => el.child(div().id("fizzy-desc-lossy").text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
         .child(h_flex().justify_end().gap(6)
           .child(this.textButton(t, "fizzy-desc-cancel", null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
           .child(this.textButton(t, "fizzy-desc-save", null, "Save", (_e, cx) => this.saveDescription(cx), true)))
-      : div().px(8).w_full().child(!text ? div().id("fizzy-desc-empty").text_size(textPx(12)).text_color(t.dim).child("No description")
-        : RICH && full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET)
-        : this.plainLines("fizzy-desc-text", text));
-    return v_flex().id("fizzy-desc").flex_none().gap(2)
-      .child(this.sectionHead(t, "fizzy-desc", "Description", "", editing ? null : this.rowButton(t, "fizzy-desc-edit", ICON("pencil"), (_e, cx) => this.editDescription(cx), "Edit")))
-      .child(shown);
+      : !text ? div().id("fizzy-desc-empty").text_size(textPx(13)).text_color(t.dim).child("No description")
+      : full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET, 14)
+      : this.plainLines("fizzy-desc-text", text, 14);
+    return v_flex().id("fizzy-desc").flex_none().w_full().child(shown);
   }
 
-  // Ticking a step shows at once; Fizzy's answer (or its refusal) follows.
-  stepsSection(t, full) {
-    const steps = full.steps ?? [], done = steps.filter(s => s.completed).length;
-    const section = v_flex().id("fizzy-steps").flex_none()
-      .child(this.sectionHead(t, "fizzy-steps", "Steps", steps.length ? `${done}/${steps.length}` : ""));
-    for (const s of steps) {
+  // An empty box holds the bin's place while it is hidden, so the step's text keeps its width.
+  stepsSection(t, full, color) {
+    const box = (done, child) => div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1().border_color(done ? color : tint(color, "99"))
+      .when(done, el => el.bg(color)).when(Boolean(child), el => el.child(child));
+    const section = v_flex().id("fizzy-steps").flex_none().gap(2);
+    for (const s of full.steps ?? []) {
       section.child(this.editing === "step" && this.editId === s.id
-        ? this.fieldRow(t, h_flex().id(`fizzy-step-edit-${s.id}`).min_h(32).flex_none().pl(34).pr(8).gap(6).items_center(),
+        ? this.fieldRow(t, h_flex().id(`fizzy-step-edit-${s.id}`).min_h(32).flex_none().pl(26).gap(6).items_center(),
           this.stepEdit, `fizzy-step-input-${s.id}`, `fizzy-step-cancel-${s.id}`, cx => this.cancelEdit(cx))
-        : h_flex().id(`fizzy-step-${s.id}`).min_h(28).flex_none().px(8).py(3).gap(8).items_start()
+        : h_flex().id(`fizzy-step-${s.id}`).min_h(28).flex_none().py(2).gap(6).items_start()
+          .on_hover((hovered, cx) => this.setHover("hoverStep", s.id, hovered, cx))
           .child(div().id(`fizzy-step-check-${s.id}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().hover(x => x.bg(t.selected))
             .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => this.toggleStep(s, cx))
-            .child(div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1().border_color(s.completed ? t.accent : t.input)
-              .when(s.completed, el => el.bg(t.accent).child(svg(ICON("check")).size(11).text_color(t.accent_foreground)))))
-          .child(div().id(`fizzy-step-text-${s.id}`).flex_1().min_w(0).px(5).py(3).rounded(5).whitespace_normal().cursor_pointer().hover(x => x.bg(t.hover))
+            .child(box(s.completed, s.completed ? svg(ICON("check")).size(11).text_color(ON_LANE) : null)))
+          .child(div().id(`fizzy-step-text-${s.id}`).flex_1().min_w(0).px(4).py(2).rounded(5).whitespace_normal().cursor_pointer().hover(x => x.bg(t.hover))
             .when(s.completed, el => el.line_through().text_color(t.dim))
             .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => this.editStep(s, cx)).child(s.content ?? ""))
-          .child(this.rowButton(t, `fizzy-step-del-${s.id}`, ICON("trash"), (_e, cx) => this.dropStep(s, cx), "Delete")));
+          .child(this.hoverStep === s.id
+            ? this.rowButton(t, `fizzy-step-del-${s.id}`, ICON("trash"), (_e, cx) => this.dropStep(s, cx), "Delete")
+            : div().size(22).flex_none()));
     }
-    return section.child(h_flex().id("fizzy-step-new-row").min_h(32).flex_none().pl(8).pr(8).gap(4).items_center()
-      .child(div().size(22).flex_none().flex().items_center().justify_center().text_color(t.dim).child(svg(ICON("plus")).size(13)))
-      .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(12)).text_color(t.foreground))));
+    return section.child(h_flex().id("fizzy-step-new-row").min_h(30).flex_none().gap(6).items_center()
+      .child(div().size(22).flex_none().flex().items_center().justify_center().child(box(false, null)))
+      .child(div().id("fizzy-step-input").flex_1().min_w(0).child(Input.new(this.stepInput).h(28).px(4).rounded(6).border_1().border_color(CLEAR).bg(t.background).text_size(textPx(13)).text_color(color))));
+  }
+
+  cardActions(full) {
+    const color = laneColor(full), n = full.number;
+    const pill = (id, label, action) => div().id(id).h(32).px(18).flex_none().flex().items_center().rounded_full().cursor_pointer().bg(color)
+      .text_size(textPx(13)).font_semibold().text_color(ON_LANE).hover(s => s.opacity(0.88))
+      .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => action(cx)).child(label);
+    const note = postponeNote(daysToPostpone(full, { period: this.boards?.find(b => b.id === (full.board?.id ?? this.board))?.period, now: now() }));
+    return [
+      h_flex().id("fizzy-card-actions").flex_none().justify_center().gap(8)
+        .when(this.editing !== "desc", el => el.child(pill("fizzy-desc-edit", "Edit", cx => this.editDescription(cx))))
+        .child(full.closed
+          ? pill("fizzy-reopen", "Reopen", cx => this.apply({ kind: "reopen", number: n }, cx))
+          : pill("fizzy-done", "Mark as Done", cx => this.apply({ kind: "move", number: n, target: "done" }, cx))),
+      ...(note ? [div().id("fizzy-postpone").flex_none().px(8).text_center().whitespace_normal().text_size(textPx(12)).text_color(color).child(note)] : []),
+    ];
   }
 
   // Comments, oldest first. Most of what the CLI lists is Fizzy's own activity (creator role "system": "Ada moved this
@@ -2832,12 +3166,12 @@ export default class Fizzy extends View {
   commentsSection(t, d) {
     const everything = [...d.comments].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     const comments = everything.filter(cm => cm.creator?.role !== "system"), activity = everything.filter(cm => cm.creator?.role === "system");
-    const section = v_flex().id("fizzy-comments").flex_none().gap(2)
-      .child(this.sectionHead(t, "fizzy-comments", "Comments", comments.length ? String(comments.length) : ""));
-    if (!comments.length) section.child(div().id("fizzy-comments-empty").h(28).flex_none().px(8).flex().items_center().text_size(textPx(12)).text_color(t.dim).child("No comments"));
+    const section = v_flex().id("fizzy-comments").flex_none().gap(10)
+      .child(this.ruleLabel(t, "fizzy-comments-head", "COMMENTS", ...(comments.length ? [div().id("fizzy-comments-count").text_color(t.muted).child(String(comments.length))] : [])));
+    if (!comments.length) section.child(div().id("fizzy-comments-empty").flex_none().text_center().text_size(textPx(12)).text_color(t.dim).child("No comments"));
     for (const cm of comments) section.child(this.commentBlock(t, cm));
     if (activity.length) {
-      section.child(h_flex().id("fizzy-activity").h(28).flex_none().px(8).gap(6).items_center().rounded(7).cursor_pointer().text_size(textPx(12)).text_color(t.muted)
+      section.child(h_flex().id("fizzy-activity").h(28).flex_none().px(8).gap(6).items_center().rounded_full().cursor_pointer().text_size(textPx(12)).text_color(t.muted)
         .hover(s => s.bg(t.hover)).on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
         .on_click((_e, cx) => { this.activityOpen = !this.activityOpen; cx.notify(); })
         .child(svg(ICON(this.activityOpen ? "chevron-down" : "chevron-right")).size(12).flex_none().text_color(t.dim))
@@ -2847,12 +3181,15 @@ export default class Fizzy extends View {
         for (const cm of activity) section.child(div().id(`fizzy-activity-${cm.id}`).flex_none().pl(26).pr(8).py(2).text_size(textPx(11)).text_color(t.dim).whitespace_normal().child(`${cm.body?.plain_text ?? ""} · ${ago(cm.created_at, now())}`));
       }
     }
-    return section.child(v_flex().id("fizzy-comment-new").flex_none().pt(6).gap(6)
-      .child(div().id("fizzy-comment-input").w_full().on_drop((e, cx) => this.attach(this.commentArea, "comment", e.paths, cx))
-        .child(Textarea.new(this.commentArea).w_full().px(7).py(6).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
-      .when(this.uploading.has("comment"), el => el.child(this.uploadNote(t, "comment")))
-      .child(h_flex().justify_end().gap(6)
-        .child(this.textButton(t, "fizzy-comment-send", ICON("send"), "Comment", (_e, cx) => this.sendComment(cx), true))));
+    const me = this.me ? (people().users?.find(u => u.id === this.me) ?? { id: this.me, name: "" }) : null;
+    return section.child(h_flex().id("fizzy-comment-new").flex_none().gap(8).items_start()
+      .child(me ? this.avatar(t, me, COMMENT_AVATAR) : div().size(COMMENT_AVATAR).flex_none())
+      .child(v_flex().flex_1().min_w(0).gap(6)
+        .child(div().id("fizzy-comment-input").w_full().on_drop((e, cx) => this.attach(this.commentArea, "comment", e.paths, cx))
+          .child(Textarea.new(this.commentArea).w_full().px(10).py(8).rounded(8).border_1().border_color(t.input).bg(t.raised).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
+        .when(this.uploading.has("comment"), el => el.child(this.uploadNote(t, "comment")))
+        .child(h_flex().justify_end().gap(6)
+          .child(this.textButton(t, "fizzy-comment-send", ICON("send"), "Comment", (_e, cx) => this.sendComment(cx), true)))));
   }
 
   commentBlock(t, cm) {
@@ -2864,30 +3201,30 @@ export default class Fizzy extends View {
         .on_click((_e, cx) => { cx.stop_propagation(); this.dropComment(cm, cx); })
         .child("Delete?")
       : this.rowButton(t, binId, ICON("trash"), (_e, cx) => this.dropComment(cm, cx), "Delete");
-    return v_flex().id(`fizzy-comment-${cm.id}`).flex_none().px(8).py(6).gap(4)
+    return h_flex().id(`fizzy-comment-${cm.id}`).flex_none().gap(8).items_start()
       .when(editing, el => el.on_key_down((e, cx) => { if (e.key === "escape") this.cancelEdit(cx); }))
-      .child(h_flex().h(24).gap(6).items_center()
-        .child(this.avatar(t, who, 20))
-        .child(div().min_w(0).truncate().font_medium().child(who.name ?? ""))
-        .child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(ago(cm.created_at, now())))
-        .child(div().flex_1())
-        .when(own && !editing, el => el.child(this.rowButton(t, `fizzy-comment-edit-${cm.id}`, ICON("pencil"), (_e, cx) => this.editComment(cm, cx), "Edit")).child(bin)))
-      .child(editing
-        ? v_flex().id(`fizzy-comment-editor-${cm.id}`).pl(17).gap(6)
-          .child(div().id(`fizzy-comment-area-${cm.id}`).w_full().on_drop((e, cx) => this.attach(this.commentEdit, "commentEdit", e.paths, cx))
-            .child(Textarea.new(this.commentEdit).w_full().px(8).py(6).rounded(7).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
-          .when(this.uploading.has("commentEdit"), el => el.child(this.uploadNote(t, "commentEdit")))
-          .when(formatted(cm.body?.html), el => el.child(div().id(`fizzy-comment-lossy-${cm.id}`).px(9).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
-          .child(h_flex().justify_end().gap(6)
-            .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
-            .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
-        : div().pl(26).w_full().child(RICH && cm.body?.html
-          ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET)
-          : this.plainLines(`fizzy-comment-text-${cm.id}`, cm.body?.plain_text)))
-      .when(!editing && this.reactions.has(cm.id), el => el.child(this.reactionsRow(t, cm)));
+      .child(this.avatar(t, who, COMMENT_AVATAR))
+      .child(v_flex().flex_1().min_w(0).px(12).py(8).gap(4).rounded(8).bg(t.raised)
+        .child(h_flex().min_h(22).gap(6).items_center()
+          .child(div().min_w(0).truncate().font_bold().child(who.name ?? ""))
+          .child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(ago(cm.created_at, now())))
+          .child(div().flex_1())
+          .when(own && !editing, el => el.child(this.rowButton(t, `fizzy-comment-edit-${cm.id}`, ICON("pencil"), (_e, cx) => this.editComment(cm, cx), "Edit")).child(bin)))
+        .child(editing
+          ? v_flex().id(`fizzy-comment-editor-${cm.id}`).gap(6)
+            .child(div().id(`fizzy-comment-area-${cm.id}`).w_full().on_drop((e, cx) => this.attach(this.commentEdit, "commentEdit", e.paths, cx))
+              .child(Textarea.new(this.commentEdit).w_full().px(8).py(6).rounded(8).border_1().border_color(t.accent).bg(t.background).text_size(textPx(13)).text_color(t.foreground).token(this.tokenView(t))))
+            .when(this.uploading.has("commentEdit"), el => el.child(this.uploadNote(t, "commentEdit")))
+            .when(formatted(cm.body?.html), el => el.child(div().id(`fizzy-comment-lossy-${cm.id}`).text_size(textPx(11)).text_color(t.muted).whitespace_normal().child("Saving keeps only the text: formatting is lost.")))
+            .child(h_flex().justify_end().gap(6)
+              .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
+              .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
+          : div().w_full().child(cm.body?.html
+            ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET)
+            : this.plainLines(`fizzy-comment-text-${cm.id}`, cm.body?.plain_text)))
+        .when(!editing && this.reactions.has(cm.id), el => el.child(this.reactionsRow(t, cm))));
   }
 
-  // One chip per emoji with its count, yours outlined; a click on one toggles yours. Then the button that adds one.
   reactionsRow(t, cm) {
     const by = new Map();
     for (const r of this.reactions.get(cm.id)) by.set(r.content, [...(by.get(r.content) ?? []), r]);
@@ -2900,33 +3237,31 @@ export default class Fizzy extends View {
         .on_click((_e, cx) => this.toggleReaction(this.detail.number, cm.id, content, cx))
         .child(content).child(div().text_color(t.muted).child(String(list.length)));
     };
-    return h_flex().id(`fizzy-reactions-${cm.id}`).pl(26).flex_wrap().gap(4).items_center()
+    return h_flex().id(`fizzy-reactions-${cm.id}`).flex_wrap().gap(4).items_center()
       .children([...by].map(chip))
       .child(this.rowButton(t, `fizzy-react-${cm.id}`, ICON("smile-plus"), () => this.reactMenu(cm), "Add reaction"));
   }
 
-  plainLines(id, text) {
-    return v_flex().id(id).w_full().text_size(textPx(13))
+  plainLines(id, text, size = 13) {
+    return v_flex().id(id).w_full().text_size(textPx(size))
       .children(textLines(text).map(line => (line ? div().whitespace_normal().child(line) : div().h(6).flex_none())));
   }
 
   // TextView can't color text, so the panel draws Fizzy's HTML itself; TextView only draws what that fails on.
-  // `inset`: how much narrower than the panel the text is, which no image is drawn wider than.
-  richView(t, id, html, inset) {
-    try { return this.richText(t, id, html, inset); }
+  // `inset`: how much narrower than the panel the text is, which no image is drawn wider than; `size`: the text's, in px.
+  richView(t, id, html, inset, size = 13) {
+    try { return this.richText(t, id, html, inset, size); }
     catch { return TextView.html(id, htmlForView(html)).selectable().on_link_click((url, cx) => cx.open_url(url)); }
   }
 
-  richText(t, id, html, inset) {
+  richText(t, id, html, inset, size = 13) {
     const column = Math.max(120, (this.width ?? 360) - inset);
-    return v_flex().id(id).w_full().text_size(textPx(13))
-      .children(richLines(html, people().users).map((line, i) => (line.file
+    return v_flex().id(id).w_full().text_size(textPx(size))
+      .children(richLines(html, t.users).map((line, i) => (line.file
         ? this.richFile(t, `${id}-${i}`, line.file, column, i > 0)
         : this.richLine(t, `${id}-${i}`, line, i > 0 && line.gap))));
   }
 
-  // An image at its own aspect ratio, as wide as it is but no wider than `column`, with its caption; until it is on disk, a box of
-  // its size. Any other file, an image over IMAGE_MAX and one that would not download is a file.
   richFile(t, id, f, column, gap) {
     const file = !f.image || f.size > IMAGE_MAX || this.fileFailed.has(f.key);
     return v_flex().w_full().gap(4).items_start().when(gap, el => el.mt(8))
@@ -2944,13 +3279,12 @@ export default class Fizzy extends View {
         .child(div().max_w(w - 16).truncate().child(f.filename)).child("Loading image…");
     }
     const path = `${FILE_DIR}/${cached}`;
-    return frame.cursor_pointer().tooltip(f.filename)
+    return frame.cursor_pointer().tooltip(f.filename).drag_paths([`${appHome()}/${path}`])
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))
       .on_click((_e, cx) => this.openFile(`${appHome()}/${path}`, cx))
       .child(image(path).size_full().rounded(6));
   }
 
-  // A paperclip, the file's name and size; a click saves it in Downloads (see saveFile).
   fileChip(t, id, f, column) {
     const size = fileSize(f.size);
     const tip = !f.sgid ? "Open in the browser" : isMarkdownName(f.filename) ? "Save to Downloads and open beside" : "Save to Downloads";
@@ -2986,7 +3320,6 @@ export default class Fizzy extends View {
       .child(h_flex().flex_1().min_w(0).flex_wrap().children(pieces.map((p, k) => this.richPiece(t, `${id}-${k}`, p))));
   }
 
-  // A mention bold in blue, a card reference bold in yellow (a click opens the card here), a link underlined (a click opens the browser).
   richPiece(t, id, p) {
     const color = { mention: t.ansi4, card: t.ansi3, link: t.accent }[p.kind];
     return div().min_w(0)
@@ -3007,8 +3340,7 @@ export default class Fizzy extends View {
     if (/^https?:\/\//i.test(url)) cx.open_url(url);
   }
 
-  // How an editor draws its tokens: a person bold in blue, a card bold in yellow, a file a small muted chip.
-  // A person whose mention id the panel has not learned is dim: saving keeps them as plain text, and nobody is told.
+  // Dim: a person with no learned mention id, saved as plain text without notifying them.
   tokenView(t) {
     const tagged = id => Boolean(this.mentionIds[id.slice("user:".length)]);
     return ({ token, selected, line_height }) => {
@@ -3020,11 +3352,6 @@ export default class Fizzy extends View {
         .when(selected, el => el.bg(t.selection))
         .child(token.text);
     };
-  }
-
-  // The lanes a card can move to, for the detail view's chip.
-  laneMenu(card, cx) {
-    this.withColumns(card, cx, columns => openMenu({ kind: "lanes", card: slim(card), columns }));
   }
 
   // A popup's request is noticed here (the panel is alive whenever a popup it opened is), by a draw or by the
@@ -3057,16 +3384,22 @@ export default class Fizzy extends View {
   renderPanel(cx) {
     const shown = fizzyVisible(layout()), became = shown && !this.shown;
     this.shown = shown;
-    this.syncBoard(cx);
-    this.takeRequest(cx, true);
-    if (became) this.poll(cx, true);
+    if (!checking()) {
+      this.syncBoard(cx);
+      this.takeRequest(cx, true);
+      if (became) this.poll(cx, true);
+    }
     const t = theme(), d = this.detail, picking = this.selected.size > 0;
     const lists = !this.settingsOpen && !d, fresh = Boolean(d) && this.fresh === d.number;
     return v_flex().id("fizzy").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(textPx(13))
       .on_size_change((size, cx) => {
+        const layoutNow = () => [this.narrow, this.wide, this.inlineSearch, this.sideBySide(), this.board ? this.openKeys(this.board).length : 0].join();
+        const was = layoutNow(), wasSide = this.sideBySide();
         this.width = size.width;
-        const narrow = size.width < NARROW, wide = size.width >= WIDE;
-        if (narrow !== this.narrow || wide !== this.wide) { this.narrow = narrow; this.wide = wide; cx.notify(); }
+        this.narrow = size.width < NARROW; this.wide = size.width >= WIDE; this.inlineSearch = size.width >= SEARCH_WIDE;
+        if (layoutNow() === was) return;
+        if (this.sideBySide() && !wasSide) this.loadOpenLanes(cx);
+        cx.notify();
       })
       .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.endDrag(cx); })
       // A card pressed and let go away from the panel (dragged into a terminal) is not held for ever: the next
@@ -3077,7 +3410,9 @@ export default class Fizzy extends View {
       .when(!this.settingsOpen && Boolean(d), el => el.child(this.detailView(t, cx)))
       .when(lists, el => el
         .when(this.view === "board" && !this.search, el => el.child(this.boardBar(t, cx)))
-        .child(v_flex().id("fizzy-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(8).children(this.listFor(t, cx))))
+        .child(this.view === "board" && !this.search && this.sideBySide()
+          ? this.boardColumns(t, cx)
+          : v_flex().id("fizzy-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(8).children(this.listFor(t, cx))))
       .when(!this.settingsOpen && fresh, el => el.child(this.freshBar(t)))
       .when(!this.settingsOpen && !fresh && (Boolean(d) || (lists && picking)), el => el.child(this.handBar(t)))
       .when(lists && !picking && !this.search && this.view !== "inbox", el => el.child(this.listBar(t)));
@@ -3112,7 +3447,6 @@ export default class Fizzy extends View {
       this.tagInput = InputState.new({ placeholder: "New tag…" });
       this.tagInput.on("submit", (_e, cx) => this.newTag(cx));
     }
-    // Typing goes on in the popup: the words narrow the people or the cards, Enter takes the one highlighted.
     if (PICKERS.has(menu.kind)) {
       this.looked = null; this.lookups = 0;
       this.tagInput = InputState.new({ placeholder: menu.kind === "mention" ? "Search people…" : "Card number or title…" });
@@ -3123,8 +3457,6 @@ export default class Fizzy extends View {
     }
   }
 
-  // A number typed in the Card popup that no card it was handed has is looked up once (`looked`, see cardRefRows), LOOKUP_DELAY ms
-  // after the typing stops.
   lookUpLater(cx) {
     const n = Number(/^\s*#?(\d+)\s*$/.exec(this.tagInput.value())?.[1]), asked = ++this.lookups;
     if (!n || this.looked?.number === n || this.menu.cards?.some(c => c.number === n)) return;
@@ -3162,15 +3494,14 @@ export default class Fizzy extends View {
   item(t, r, pick) {
     if (r.type === "sep") return div().h(1).mx(7).my(4).bg(t.border);
     if (r.type === "label") return div().px(9).pt(8).pb(4).text_size(textPx(11)).text_color(t.dim).child(r.label);
-    if (r.type === "note") return div().h(31).px(9).items_center().flex().text_color(t.dim).child(r.label);
+    if (r.type === "note") return div().h(ROW).px(9).items_center().flex().text_color(t.dim).child(r.label);
     const i = pick.indexOf(r), a = r.agent, tone = r.danger ? t.blocked : t.foreground;
-    // A person's row leads with their photo; the tick that says they are assigned follows the label.
     const icon = r.user ? this.avatar(t, r.user, 16)
       : r.checked ? svg(ICON("check")).size(14).flex_none().text_color(tone)
       : a ? this.agentIcon(t, a)
       : r.color ? div().w(14).flex_none().flex().items_center().justify_center().child(div().size(8).rounded_full().bg(r.color))
       : r.icon ? svg(r.icon).size(14).flex_none().text_color(r.danger ? t.blocked : t.muted) : div().w(14).flex_none();
-    return h_flex().id(`fizzy-menu-${r.id}`).h(31).flex_none().px(8).gap(9).rounded(7).items_center().text_color(tone)
+    return h_flex().id(`fizzy-menu-${r.id}`).h(ROW).flex_none().px(8).gap(9).rounded(7).items_center().text_color(tone)
       .when(i === this.at, el => el.bg(t.selected)).hover(s => s.bg(t.selected))
       .on_click((_e, cx) => this.choose(pick, i, cx))
       .child(icon).child(div().flex_1().min_w(0).truncate().child(r.label))
@@ -3180,6 +3511,7 @@ export default class Fizzy extends View {
 
   renderMenu() {
     const picker = PICKERS.has(this.menu.kind), query = picker ? this.tagInput.value() : "";
+    this.paths = shared("fizzy.avatars") ?? {}; // once per draw, not per person row: each read copies the whole map
     const t = theme(), rows = menuRows(this.menu, live({ known: this.known, checking: this.checking, failed: this.failed, armed: this.armed, query, looked: this.looked }));
     const pick = rows.filter(r => r.type === "row");
     this.pick = pick;
@@ -3187,9 +3519,7 @@ export default class Fizzy extends View {
     const kept = pick.findIndex(r => r.id === this.atId);
     this.at = kept >= 0 ? kept : Math.max(0, Math.min(this.at, pick.length - 1));
     this.atId = pick[this.at]?.id;
-    // A popup is as tall as its content, up to the height it asked for. The list scrolls, and a scroll area has
-    // no height of its own: left to its content the column is just its padding, an empty strip. So the column is
-    // as tall as its rows (at most the popup's inside) and the list fills it, scrolling if the rows outgrow it.
+    // A scroll area has no height of its own: the column gets one (its rows, at most the popup's inside) for the list to fill.
     const tags = FIELD_MENUS.has(this.menu.kind);
     return v_flex().id("fizzy-menu").track_focus(this.handle).w_full().h(Math.min(menuHeight(rows) + (tags ? INPUT_ROW : 0) - FRAME, this.most)).min_h(0).p(5).bg(t.popover).text_size(textPx(12.8))
       .on_key_down((e, cx) => {

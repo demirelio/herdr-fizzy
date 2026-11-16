@@ -2,3 +2,6 @@ node_modules/
 .DS_Store
 .fizzy.yaml
 .fizzy.yml
+mods/*/jsconfig.json
+mods/*/*.d.ts
+mods/*/*.error

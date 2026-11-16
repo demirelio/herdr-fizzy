@@ -218,6 +218,28 @@ test("the key command panel:fizzy does what the button does, reading the layout 
   assert.ok(b.cx.notified >= 2, "each command ends with cx.notify");
 });
 
+test("the key command search:fizzy shows the Fizzy page, never hiding it, and asks the Fizzy panel through shared state to open its search; with no Fizzy page it does nothing", async () => {
+  const b = bar();
+  state.layout = layoutWith({ hidden: false, active: "fizzy", children: WITH_FIZZY });
+  sendCommand("search:fizzy");
+  await tick();
+  assert.deepEqual(ran(), OPEN_FIZZY, "already shown: shown again, not hidden");
+  const [[key, request]] = calls.setShared;
+  assert.equal(key, "fizzy.request");
+  assert.deepEqual(request.op, { kind: "search" });
+  assert.match(request.id, /^search-\d+$/);
+  calls.run.length = 0; calls.setShared.length = 0;
+  sendCommand("Search fizzy");
+  await tick();
+  assert.deepEqual([ran(), calls.setShared.length], [OPEN_FIZZY, 1], "in any case, with a space");
+  calls.run.length = 0; calls.setShared.length = 0;
+  state.layout = layoutWith({ children: ["files", "changes"] });
+  sendCommand("search:fizzy");
+  await tick();
+  assert.deepEqual([ran(), calls.setShared], [[], []]);
+  assert.ok(b.cx.notified >= 3);
+});
+
 test("panel:<page> works for every offered page, in any case; anything else is ignored", async () => {
   bar();
   for (const command of ["panel:nowhere", "panel:", "panel", "other:tab", "open:42:n1", "panel:files", "PANEL:CHANGES", "Panel:Fizzy"]) sendCommand(command);
@@ -225,13 +247,17 @@ test("panel:<page> works for every offered page, in any case; anything else is i
   assert.deepEqual(ran(), WITH_FIZZY.flatMap(page => [["layout.select", { stack: "panel-body", child: page }], ["layout.show", { id: "panel" }]]));
 });
 
-test("tabs/keys.json binds its keys to fizzy-tabs, and the command it sends opens the Fizzy page", async () => {
-  const actions = Object.values(KEYS).flatMap(Object.values);
-  assert.deepEqual([...new Set(actions)], ["fizzy-tabs.panel:fizzy"]);
-  bar();
-  sendCommand(actions[0].slice("fizzy-tabs.".length));
-  await tick();
-  assert.deepEqual(ran(), OPEN_FIZZY);
+test("tabs/keys.json binds its keys to fizzy-tabs, and each command it sends opens the Fizzy page (the search's opens its search too)", async () => {
+  const actions = [...new Set(Object.values(KEYS).flatMap(Object.values))];
+  assert.deepEqual(actions, ["fizzy-tabs.panel:fizzy", "fizzy-tabs.search:fizzy"]);
+  for (const action of actions) {
+    bar();
+    calls.run.length = 0; calls.setShared.length = 0;
+    sendCommand(action.slice("fizzy-tabs.".length));
+    await tick();
+    assert.deepEqual(ran(), OPEN_FIZZY, action);
+    assert.deepEqual(calls.setShared.map(([key, value]) => [key, value.op]), action.endsWith("search:fizzy") ? [["fizzy.request", { kind: "search" }]] : [], action);
+  }
 });
 
 test("one loop: a command whose run() throws does not end it", async () => {
@@ -258,7 +284,10 @@ test("syncPanel gets the pages the bar offers: Fizzy among them only when the la
 // A clone that another patch already gave a nextCommand() loop: tabs/README.md's hand merge.
 const OTHER_LOOP = `  init(_props, cx) {
     this.pressed = null;
-    this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+    this.scroll = ScrollHandle.new();
+    try { this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}"); } catch { this.panels = {}; }
+    if (!this.panels || typeof this.panels !== "object" || Array.isArray(this.panels)) this.panels = {};
+    this.swipe = { acc: 0, steps: 0, at: 0, last: 0 };
     cx.spawn(async cx => {
       for (;;) {
         const command = await nextCommand();
@@ -279,7 +308,7 @@ test("a clone with a loop of its own: only the import and loop hunks are refused
   const imports = HUNKS.find(hunk => hunk.added.some(l => /^import .*\bnextCommand\b.* from "herdr";$/.test(l)));
   assert.ok(imports, "a hunk adds nextCommand to the import from herdr");
   const looped = STOCK.replace(imports.body.find(l => l[0] === "-").slice(1), imports.added[0])
-    .replace(/  init\(\) \{\n.*\n.*\n  \}\n/, OTHER_LOOP);
+    .replace(/  init\(\) \{\n(?:    .*\n)*  \}\n/, OTHER_LOOP);
   assert.match(looped, /otherCommand\(command\) \{/);
   writeFileSync(join(dir, "main.js"), looped);
   assert.notEqual(patch(dir, ["--dry-run", "-N", "-F", "0"]).status, 0, "-N takes the import that is already there for an applied patch");

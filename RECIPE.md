@@ -1,12 +1,14 @@
 # Fizzy
 
 A **Fizzy** page in the right panel, next to Files and Changes, opened from a Fizzy button in the tab bar. It shows a
-Fizzy board as tinted lane blocks of card tiles, your cards on every board, your unread notifications and your pinned
-cards, and searches every board; a card is made at once and opens in the panel to be renamed, moved, assigned, tagged,
-ticked off and commented on, with @-mentions, card links, reactions, images and files. A bar at a card's foot hands it
-to a coding agent running in Herdr by pasting a one-line reference into the agent's input, never submitted. Unread
-notifications pop up as toasts even while the panel is hidden, and a dot on the button shows while there are any.
-Everything goes through the `fizzy` CLI.
+Fizzy board as tinted lane blocks of card tiles (on a wider panel, its lanes side by side as in Fizzy), your cards on
+every board, your unread notifications and your pinned cards, and searches every board; a card is made at once and
+opens in the panel to be renamed, moved, assigned, tagged, ticked off and commented on, with @-mentions, card links,
+reactions, images and files. A bar at a card's foot hands it to a coding agent running in Herdr by pasting a one-line
+reference into the agent's input, never submitted. Unread notifications pop up as toasts even while the panel is
+hidden, and a dot on the button shows while there are any. Everything goes through the `fizzy` CLI.
+
+![Fizzy](preview.png)
 
 ## What you see
 
@@ -14,33 +16,41 @@ Top to bottom, inside the panel (Herdr's `main` layout gives it 368 px, at least
 column, rounded 10, with a 1 px `border` and the `background` color; text is 13 px in `foreground`. Colors here are
 theme names.
 
-- **Header**, 42 px, padding 10, a 1 px line under it. At the left, **Fizzy**: the kanban icon (14 px) and, from 440 px
-  of panel width, the word "Fizzy" in semibold, 26 px high; it is `selected` while the Board view shows, and without
-  the word it has the tooltip "Board". Then **Mine**, **Inbox** and **Pins** (12 px, `selected` when shown); while
-  there are unread notifications, Inbox carries a round 16 px badge in `accent` with their number. At the right (gap
-  2), **Search** (tooltip "Search all boards"), **Refresh** and **Settings**: 26 px icon buttons, 14 px icons in
-  `muted`, `hover` behind them and `foreground` on hover. The panel's width has three tiers, measured on the panel's
-  root (its border included):
+- **Header**, 46 px, padding 12, a 1 px line under it, in three parts. At the left, the search alone (below). In the
+  middle, one round group (a 1 px `input` border, padding 2, gap 2) of 24 px pills, 12 px, `muted`; the one shown
+  `selected`, `foreground` and medium; `hover` and `foreground` on hover: first **Fizzy**, the kanban icon (14 px) and,
+  from 440 px of panel width, the word "Fizzy" in semibold, which shows the Board view (without the word it has the
+  tooltip "Board"); then **Mine**, **Inbox** and **Pins**. While there are unread notifications, Inbox carries a round
+  16 px badge in `accent` with their number. At the right (gap 6), **Refresh** and **Settings**, round 30 px buttons
+  as on a card's page. The left and right parts share the room left equally, so the group stays centered while they
+  fit. While search results show, no view is lit. The panel's width has four tiers, measured on the panel's root (its
+  border included):
 
-  | Panel width | Fizzy and the views | Gap | Refresh |
-  |---|---|---|---|
-  | 440 px and up | icon and word, padding 8 | 8, 3 between the views | shown |
-  | 340 to 439 px (368 by default) | icon alone, padding 6 | 6, 2 between the views | shown |
-  | under 340 px | icon alone, padding 6 | 6, 2 between the views | left out |
+  | Panel width | Fizzy | The views' padding | Gap | Search | Refresh |
+  |---|---|---|---|---|---|
+  | 560 px and up | icon and word | 12 | 8 | the field | shown |
+  | 440 to 559 px | icon and word | 12 | 8 | a round button | shown |
+  | 340 to 439 px (368 by default) | icon alone | 8 | 8 | a round button | shown |
+  | under 340 px (padding 10) | icon alone | 6 | 4 | a round button | left out |
 
-  Without Refresh, Refresh stays reachable by the `refresh` key and the 30 s poll. While the search is open, the
-  header (padding 10, gap 6) is Back (26 px, arrow-left, tooltip "Back") and the search field, taking the room: 28 px,
-  rounded 7, 1 px `accent` border, `background`, 12 px, padding 8, placeholder "Search all boards, or #number…". While
-  a field has words, a 20 px **x** sits at its right end inside it (4 px in, rounded 5, a 12 px x in `dim`; `hover`
-  behind it and `foreground` on hover; tooltip "Clear"), and the field's right padding is 28.
-- **Board row**, 36 px, padding 10, gap 6, **in the Board view only** (Mine, Inbox and Pins go straight from the header
-  to their list; it is left out while the search is open): a select and a button. The select takes the room: 28 px,
-  rounded 7, 1 px `input` border, `background`, padding 8, gap 7, `hover` behind it on hover; a 14 px kanban icon in
-  `muted`, the board's name (13 px medium, `foreground`, `dim` with no board, cut with an ellipsis), "Following space"
-  (11 px `dim`, left out when narrow) while following and showing the space's own board, and a 12 px chevron in `dim`
-  at the right end. Its tooltip is "Following the current space" in that case, else "Switch board". At its right,
-  **Open board in Fizzy**: 36×28, rounded 7, 1 px `input` border, `background`, a 14 px external-link icon in `muted`
-  (`foreground` and `hover` behind it on hover; `dim` and inert without a url), tooltip "Open board in Fizzy".
+  Without Refresh, Refresh stays reachable by the `refresh` key and the 30 s poll. The search field is round like the
+  list bar's filter: 30 px, a 1 px `input` border (`accent` while a search is open), `background`, 12 px, padding 32 at
+  the left with a 14 px search icon in `dim`, placeholder "Search all boards, or #number…"; while it has words, a
+  round 20 px **x** sits 5 px in from its right end (a 12 px x in `dim`; `hover` behind it and `foreground` on hover;
+  tooltip "Clear"), and the right padding is 30. Under 560 px the round button (tooltip "Search all boards") opens the
+  search: the header becomes Back (round, arrow-left) and that field, taking the room.
+- **Board row**, as Fizzy's head, padding 12 by 6, gap 10, **in the Board view only** (Mine, Inbox and Pins go straight
+  from the header to their list; it is left out while the search is open): **Who can see this board**, a 1 px `border`
+  rule, the board's name, another rule, **Open board in Fizzy**. The rules share the room around the name. The name
+  (17 px bold, `foreground`, `dim` with no board, cut with an ellipsis) and a 12 px `dim` chevron, with "FOLLOWING SPACE"
+  (10 px medium `dim`) under them while following and showing the space's own board; rounded 8, `hover` behind it on
+  hover, a click opens the boards list. Its tooltip is "Following the current space" in that case, else "Switch board".
+  The two buttons are 30 px circles with a 1 px `input` border and a 14 px icon in `muted` (`users`; `external-link`),
+  `foreground` and `hover` behind on hover; `dim` and inert with no board (Open in Fizzy: without a url; Who can see:
+  until `board accesses` has answered). Who can see opens a popup: **Everyone on the team** (`users`, ticked when
+  `all_access`; choosing it writes `board update <id> --all_access true|false`, shown at once, then read again), then
+  `N people can see it` (or `Everyone can see it`) over the active people who can, and **Change who can see it in
+  Fizzy**; a person's row and that one open the board's page.
 - **The list**, scrolling, padding 8, gap 8:
   - Board: one block per lane, rounded 10, a 1 px border in the lane's color at alpha `33`. Its header, 34 px, padding
     10 at the left and 6 at the right, gap 8, has the lane's color at alpha `26` behind it (`40` on hover): a 12 px
@@ -52,17 +62,26 @@ theme names.
     `#e5b422`, lime `#8cc63f`, aqua `#2fbfbf`, violet `#7c5ce6`, purple `#a855c7`, pink `#e8579f`, red `#e5484d`, orange
     `#f08a24`, green `#3fa65b` (Fizzy also sends `var(--color-card-N)`: default blue, 1 gray, 2 tan, 3 yellow, 4 lime,
     5 aqua, 6 violet, 7 purple, 8 pink). Fizzy gives Maybe?, Not Now and Done none: Maybe? is `#4f8ef7` (Fizzy's own
-    blue), Not Now `#8a8f98`, Done `#3fa65b`. A column whose color is not known is `#8a8f98`.
-  - A card is a tile: padding 7 at the left, 6 at the right, 8 above and below, gap 9, rounded 8, its lane's color at
-    alpha `1f` behind it and a 1 px border at `4d` (`99` on hover); golden, a 2 px `ansi3` border instead; picked,
-    `selected` behind it and a 1 px `accent` border (golden too). At its left, a 3 px bar in the lane's color, as tall
-    as the tile, rounded 2. Then two lines, gap 7. Line one: a 13 px pin in `accent` when the pin list has the card,
-    the whole title (medium, wrapping), and two 22 px buttons, Insert (↵) and More (⋯), gap 1. Line two, 11 px `dim`,
-    gap 6: `#number`; up to three tag chips (`background`, rounded 5, at most 150 px) and `+N`; up to three 18 px round
-    avatars, gap 2; the inactivity label; the time since it changed (`now`, `5m`, `3h`, `2d`, then `Mar 4`, with the
-    year when it is not this one). The label is 16 px high, padding 5, rounded 4, with a 1 px border and medium text in
-    one color: `ansi3` for `Closes in Nd` and `Closes today`, `blocked` for `Stalled`. In Mine, Pins and the search a
-    tile takes its own lane's color.
+    blue), Not Now `#8a8f98`, Done `#9aa0aa` (Fizzy's muted gray). A column whose color is not known is `#8a8f98`.
+  - A card is drawn as Fizzy's: rounded 8, clipped, `background` behind it and a 1 px `border` border (`input` on
+    hover); golden, a layer under its content (`window.paint_path`, the card's whole rectangle) filled with a 45° linear
+    gradient from `#e5b42200` to `#e5b42238`; picked, `selected` behind it and a 1 px `accent` border. Its top line
+    starts with a tab at the card's top left in the lane's color (padding 9 by 4, its bottom right corner rounded 6,
+    11 px semibold `#15171c` text): the number, a 1 px rule, the board's name in capitals. In Mine, Pins and the search
+    the lane's name in capitals follows (10 px, in the lane's color, after a 6 px dot). At its right: `✓ done/total`
+    (`circle-check` in the lane's color, `done` when all are done) once the counts are read, the inactivity label, and
+    two 22 px buttons, Insert (↵) and More (⋯). Then, padding 11 by 6 and 10, gap 7: a 13 px `accent` pin when the pin
+    list has the card and the whole title (13 px, bold, wrapping); up to three tag chips (`#tag`) and `+N`. Then the
+    meta line (10 px, in the lane's color): the creator's 20 px avatar; `ADDED <days>` over the creator's name, a rule
+    between; a 1 px divider; `refresh` and the day it last changed over `arrow-right` and the assignees' names; up to two
+    20 px assignee avatars; at the right `message-square-text` (in the lane's color) and the comment count when there are
+    comments. Days are calendar days: `TODAY`, `YESTERDAY`, `N DAYS AGO`. The label is 16 px high, padding 5,
+    rounded 4, with a 1 px border and medium text in one color: `ansi3` for `Closes in Nd` and `Closes today`, `blocked`
+    for `Stalled`.
+  - A compact card (Settings > Cards): the tab is padding 7 by 2, rounded 5, 10 px, and in a board's own lane holds the
+    number alone; the rest of the top line is as above. Then, padding 10 by 3 and 7, gap 4: the pin (12 px) and the
+    title (12 px, bold, wrapping); no tags; and one line (10 px medium, in the lane's color): up to three 16 px
+    assignee avatars, `refresh` and the day it last changed, and at the right the comment count with a 12 px icon.
   - Mine and search results: a 26 px board name (12 px, medium, `muted`) over that board's cards.
   - Inbox: a **Mark all read** button, then one block per note: a 7 px `accent` dot, the sender's 16 px avatar, the
     title in semibold; the text (12 px, `dim`, wrapping); `#number · board · sender · time` (11 px, `dim`).
@@ -70,54 +89,82 @@ theme names.
   - States as one dim 12 px line: `Loading…`, `Press Enter to search every board, comments included.` (the search,
     before Enter), `Searching…`, `No cards`, `No cards match`, `No cards found` (the search), `No boards`,
     `No pinned cards`, `You're all caught up`; an error adds a 28 px **Retry** row.
-- **The bars**, at the foot: one line each, `chrome` behind it, a 1 px line above it, padding 6.
+- **The bars**, at the foot, in the board row's look: no background or line of their own. The list bar is one line,
+  padding 12 across and 6 down, gap 8.
 
   | Where | Bar |
   |---|---|
-  | Board, no card picked | the filter, My cards and New card (gap 6) |
+  | Board, no card picked | the filter, My cards, Golden cards and Pinned cards |
   | Mine and Pins, no card picked | the filter |
   | A card; a list or the search with cards picked | the hand-off buttons |
   | A card New card has just made | Discard and Done |
   | The Inbox; the search with no card picked; Settings | none |
 
-  - The filter takes the room: a 28 px field, rounded 7, 1 px `input` border, `background`, 12 px, padding 28 at the
-    left, where a 14 px search icon sits in `dim` (9 px in, 7 down), and the **x** of the search field while it has
-    words. The Board view's field says "Filter this board…"; Mine and Pins share one that says "Filter cards…".
-  - **My cards**: 28 px, rounded 7, padding 8, gap 5, 12 px, a 13 px user icon and "My cards", a 1 px `input` border,
-    `background`, `muted` text, `hover` behind it on hover; on, an `accent` border, `selected` behind it and
-    `foreground` text.
-  - **New card**: 28 px, rounded 7, padding 10, gap 5, 12 px medium, a 13 px plus and "New card", in the
-    primary-button colors (`solid` behind `solid_foreground`; `opacity` 0.88 on hover). Until a board shows it is
-    `raised` and `dim`, with no hover, pointer or click.
-  - Below 340 px My cards and New card are their icon alone, 28×28, with the tooltips "My cards" and "New card".
-  - The hand-off buttons, gap 4: four buttons sharing the width, each 28 px, rounded 7, `raised`, 12 px medium:
+  - The filter takes the room: a 30 px round field, 1 px `input` border, `background`, 12 px, padding 32 at the left,
+    where a 14 px search icon sits in `dim` (12 px in, 8 down), and 14 at the right; while it has words, a round 20 px
+    **x** 5 px in from the top and right. The Board view's field says "Filter this board…"; Mine and Pins share one
+    that says "Filter cards…".
+  - **My cards** (user icon), **Golden cards** (star) and **Pinned cards** (pin): the board row's round buttons, 30 px,
+    a 1 px `input` border, the 14 px icon in `muted`, the name as the tooltip, `hover` behind it on hover. On, the
+    border and icon take the filter's color (`accent`; Golden cards Fizzy's gold `#e5b422`) and `selected` is behind it.
+  - The hand-off bar is in the list bar's look too (padding 12 across, 4 above, 8 below, gap 6): first
+    `HAND THIS CARD TO AN AGENT` (`HAND N CARDS…` with several picked) in 10 px semibold `dim` between two `border`
+    rules, then four round buttons sharing the width, gap 6, each 30 px, a 1 px `input` border, 12 px medium:
     **Insert**, **Send** ▾, **Start** ▾, **Copy**, each with a 13 px icon before its label and an 11 px chevron after
-    Send and Start. Below 340 px the icons go and the labels and chevrons stay, on one line at 280.
-  - **Discard** at the left and **Done** at the right: 30 px text buttons, padding 10, gap 6, rounded 7, 12 px medium,
-    a 13 px icon (trash, check), `opacity` 0.88 on hover; Discard `raised` behind `foreground`, Done in the
-    primary-button colors.
+    Send and Start, and a tooltip saying what it does ("Paste into the chat in view, or drag into a terminal", "Paste
+    into a running session", "Start a new agent session with it", "Copy the reference"). Below 340 px the icons go and
+    the labels and chevrons stay, on one line at 280.
+  - **Discard** at the left and **Done** at the right (padding 12 across, 8 down): round 30 px text buttons, padding
+    14, gap 6, 12 px medium, a 13 px icon (trash, check), `opacity` 0.88 on hover; Discard `raised` behind
+    `foreground`, Done in the primary-button colors. Every text button in the panel (Save, Cancel, Comment) is round.
 
-**A card**, in place of the board row and list: a 42 px top bar (Back, `#number` and the board in 12 px `dim`, then
-three 26 px toggles: pin and watch lit in `accent` on `selected`, golden lit in `ansi3`; Open in Fizzy, left out when
-narrow; More). Then the title (15 px semibold, wrapping; edited, a 34 px field in 15 px, `accent` border, placeholder
-"Card title", and an x) with a 26 px lane chip at its right (an 8 px dot in the lane's color, the lane's name at most
-140 px, 96 when narrow, a chevron); **People** (20 px avatars and names) and **Tags** (chips), each with a 52 px label;
-**Description** (rich text; `No description`); **Steps** with `done/total` (16 px boxes, `accent` when ticked, ticked
-text struck through and `dim`; a field "Add a step" at the end); **Comments** with a count (20 px avatar, name in
-medium, time; the rich text indented 26 px, the reactions under it; an **Activity** row, folded, with Fizzy's own
-lines at 11 px), and at the end a three-line box "Write a comment… (@ mention, # card, drop or paste images)" with a
-**Comment** button. The description's editor is eight lines, "Add a description… (@ mention, # card, drop or paste
-images)"; a comment's own, four lines. While a file uploads into a box, `Uploading <name>…` (11 px `muted`, cut) shows
-under it.
+**A card**, in place of the board row and list, drawn as Fizzy draws one. A 46 px top bar of round 30 px buttons:
+Back at the left, then, once the card's board is known, that board as a 30 px pill (a 1 px `input` border, padding
+12, gap 6, a 13 px kanban icon and the name, 12 px medium `muted`, cut when short of room; `hover` and `foreground` on
+hover; tooltip `Show the <board> board`): a click closes the card and shows that board in the Board view, picked as
+in the dropdown (following stops) unless it is the board shown already. At the right the toggles golden (lit in
+Fizzy's gold `#e5b422`), watch (a bell, lit in `accent`; a crossed bell once set to not watching) and pin (lit in
+`accent`), each lit with its color as border and icon on `selected`; Open in Fizzy, left out when narrow; More. Under
+it, padding 10 (16 below), gap 12:
 
-**Rich text** (a description, a comment) is drawn by the panel, 13 px. A block (paragraph, list, heading, quote, `pre`,
-image, file) starts 8 px under the one before; a line break starts a line; a line wraps between its words. Bold and
-headings are bold, italic italic, `code` and `pre` in the theme's mono font (`pre` keeps its white space). A list item
+- **The card**, framed: an 8 px frame in the lane's color at `33`, rounded 12, around the card itself (`background`,
+  rounded 8; the gold glow of a golden card, as on the board). At its top left the tab, 28 px in the lane's color,
+  bottom-right corner rounded 8, 12 px semibold in `#15171c`: `No.` (at 70 % opacity) and the number | the board's
+  name in capitals with a chevron (a click opens `moveBoard`); beside it a round 26 px **Tags** button (tag icon).
+  Then, padding 14 across, 10 above and 14 below, gap 14: the title, bold, 20 px from 440 px wide and 17 px below,
+  wrapping, in the lane's color 55 % of the way to white (edited, a 38 px field of the same size, `accent` border,
+  placeholder "Card title", and an x); the lanes of the card's board in the board's order as 24 px round 11 px
+  semibold capitals, the card's own filled in its color with `#15171c` text, the others in its color (tooltip
+  `Move to <lane>`, a click moves the card); its tags as chips; the description (rich text at 14 px;
+  `No description`); the steps (16 px boxes outlined in the lane's color, filled with a `#15171c` check when ticked,
+  ticked text struck through and `dim`; a 22 px bin at the right only while the pointer is on the step, an empty
+  space of that size otherwise; at the end an empty box and a borderless field "Add a step…" in the lane's color);
+  and the foot, 11 px in the lane's color: who made it (28 px photo), `ADDED <when>` and `BY <name>`, a
+  `border` line, `UPDATED <when>` (refresh icon) and `ASSIGNED TO <names>` (arrow icon; `nobody`), the values bold,
+  then the people's 26 px photos and a round 26 px add-person button (the whole of it opens `users`, tooltip
+  "Assign"). Before the card is read whole only what the list knew is there; a field the card does not carry
+  (a notification's stub) leaves its button dim and does nothing.
+- **Edit** (the description's editor) and **Mark as Done** (`Reopen` on a done card) centered under it: round 32 px
+  buttons in the lane's color, 13 px semibold `#15171c`. Then, on an open card of a board with an auto-postpone
+  period, Fizzy's line in the lane's color, centered: `Moves to “Not Now” in N days if there’s no activity.`
+- **Comments**: `COMMENTS` and the count between two rules, as the hand-off bar's label; `No comments` when there are
+  none. Each comment is the writer's 28 px photo beside a `raised` box (rounded 8, padding 12 across and 8 down):
+  the name in bold, the time, Edit and Delete for your own, the rich text, the reactions. An **Activity** row, folded,
+  holds Fizzy's own lines at 11 px. At the end your photo beside a three-line box (`raised`, rounded 8, padding 10)
+  "Write a comment… (@ mention, # card, drop or paste images)" and a round **Comment** button under it at the right.
+
+The description's editor is eight lines, "Add a description… (@ mention, # card, drop or paste images)"; a comment's
+own, four lines. While a file uploads into a box, `Uploading <name>…` (11 px `muted`, cut) shows under it.
+
+**Rich text** (a description at 14 px, a comment at 13 px) is drawn by the panel. A block (paragraph, list, heading,
+quote, `pre`, image, file) starts 8 px under the one before; a line break starts a line; a line wraps between its
+words. Bold and headings are bold, italic italic, `code` and `pre` in the theme's mono font (`pre` keeps its white
+space). A list item
 has its `•` or `N.` in a 20 px column in `dim`, a nested list 20 px further in; a quote has a 2 px `border` line at its
 left, 8 px of padding, and `muted` text. A link is `accent` and underlined; a mention is `@Full Name` in bold `ansi4`;
 a card link is `#N Title` in bold `ansi3`.
 
-- An image is as wide as it is, at most the text's width (the panel's width less 40 px in the description, 66 in a
+- An image is as wide as it is, at most the text's width (the panel's width less 70 px in the description, 86 in a
   comment, never under 120), at its own aspect ratio (0.6 when not known; at least 24 px high), rounded 6, with a 1 px
   `border`. Until it is on disk, that box is `raised`, with its file name and `Loading image…` (12 px `dim`) in the
   middle. A caption goes under it in 12 px `muted`.
@@ -135,16 +182,20 @@ tooltip "Add reaction".
 has no mention id for that person), `#N Title` in bold `ansi3`, and `🖼 name` (an image) or `📎 name` (another file)
 in 12 px `muted` on `raised`, rounded 4, padding 5. A selected token has `selection` behind it.
 
-**Settings**, from the gear: a 42 px header with Back (tooltip "Back"; on a page, "Settings") and "Settings" or the
-page's name, in semibold. Then, padding 10, gap 8, the list: one 52 px block per setting (padding 12 across and 8 down,
-gap 12, rounded 9, 1 px `border`, `input` on hover, `surface`): a 30 px square (rounded 8, `background`) with a 15 px
-icon in `muted` (user for Mentions, kanban for Board groups), the name (medium) over what it is set to (12 px `dim`,
-cut), and a 14 px chevron-right in `dim`.
+**Settings**, from the gear: a 46 px header with a round Back (tooltip "Back"; on a page, "Settings") and "Settings"
+or the page's name, in semibold. Then, padding 10, gap 8, the list: one 52 px block per setting (padding 12 across
+and 8 down, gap 12, rounded 9, 1 px `border`, `input` on hover, `surface`): a 30 px square (rounded 8,
+`background`) with a 15 px icon in `muted` (user for Mentions, kanban for Board groups, rows-3 for Cards), the name
+(medium) over what it is set to (12 px `dim`, cut), and a 14 px chevron-right in `dim`.
 
 | Setting | What it is set to |
 |---|---|
 | Mentions | `Can tag N of M people · Finds new ones by itself`, or `· Manual only`; `Loading people…` |
 | Board groups | `N groups`, `1 group` or `No groups` |
+| Cards | `Full` or `Compact` |
+
+- **Cards**: one block, **Compact cards**, noting what a compact card shows, with the switch (as Mentions' has it) and
+  `On` or `Off`. It is kept between runs (`compactCards`, off at first).
 
 - **Mentions**: four blocks (padding 12, gap 8, rounded 9, 1 px `border`, `surface`; a title in medium, then a note in
   12 px `dim`, then the controls): `You can tag N of M people`, noting `Not yet: <names>` or `Everyone can be tagged
@@ -186,9 +237,9 @@ dot after the label while `fizzy.unread` is above zero.
   first board. That default is kept for the next start; the very first start waits for it before it picks a board.
   Picking a board in the dropdown stops following; its first row, **Follow current space**, starts it again and shows
   the space's board (or `no .fizzy.yaml`) as its hint.
-- **New card.** Fizzy has no drafts, so New card makes the card at once. The Board view bar's New card opens the
-  `newCard` popup: the label "New card on", then the boards as the dropdown lists them (hidden ones left out, except
-  the board shown), the board shown ticked and highlighted so that Enter means "on this board", and no Follow row.
+- **New card.** Fizzy has no drafts, so New card makes the card at once. The `new` key opens the `newCard` popup:
+  the label "New card on", then the boards as the dropdown lists them (hidden ones left out, except the board shown),
+  the board shown ticked and highlighted so that Enter means "on this board", and no Follow row.
   Choosing a board writes `fizzy.board` with `compose: true`. The panel moves to that board as for any pick (following
   off, the pick kept), except when it is the board already shown: then following and the pick stay as they are. A
   moment later (a draw may not act) it leaves an open card or Settings, shows the Board view, closes the search, and
@@ -197,12 +248,39 @@ dot after the label while `fizzy.unread` is above zero.
   the newest open card titled `New card` is the one. The card opens with its title field empty and focused; Enter
   saves the title, and Escape, or no title, leaves `New card`. Its foot is **Discard** (`card delete`, then back to
   the list) and **Done** (back to the list). While one is being made, New card does nothing; a failure is an `error`
-  toast. The `new` key opens the same popup, and does nothing without a board.
-- **Board.** Lanes in the order of `fizzy column list`; Maybe? first and Not Now and Done last when missing. Not Now
-  and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show more** (50
-  more). A header's click folds its lane (kept per board). In each lane golden cards come first, the rest in Fizzy's
-  order. Pressing a card and letting go anywhere over another lane's block (its header, its cards or between them)
-  moves it there; the change shows at once and the list reads again after the CLI answers.
+  toast. Without a board the `new` key does nothing.
+- **Board, side by side** (from 480 px of panel width): `fizzy-columns`, the lanes in a row, gap 8, padding 8,
+  centered. Open lanes (`openColumns`, per board, Maybe? when none; one below 760 px, two from 760 px, the one opened
+  longest ago folding first) share the width, each at most 380 px: a 30 px head (a 10 px dot in the lane's color but
+  on Done, the name in capitals, 13 px semibold, + on Maybe? and the columns) over their cards, which scroll on their
+  own. A folded lane is 36 px wide,
+  as tall as the board, clipped: its count (13 px semibold, 10 from the top) and its name in capitals read top to bottom,
+  over a pill (`window.paint_path`: round at both ends, radius 18) filled with a 180° gradient from the lane's color at
+  `b3` (`#8a8f98` for Not Now and Done) to the same at `1a`, 36 px tall and 28 more per card, at most 480 (480
+  while Not Now or Done is not read), over a 1 px line in the color at `4d` from below the name to the foot. Under the
+  pointer (`on_hover`) the pill goes from `e6` to `33` and the line to `80`. The name is an SVG file
+  (`data/fizzy/labels/<shortHash>.svg`, its text turned 90°), written by the request timer once per run; until it is
+  there the pill shows its count alone. A pill's click opens its lane; an open lane's
+  head folds it unless it is the only one open. Not Now and Done are read when they open.
+- **Board, stacked** (narrower): lanes in the order of `fizzy column list`; Maybe? first and Not Now and Done last when
+  missing. Not Now and Done start folded and are read when unfolded; Done reads page by page and shows 50, then **Show
+  more** (50 more). A header's click folds its lane (kept per board).
+- **Maybe?'s head** (both): `fizzy-watch`, a bordered box, padding 12 by 14: **Add a card** (`solid`, rounded full;
+  New card in Maybe?), then once `board accesses --jq` has named the watchers (read with the columns), `WATCHING FOR NEW
+  CARDS` between two rules, their 28 px avatars (eight, then `+N`), and **Watch for new cards** (`bell`) or **Stop
+  watching** (`bell-off`) in `accent` for the signed-in user: `board involvement <id> --involvement watching` or
+  `access_only`, shown at once, then the watchers are read again.
+- **Card counts.** After each read of the board (and of Not Now or Done), every card whose kept counts are not for its
+  `last_active_at` is wanted; the request timer reads them three cards at a time with `card show` (its steps) and
+  `comment list --card <n> --all --jq '{ok, data: ((.data // []) | length)}'`. Kept for the last 400 cards (`counts`); a
+  failed read is kept too, so it is not asked again until the card changes. Opening a card sets its counts from the card
+  page's own reads.
+- **Board, both.** In each lane golden cards come first, the rest in Fizzy's order. Pressing a card and letting go
+  anywhere over another lane's block (its header, its cards or between them, or its folded pill)
+  moves it there; the change shows at once and the list reads again after the CLI answers. Pressing a column's header
+  and letting go over another column's block moves the column to that place (before it moving left, after it moving
+  right): the lanes reorder at once, `column move-left` or `move-right` runs once per place, and the columns are read
+  again. Maybe?, Not Now and Done neither move nor take a column.
 - **Inactivity.** A card that is neither closed nor postponed shows Fizzy's own warning, as Fizzy's card decides it.
   With the board's `auto_postpone_period_in_days` (from `board list`) as P, and N the calendar days from today to the
   day `last_active_at` plus P days falls on: when N is under P × 0.25, rounded, `Closes in Nd`, or `Closes today` when
@@ -212,22 +290,29 @@ dot after the label while `fizzy.unread` is above zero.
   any card is picked, the hand-off buttons replace the list's bar.
 - **Filter.** As you type, every word must appear in the title, `#number`, a tag, an assignee's name, the column or the
   first 300 characters of the description. The Board view's field is its own; Mine and Pins share the other. My cards
-  keeps the cards assigned to the signed-in user. On Board, while words or My cards filter, every lane holding a match
+  keeps the cards assigned to the signed-in user, Golden cards the golden ones, Pinned cards those in the pins list;
+  with several on, a card must pass them all. On Board, while words or a filter narrow it, every lane holding a match
   is drawn unfolded; the fold kept for it does not change. The x empties the field.
-- **Search.** The header's search icon (and the `search` key) leaves an open card or Settings and turns the header into
-  the search field, focused; the search takes the place of any view's list, and the board row and the list's bar go. The
-  field keeps its words when the search closes. Enter runs one `fizzy search` (account-wide: every board, open, Not Now
-  and closed cards, comments), shows `Searching…`, then a section per board; a newer search drops the older one's
+- **Search.** The `search` key leaves an open card or Settings and puts the focus in the search field: from 560 px it is
+  in the header already; narrower, the header's search button (and the key) turns the header into it, with the
+  search's page under it. Once Enter runs a search, its results take the place of any view's list, and the board row
+  and the list's bar go; the header stays. The field keeps its words when the search closes. Enter runs one
+  `fizzy search` (account-wide: every board, open, Not Now and closed cards, comments), shows `Searching…`, then a
+  section per board; a newer search drops the older one's
   results. A leading `#` and surrounding white space are cut from the words. When 15 cards come back (Fizzy's most), a
   dim line says `Fizzy shows its 15 newest matches. Add words to narrow it.` When Fizzy does not answer (TIMEOUT or
   `rate_limit`: its limit is 300 searches an hour per user), the line says `Fizzy didn't answer the search. Its search
   limit (300 an hour, shared with your agents) may be used up. Try again later.` with Retry, and nothing retries by
   itself. A field holding only `#<number>` (white space around it allowed) opens that card and closes the search, with
   the field emptied: pasted (more than one character arriving at once), at once; typed, on Enter, so `#4` on the way
-  to `#42` opens nothing. Back, Escape, and the `back` and `view` keys close the search; the x empties the field and
-  closes it.
-- **Card.** Click the title to rename (Enter saves, Escape or the x cancels); the lane chip opens the lanes popup;
-  People and Tags open their pickers (people: you first, with `you` as the hint; tags: a "New tag…" field at the top).
+  to `#42` opens nothing. Back, Escape, a view, and the `back` and `view` keys close the search; the x empties the
+  field and closes it.
+- **Card.** Click the title to rename (Enter saves, Escape or the x cancels); a lane moves the card there at once
+  (Done closes it, Not Now postpones it), as Mark as Done does; the board on the tab moves it to another board (the
+  card leaves the lists but stays open, its tab naming the new board at once, then it is read again; a deleted card
+  closes). The lanes are the card's own board's: when that board's columns are not known yet, they are read once
+  with the card, and a failure leaves only its own lane. The people in the foot and Tags open their pickers (people:
+  you first, with `you` as the hint; tags: a "New tag…" field at the top).
   The description and comments are edited as text with tokens (see Mentions and Images): blank lines split
   paragraphs, a single line break stays, and lines starting `- `, `* ` or `• ` (the mark, then a space) become a
   bulleted list, so a numbered list comes back as a bulleted one; a note says "Saving keeps only the text: formatting
@@ -266,7 +351,8 @@ dot after the label while `fizzy.unread` is above zero.
   every image from the web, are downloaded when the card is read, at most 3 at a time, into
   `<appHome>/data/fizzy/files/<16 hex digits>.<ext>` (a hash of the sgid or address), and the names are kept
   (`files`). An attachment comes through the CLI, a web image through `curl`. One over 15 MiB, or that failed, is a
-  file chip; Refresh tries the failed ones again. A click on an image opens it in the system's viewer; on a file chip,
+  file chip; Refresh tries the failed ones again. A click on an image opens it in the system's viewer, and dragged into
+  a terminal it drops its file there (`drag_paths`); a click on a file chip
   saves it as `~/Downloads/<name>` (`<base> (2)<ext>` and so on when taken), reveals it (Finder on macOS, its folder
   on Linux) and toasts `Saved to Downloads`; a web image with no sgid opens in the browser. Files dropped on an editor
   are uploaded one after another with `upload file <path>` (`Uploading <name>…` meanwhile), each put in at the cursor
@@ -291,7 +377,11 @@ dot after the label while `fizzy.unread` is above zero.
   the board, running that agent with no first message, and pastes once that session's status is `idle` or 3 seconds
   after it appeared; after 30 seconds with no session, the reference goes to the clipboard with a toast. Copy copies
   and toasts `Copied`. Nothing ever presses Enter. A paste borrows the clipboard and puts the old text back 500 ms
-  later.
+  later. A card's tile and the bar's Insert are also `drag_paths` sources: the press writes each card's markdown (title,
+  board, lane, tags, people, link, description, and steps when the open card's own read has them) to
+  `<appHome>/data/fizzy/files/cards/#<N> <title>.md` (the title on one line, no slashes, at most 60 characters), and a
+  drop on a terminal types the quoted paths there. The tile's press also picks the card up for a lane move. A picked
+  card's tile drags every picked card; the bar drags what it acts on, never a board.
 - **Notifications.** Every 30 s, shown or hidden, the unread notifications are read: the count goes to `fizzy.unread`
   and the Inbox badge, and each one not seen before becomes an `info` toast for 8 s (title up to 80 characters; body:
   the first line up to 140, `#N`, the board), at most three per poll plus `N more in Fizzy`. A panel with nothing
@@ -311,11 +401,14 @@ dot after the label while `fizzy.unread` is above zero.
   boardless `card list --assignee <user> --all` grouped by board when the CLI has no default board (with one, a
   boardless list reads that board only, so each board is read).
 - **Settings** opens on its list; a block opens its page. Back (and the `back` key) goes from a page to the list, and
-  from the list out of Settings. The Mentions switch is kept (`mentionAuto`).
+  from the list out of Settings. The Mentions and Cards switches are kept (`mentionAuto`, `compactCards`).
 - **Board groups.** + adds a group at the top. Clicking the name or the rule edits it in place; the bin asks once
   (`Delete?`); the eye hides; clicking the rest of the line folds. A press with ⌘ or Ctrl held on a board or group picks
   it up: the block under the pointer is `selected` (for a board) or shows a 2 px `accent` line where a group lands, and
-  letting go places it. The dropdown leaves out hidden boards and groups, except the board shown.
+  letting go places it. A board let go over another board's row joins that row's group and takes its place (a 2 px
+  `accent` line at the row's top when it moves up, its bottom when it moves down); the config's `order` then lists
+  every board, and the dropdown and the page follow it, boards placed later coming after, in Fizzy's order. The
+  dropdown leaves out hidden boards and groups, except the board shown.
 - **Errors** are shown as text: ``Not signed in to Fizzy: run `fizzy setup` in a terminal``,
   `The fizzy CLI isn't installed (or not on PATH)`, `Fizzy took too long to answer`, `Can't reach Fizzy`, `Not found
   in Fizzy: it was deleted, or you can't see it`, `Fizzy doesn't let you do that`, `Fizzy is busy: try again in a
@@ -324,7 +417,10 @@ dot after the label while `fizzy.unread` is above zero.
   embed it with`.
 - **Keys.** `<tab bar>.panel:fizzy` toggles the Fizzy page like its button. No key is bound to it unless asked
   (`install.sh --add-key` binds `cmd-shift-j`, on Linux `ctrl-shift-j`, in `global` when that key is free): an edit to
-  `keys.json` stops Herdr adding its new default shortcuts to it.
+  `keys.json` stops Herdr adding its new default shortcuts to it. `<tab bar>.search:fizzy` (`--add-key` binds
+  `cmd-shift-k`, on Linux `ctrl-shift-s`, as Herdr's own `ctrl-shift-k` opens its mod picker) shows the Fizzy page
+  and sets `fizzy.request` to `{ id, op: { kind: "search" } }`, which the panel, shown or hidden, takes on its request
+  timer and opens the search with.
   `fizzy.<command>` (`refresh`, `view[:board|mine|inbox|pins]`, `board:<id or name>`, `follow`,
   `open:<n>[:<notification id>]`, `back`, `settings`, `insert`, `send`, `start`, `copy`, `new`, `search`, `filter`,
   `menu:<n>`) reaches the panel while it is shown. `filter` closes the search, unpicks the cards and focuses the view's
@@ -332,15 +428,16 @@ dot after the label while `fizzy.unread` is above zero.
 
 ## Built from
 
-- **Herdr** 0.1.12 or newer; `install.sh` checks at install time that the tab-bar patch fits. On a Herdr whose tab bar
-  changed so that it doesn't, the patch is applied by hand (`tabs/README.md`).
+- **Herdr** 0.1.16 or newer (`drag_paths`, `checking()`); `install.sh` checks at install time that the tab-bar patch
+  fits. On a Herdr whose tab bar changed so that it doesn't, the patch is applied by hand (`tabs/README.md`).
 - **Layout.** Herdr's `main`, with one block added last to the `panel-body` stack (inside the `panel` column, which
   starts hidden): `{ "id": "fizzy", "type": "block", "content": { "mod": "fizzy" } }`, and the tab-bar block's
   `content.mod` pointed at the patched tab bar (`fizzy-tabs`). `layout/add-fizzy.jq` makes both changes.
 - **Mods.** `fizzy` (`mod.json`: `{ "place": "none", "title": "Fizzy" }`): one class that is the panel, and also every
   popup, opened as `openOverlay({ mod: "fizzy", kind: "popup", props: { menu } })` with `menu.kind` one of `boards`,
-  `newCard`, `card`, `agents`, `start`, `users`, `tags`, `moveBoard`, `lanes`, `react` (a comment's emoji), `mention`
-  (the `@` picker) and `cardref` (the `#` picker). `lib.js` holds the pure parts (no imports).
+  `newCard`, `card`, `agents`, `start`, `users`, `access` (who can see the board), `tags`, `moveBoard`, `react` (a
+  comment's emoji), `mention` (the `@` picker) and `cardref` (the `#` picker). `lib.js` holds the pure parts (no
+  imports).
   `fizzy-tabs` is Herdr's `tabs` cloned, plus `tabs/fizzy-button.patch`: a Fizzy button when `panel-body` has a `fizzy`
   child, its dot from `fizzy.unread`, and a `nextCommand()` loop taking `panel:<page>`.
 - **Shipped mods it relies on.** `tabs` (cloned), `toast` (draws `notify`), `new-menu` (its `new-menu.agents` cache is
@@ -363,16 +460,19 @@ dot after the label while `fizzy.unread` is above zero.
   `{ kind: "cardref", target, number, title }`, `target` naming the editor (`comment`, `commentEdit`, `desc`); a
   picker's choice goes into that editor only while it is still open.
 - **Local storage** (the panel's, never shared), as JSON: `view`, `follow`, `board`, `boards` (each with `period`, its
-  `auto_postpone_period_in_days`), `config`, `me`, `data:<board>`, `collapsed:<board>`, `folds`, `avatars`,
-  `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, and `files` (image key ->
-  its file in `data/fizzy/files`).
+  `auto_postpone_period_in_days`), `config`, `me`, `data:<board>`, `collapsed:<board>`, `folds`, `openColumns`
+  (the columns open side by side, per board), `counts` (step progress and comment count per card), `avatars`,
+  `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, `compactCards`, and
+  `files` (image key -> its file in `data/fizzy/files`).
 - **Programs.** `fizzy` 4 or newer, always run from the home folder, every command ending with `--json`. It reads with
   `board list --all`, `column list --board`, `card list --board <id> --all` (also with `--indexed-by not_now`,
   `--assignee <user>`, also with no `--board`; Done as `--indexed-by closed --page <n>`), `search --jq … -- <words>`
   (words after `--`, so a leading `-` stays a word; `--json` goes before the `--`), `card show`,
   `comment list --card <n> --all`, `reaction list --card <n> --comment <id>`, `user list --all`, `tag list --all`,
   `pin list`, `notification tray`, `activity list --page <n>`, `card attachments show <n> --include-comments`,
-  `identity show` and `config show`; the stalled cards with `card list --board <id> --indexed-by stalled --all`.
+  `identity show` and `config show`; the stalled cards with `card list --board <id> --indexed-by stalled --all`; who
+  can see and watch a board with `board accesses --board <id>`; a card's comment count with `comment list --card <n>
+  --all --jq` (the count alone).
   `card list`, `search`, `pin list`, `notification tray`, `reaction list`, `activity list`, `card attachments show`
   and `config show` carry a `--jq` projection: only the envelope's `ok` and the fields the panel uses come back (the
   stalled list, the numbers alone; `activity list`, only the comment bodies and descriptions that hold a mention, and
@@ -381,20 +481,22 @@ dot after the label while `fizzy.unread` is above zero.
   `postpone`, `untriage`, `close`, `reopen`, `golden`, `ungolden`, `pin`, `unpin`, `watch`, `unwatch`, `self-assign`,
   `assign`, `tag`, `move` and `delete`; `step create`, `update` and `delete`; `comment create`, `update` and `delete`;
   `reaction create --card <n> --comment <id> --content <emoji>` and `reaction delete <id> --card <n> --comment <id>`;
-  `upload file <path>`; `notification read` and `read-all`. Then `sh -c` with a script that walks up for
-  `.fizzy.yaml` and prints its `board:` line only (`[` and `grep` only), run with `exec(…, { on: space.machine })`;
-  and on this computer `sh -c` with a script that fetches a photo with `curl` into
-  `<appHome>/data/fizzy/avatars/<user id>-<YYYYMMDD>.<ext>`, one that fetches a web image with `curl` (http and https
+  `upload file <path>`; `notification read` and `read-all`; `board involvement <id> --involvement
+  watching|access_only` and `board update <id> --all_access true|false`; `column move-left` and `move-right`. Then
+  `sh -c` with a script that walks up for `.fizzy.yaml` and prints its `board:` line only (`[` and `grep` only), run
+  with `exec(…, { on: space.machine })`; and on this computer `sh -c` with a script that fetches a photo with `curl`
+  into `<appHome>/data/fizzy/avatars/<user id>-<YYYYMMDD>.<ext>`, one that fetches a web image with `curl` (http and https
   only, following redirects, at most 15 MiB and 25 s, its type by the answer's content type) into
   `<appHome>/data/fizzy/files/<key>.<ext>`, one that writes the clipboard's image as a PNG (`osascript` reading
   `«class PNGf»` on macOS, else `wl-paste --type image/png` or `xclip -selection clipboard -t image/png -o`), one that
   opens a file or reveals it (`open` or `open -R` on macOS, `xdg-open` on the file or its folder on Linux), and one
   that prints a free path in `~/Downloads` (`<name>`, `<name> (2)`, …); and `mkdir -p`, `mv -f` and `rm -f` on the
   images folder.
-- **Art.** Lucide icons in `mods/fizzy/` (24×24, `stroke="currentColor"`): arrow-left, bot, check, chevron-down,
-  chevron-right, copy, external-link, eye, eye-off, insert (Lucide's corner-down-left), kanban (square-kanban), link,
-  more (ellipsis), paperclip, pencil, pin, pin-off, plus, refresh (refresh-cw), rotate-ccw, search, send, settings,
-  smile-plus, star, star-off, tag, trash, user, user-plus, x.
+- **Art.** Lucide icons in `mods/fizzy/` (24×24, `stroke="currentColor"`): arrow-left, arrow-right, bell, bell-off,
+  bot, check, chevron-down, chevron-right, circle-check, copy, external-link, eye, eye-off, insert (Lucide's
+  corner-down-left), kanban (square-kanban), link, message-square-text, more (ellipsis), paperclip, pencil, pin,
+  pin-off, plus, refresh (refresh-cw), rotate-ccw, rows-3, search, send, settings, smile-plus, star, star-off, tag,
+  trash, user, user-plus, users, x.
 
 ## Watch out
 
@@ -452,7 +554,7 @@ dot after the label while `fizzy.unread` is above zero.
   or `xdg-open` and `wl-paste` or `xclip`). None of the CLI's own files is read: `config show` names its account and
   default board.
 - **Not built:** reactions on the card itself, formatting (bold, headings, numbered lists) in the editors, making or
-  changing boards and columns.
+  changing boards and columns (beyond a column's place).
 
 ## Done when
 
@@ -460,14 +562,19 @@ dot after the label while `fizzy.unread` is above zero.
 - With the layout's Fizzy page and the CLI signed in, Board shows the board's lanes in `column list` order, Not Now
   and Done folded; unfolding Done shows up to 50 cards and Show more.
 - Dragging a card from one lane onto another lane's header moves it in Fizzy (`fizzy card show` agrees), and the list
-  shows it there after the next read.
+  shows it there after the next read. Dragging a column's header onto another column moves the column in Fizzy
+  (`fizzy column list` agrees).
+- A card dropped on a terminal types the quoted path of `#<N> <title>.md`, which holds the card; an image dropped on
+  Claude Code attaches.
+- A description emptied and saved is empty in Fizzy (`fizzy card show` agrees).
 - New card opens the board picker; choosing a board shows the Board view on it and opens a card made in Maybe? there,
   its empty title field focused; typing a title and Enter saves it (`fizzy card show` agrees), and Discard deletes the
   card.
-- A golden card heads its lane with an `ansi3` border, a pinned one shows a pin, and a card past three quarters of the
+- A golden card heads its lane with a faint gold glow, a pinned one shows a pin, and a card past three quarters of the
   board's auto-postpone period shows `Closes in Nd`.
-- On Board, a filter's words open every lane with a match; My cards keeps the signed-in user's cards.
-- The search icon, then a pasted `#N`, opens card N; words and Enter list Fizzy's matches by board.
+- On Board, a filter's words open every lane with a match; My cards keeps the signed-in user's cards, Golden cards the
+  golden ones and Pinned cards the pinned ones.
+- A pasted `#N` in the search field opens card N; words and Enter list Fizzy's matches by board.
 - In a comment, `@` and a person the panel can tag, then Comment, makes a Fizzy mention (the person is notified); `#`
   and a card makes a link that opens that card in the panel.
 - A comment's reaction chip toggles yours in Fizzy (`fizzy reaction list` agrees).
