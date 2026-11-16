@@ -2538,7 +2538,7 @@ export default class Fizzy extends View {
     const ruled = el => el.pb(2).border_b(1).border_color(t.border);
     const line = (id, icon, text) => h_flex().id(id).min_w(0).gap(4).items_center()
       .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(10).flex_none())).child(div().min_w(0).truncate().child(text));
-    const head = h_flex().id(`fizzy-card-head-${n}`).flex_shrink().min_w(0).gap(7).items_center().px(9).py(4).rounded_br(6).bg(color)
+    const head = h_flex().id(`fizzy-card-head-${n}`).min_w(0).gap(7).items_center().px(9).py(4).rounded_br(6).bg(color)
       .text_size(textPx(11)).font_semibold().text_color(ON_LANE)
       .child(div().flex_none().child(String(n)))
       .when(Boolean(boardName), el => el.child(div().w(1).h(11).flex_none().bg(tint(ON_LANE, "59")))
