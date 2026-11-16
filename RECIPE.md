@@ -113,7 +113,10 @@ theme names.
     `foreground`, Done in the primary-button colors. Every text button in the panel (Save, Cancel, Comment) is round.
 
 **A card**, in place of the board row and list, drawn as Fizzy draws one. A 46 px top bar of round 30 px buttons:
-Back at the left; at the right the toggles golden (lit in Fizzy's gold `#e5b422`), watch (a bell, lit in `accent`;
+Back at the left, then, once the card's board is known, that board as a 30 px pill (a 1 px `input` border, padding
+12, gap 6, a 13 px kanban icon and the name, 12 px medium `muted`, cut when short of room; `hover` and `foreground` on
+hover; tooltip `Show the <board> board`): a click closes the card and shows that board in the Board view, picked as
+in the dropdown (following stops) unless it is the board shown already. At the right the toggles golden (lit in Fizzy's gold `#e5b422`), watch (a bell, lit in `accent`;
 a crossed bell once set to not watching) and pin (lit in `accent`), each lit with its color as border and icon on
 `selected`; Open in Fizzy, left out when narrow; More. Under it, padding 10 (16 below), gap 12:
 

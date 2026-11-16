@@ -1824,6 +1824,18 @@ export default class Fizzy extends View {
     cx.notify();
   }
 
+  // A card's board in the Board view, the card closed. Another board than the one shown is picked, as in the dropdown
+  // (following the space stops); the one shown stays as it is.
+  showBoardOf(board, cx) {
+    if (board !== this.board) {
+      this.follow = false; this.picked = board;
+      keep("follow", false); keep("board", board);
+      this.switchBoard(board, cx);
+    }
+    this.goBack(cx);
+    this.setView("board", cx);
+  }
+
   goBack(cx) {
     this.detail = null; this.editing = null; this.armedComment = null; this.fresh = null;
     this.leaveSettings();
@@ -2443,8 +2455,14 @@ export default class Fizzy extends View {
     if (this.detail) {
       const d = this.detail, c = d.card ?? d.summary, n = d.number;
       const pinned = this.pinOf(n), watching = this.watchOf(n), golden = c.golden;
+      const board = c.board?.id ? c.board : null;
       return h_flex().h(46).flex_none().px(12).gap(6).items_center().border_b(1).border_color(t.border)
         .child(this.roundButton(t, "fizzy-back", "arrow-left", "Back", cx => this.goBack(cx)))
+        .when(Boolean(board?.name), el => el.child(h_flex().id("fizzy-to-board").min_w(0).h(ROUND).px(12).gap(6).items_center().rounded_full().border_1().border_color(t.input)
+          .cursor_pointer().text_size(textPx(12)).font_medium().text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
+          .tooltip(`Show the ${board.name} board`).on_mouse_down("left", stop).on_click((_e, cx) => this.showBoardOf(board.id, cx))
+          .child(svg(ICON("kanban")).size(13).flex_none())
+          .child(div().min_w(0).truncate().child(board.name))))
         .child(div().flex_1())
         .child(this.toggleButton(t, "fizzy-golden", ICON("star"), typeof golden === "boolean" ? (golden ? "on" : "off") : "inert", golden ? "Remove golden" : "Mark golden",
           (_e, cx) => this.apply({ kind: "golden", number: n, on: !golden }, cx), GOLD))

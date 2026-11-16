@@ -529,12 +529,14 @@ test("clicking a row opens the card: card show, comment list and pin list asked 
   assert.match(textOf(must(tree, "fizzy-activity")), /Activity 1/);
   assert.equal(find(tree, "fizzy-list"), null, "the detail replaces the list");
   const head = ids(tree).slice(ids(tree).indexOf("fizzy-back"), ids(tree).indexOf("fizzy-detail"));
-  assert.deepEqual(head, ["fizzy-back", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-act-open", "fizzy-card-menu"], "Back, then the card's round toggles and actions");
-  for (const id of head) assert.deepEqual([must(tree, id).style.size, must(tree, id).style.rounded_full, must(tree, id).style.border_1], [30, true, true], id);
+  assert.deepEqual(head, ["fizzy-back", "fizzy-to-board", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-act-open", "fizzy-card-menu"],
+    "Back and the card's board, then the card's round toggles and actions");
+  const round = head.filter(id => id !== "fizzy-to-board");
+  for (const id of round) assert.deepEqual([must(tree, id).style.size, must(tree, id).style.rounded_full, must(tree, id).style.border_1], [30, true, true], id);
   assert.equal(textOf(must(tree, "fizzy-detail-number")), "No. 101", "the number on the card's tab");
   assert.equal(textOf(must(tree, "fizzy-detail-board")), "ROADMAP");
   assert.equal(tipOf(tree, "fizzy-detail-board"), "Roadmap: move to another board");
-  const icons = head.map(id => iconOf(tree, id));
+  const icons = round.map(id => iconOf(tree, id));
   assert.deepEqual(icons, ["arrow-left.svg", "star.svg", "bell.svg", "pin.svg", "external-link.svg", "more.svg"]);
   assert.equal(find(tree, "fizzy-open-settings"), null);
 });
@@ -1300,9 +1302,9 @@ test("at 300 px the card's Open in Fizzy gives way and the toggles and ⋯ stay;
   const order = tree => ids(tree).slice(ids(tree).indexOf("fizzy-back"), ids(tree).indexOf("fizzy-detail"));
   fire(must(tree, "fizzy"), "on_size_change", { width: 300, height: 600 }, cx);
   const narrow = await draw();
-  assert.deepEqual(order(narrow), ["fizzy-back", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-card-menu"]);
+  assert.deepEqual(order(narrow), ["fizzy-back", "fizzy-to-board", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-card-menu"]);
   fire(must(narrow, "fizzy"), "on_size_change", { width: 520, height: 600 }, cx);
-  assert.deepEqual(order(await draw()), ["fizzy-back", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-act-open", "fizzy-card-menu"]);
+  assert.deepEqual(order(await draw()), ["fizzy-back", "fizzy-to-board", "fizzy-golden", "fizzy-watch", "fizzy-pin", "fizzy-act-open", "fizzy-card-menu"]);
 });
 
 test("the card page lists its board's lanes in the board's order, its own filled in its color; a click on another moves the card there at once", async () => {
@@ -1438,7 +1440,7 @@ test("the title sits above the lanes, wrapping; editing puts the field in its pl
 
 test("the card view in every state: ids on what reacts, unique, tooltips only where designed, no wide widths, and no draw acts or notifies late", async () => {
   const m = await mount();
-  const TIPPED = /^(fizzy-(back|pin|watch|golden|act-open|card-menu|detail-board|tags|people|title-cancel)|fizzy-lane-.+|fizzy-bar-.+|fizzy-step-(del|cancel)-.+|fizzy-comment-(edit|del)-.+|fizzy-react-.+|fizzy-reaction-.+)$/;
+  const TIPPED = /^(fizzy-(back|to-board|pin|watch|golden|act-open|card-menu|detail-board|tags|people|title-cancel)|fizzy-lane-.+|fizzy-bar-.+|fizzy-step-(del|cancel)-.+|fizzy-comment-(edit|del)-.+|fizzy-react-.+|fizzy-reaction-.+)$/;
   const check = (tree, what) => {
     const found = ids(tree);
     assert.equal(new Set(found).size, found.length, `${what}: unique ids`);
@@ -2498,6 +2500,31 @@ test("moving a card to another board, or deleting it, takes it off the screen at
     release();
     await cx.settle();
   }
+});
+
+test("the card's board beside Back shows that board in the Board view and closes the card: another board is picked (following the space stops), the board shown stays as it is", async () => {
+  acct.yaml["/work/roadmap"] = "board: b1\n";
+  const { view, cx, draw } = await mount();
+  let tree = await draw();
+  assert.equal(view.follow, true);
+  click(tree, "fizzy-card-101", cx);
+  tree = await draw();
+  const pill = must(tree, "fizzy-to-board");
+  assert.deepEqual([textOf(pill), tipOf(tree, "fizzy-to-board"), iconOf(tree, "fizzy-to-board"), pill.style.rounded_full, pill.style.border_1, pill.style.h, pill.style.min_w],
+    ["Roadmap", "Show the Roadmap board", "kanban.svg", true, true, 30, 0]);
+  click(tree, "fizzy-to-board", cx);
+  tree = await draw();
+  assert.deepEqual([view.detail, view.view, view.board, view.follow], [null, "board", "b1", true], "the board shown: following the space stays");
+  click(tree, "fizzy-view-mine", cx);
+  click(await draw(), "fizzy-card-201", cx);
+  tree = await draw();
+  assert.equal(textOf(must(tree, "fizzy-to-board")), "Personal");
+  click(tree, "fizzy-to-board", cx);
+  tree = await draw();
+  assert.deepEqual([view.detail, view.view, view.board, view.follow, view.picked], [null, "board", "b2", false, "b2"]);
+  assert.deepEqual([localStorage.getItem("follow"), localStorage.getItem("board")], ["false", '"b2"'], "kept as a pick in the dropdown is");
+  assert.equal(boardName(tree), "Personal");
+  assert.ok(rowIds(tree).includes(201), "its cards");
 });
 
 test("the open card moved to another board stays open, on that board at once, and is read again; deleted, it closes", async () => {

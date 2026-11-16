@@ -124,8 +124,10 @@ A lane's **+** does the same in that lane, without the picker. A title you never
 
 **A card.** Click one to open it. It looks like a card in Fizzy: framed in its lane's color, with a tab at its top left
 holding its number and board (click the board to move the card to another board) and a round **Tags** button beside
-it. The top bar above has Back and round buttons: **golden**, **watch** (a bell), **pin**, Open in Fizzy (left out
-when the panel is narrow) and `⋯`, the card's menu. Fizzy doesn't tell anyone whether you watch a card, so the bell
+it. The top bar above has Back (to wherever you came from) and the card's board, which shows that board in the Board
+view; then round buttons: **golden**, **watch** (a bell), **pin**, Open in Fizzy (left out when the panel is narrow)
+and `⋯`, the card's menu. Showing another board than the one shown picks it, as the board dropdown does, so following
+the space stops. Fizzy doesn't tell anyone whether you watch a card, so the bell
 stays dim until you set it from the panel; the panel remembers that for the last 200 cards, and forgets a "not
 watching" when you comment on the card or take it, since Fizzy may start watching it for you then.
 
