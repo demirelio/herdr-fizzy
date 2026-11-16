@@ -5375,11 +5375,11 @@ test("a person is drawn as their cached photo (round, the size the initials had)
   const { cx, draw } = await mount();
   let tree = await draw();
   const mine = imagesIn(must(tree, "fizzy-card-101"));
-  assert.deepEqual(mine.map(n => [n.path, n.style.size, n.style.rounded_full, n.style.flex_none]), [[photoPath("u-me"), 24, true, true]], "the card's assignee: the photo, 24 px, round");
+  assert.deepEqual(mine.map(n => [n.path, n.style.size, n.style.rounded_full, n.style.flex_none]), [[photoPath("u-me"), 20, true, true]], "the card's assignee: the photo, 20 px, round");
   assert.equal(circlesIn(must(tree, "fizzy-card-101"), "A").length, 0, "and not the initials besides");
   const bob = must(tree, "fizzy-card-102");
   assert.equal(imagesIn(bob).length, 0, "Bob has no photo yet");
-  assert.deepEqual(circlesIn(bob, "B").map(n => [n.style.size, n.style.bg]), [[24, "ansi6"], [24, "ansi6"]], "who made it and who has it, both Bob: the initials circle, in the colour of hue 5 of the user id");
+  assert.deepEqual(circlesIn(bob, "B").map(n => [n.style.size, n.style.bg]), [[20, "ansi6"], [20, "ansi6"]], "who made it and who has it, both Bob: the initials circle, in the colour of hue 5 of the user id");
   // The card view: the People line and comment authors (20 px).
   click(tree, "fizzy-card-101", cx);
   tree = await draw();
@@ -8334,18 +8334,23 @@ test("a hand-off chosen in a popup row travels in fizzy.request only until the p
   assert.equal(calls.run.filter(([name]) => name === "terminal.paste").length, 1, "and the panel did it");
 });
 
-test("a card is a plain tile, as Fizzy's: the background, a thin border that strengthens on hover; a closed card's number and board sit on a light tab", async () => {
+test("a card is a plain tile, as Fizzy's: the background, a thin border that strengthens on hover; its number and board sit on a tab in its lane's color at the top left, and the line under the title is in that color too", async () => {
   const { cx, draw } = await mount();
   let tree = await draw();
-  const look = id => { const n = must(tree, id); return [n.style.bg, n.style.border_1, n.style.border_color, n.hoverStyle?.border_color, n.style.rounded]; };
-  assert.deepEqual(look("fizzy-card-103"), ["background", true, "border", "input", 8]);
-  assert.deepEqual(look("fizzy-card-101"), ["background", true, "border", "input", 8], "whatever its lane");
-  assert.equal(must(tree, "fizzy-card-head-101").style.bg, undefined, "an open card's head is plain");
+  const c1 = colorOf(acct.columns.b1.find(c => c.id === "c1"));
+  const look = id => { const n = must(tree, id); return [n.style.bg, n.style.border_1, n.style.border_color, n.hoverStyle?.border_color, n.style.rounded, n.style.overflow_hidden]; };
+  assert.deepEqual(look("fizzy-card-103"), ["background", true, "border", "input", 8, true]);
+  assert.deepEqual(look("fizzy-card-101"), ["background", true, "border", "input", 8, true], "whatever its lane");
+  const tab = id => { const n = must(tree, id); return [n.style.bg, n.style.rounded_br, parentOf(tree, id).kids[0] === n]; };
+  assert.deepEqual(tab("fizzy-card-head-101"), [c1, 6, true], "In progress: its column's color, first in the card's top line");
+  assert.deepEqual(tab("fizzy-card-head-103"), [MAYBE_BLUE, 6, true], "Maybe?: Fizzy's blue");
+  assert.equal(must(tree, "fizzy-card-meta-101").style.text_color, c1);
   click(tree, "fizzy-section-done", cx);
   tree = await draw();
-  const tab = must(tree, "fizzy-card-head-105");
-  assert.deepEqual([tab.style.bg, tab.style.text_color, tab.style.rounded], ["muted", "background", 4], "a closed card's: a light tab");
-  assert.deepEqual([must(tree, "fizzy-card-title-101").style.whitespace_normal, must(tree, "fizzy-card-title-101").style.font_bold], [true, true], "the whole title, bold");
+  assert.equal(must(tree, "fizzy-card-head-105").style.bg, DONE_GREEN, "a closed card's: Done's green");
+  const title = must(tree, "fizzy-card-title-101");
+  assert.deepEqual([title.style.whitespace_normal, title.style.font_bold, title.style.text_size], [true, true, textPx(13)], "the whole title, bold");
+  assert.equal(must(tree, "fizzy-card-meta-101").style.text_size, textPx(10), "the line under it smaller");
 });
 
 test("a golden card has a gold border instead (no hover of its own) and heads its lane; the rest keep Fizzy's order", async () => {
@@ -8370,7 +8375,7 @@ test("a pinned card shows a pin before its title, in the accent; the pin list re
   const { cx, draw } = await mount();
   let tree = await draw();
   const pinIn = id => all(must(tree, id), n => n.path === "mods/fizzy/pin.svg");
-  assert.deepEqual(pinIn("fizzy-card-101").map(n => [n.style.size, n.style.text_color]), [[14, "accent"]]);
+  assert.deepEqual(pinIn("fizzy-card-101").map(n => [n.style.size, n.style.text_color]), [[13, "accent"]]);
   assert.equal(pinIn("fizzy-card-103").length, 0);
   const row = parentOf(tree, "fizzy-card-title-101");
   assert.equal(row.kids[0].path, "mods/fizzy/pin.svg", "before the title");

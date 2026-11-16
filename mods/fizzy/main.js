@@ -62,6 +62,8 @@ const EDITOR_HINT = "(@ mention, # card, drop or paste images)";
 const DESC_INSET = 40, COMMENT_INSET = 66;
 // A lane's color at a given opacity (two hex digits): the tints behind its header and its cards, and their borders.
 const tint = (color, alpha) => `${color}${alpha}`;
+// Text on a lane's color (a card's tab): dark, as Fizzy's, which reads on every lane color in a light theme and a dark one.
+const ON_LANE = "#15171c";
 const WATCH_KEPT = 200;
 // Fizzy's side-by-side columns from SIDE_BY_SIDE px of panel width (narrower, the lanes stack), two of them open at once from
 // TWO_OPEN px (each then gets about 300 px). A folded column is FOLDED px wide.
@@ -2514,34 +2516,34 @@ export default class Fizzy extends View {
       .when(this.view === "board", el => el.child(this.mineToggle(t)).child(this.newCardButton(t)));
   }
 
-  // A card as Fizzy draws it. A head line: its number | its board (a light tab on a closed card; in a list that mixes lanes,
-  // its lane in the lane's color too), then its step progress, Fizzy's inactivity warning, ↵ and ⋯. Its title in bold (a pin
-  // before it when pinned), its tags, then who made it and when, when it last changed and who it is assigned to, with their
-  // photos, and its comment count. A gold border when golden, an accent one when picked. Dragged, it is the card (every
-  // picked card, when it is one of them): onto another lane it moves there, into a terminal it drops its file.
+  // A card as Fizzy draws it. A head line: its number | its board on a tab in its lane's `color` at the card's top left (in a
+  // list that mixes lanes, its lane named too), then its step progress, Fizzy's inactivity warning, ↵ and ⋯. Its title in
+  // bold (a pin before it when pinned), its tags, then, in the lane's color, who made it and when, when it last changed and
+  // who it is assigned to, with their photos, and its comment count. A gold border when golden, an accent one when picked.
+  // Dragged, it is the card (every picked card, when it is one of them): onto another lane it moves there, into a terminal
+  // it drops its file.
   cardRow(t, card, lane, color) {
     const n = card.number, picked = this.selected.has(n), dragged = picked ? this.dragged(this.pickedNumbers()) : [card];
     const quick = (id, icon, tip, action) => div().id(id).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.dim)
       .hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip(tip)
       .on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); action(cx); })
       .child(svg(icon).size(13));
-    const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board, closed = laneOf(card) === "done";
+    const tags = card.tags ?? [], who = card.assignees ?? [], board = card.board?.id ?? this.board;
     const boardName = card.board?.name ?? this.boards?.find(b => b.id === board)?.name ?? "";
     const warn = inactivity(card, { period: this.boards?.find(b => b.id === board)?.period, stalled: Boolean(this.stalled.get(board)?.has(n)), now: now() });
     const warnColor = warn?.kind === "closing" ? t.ansi3 : t.blocked;
     const counts = this.counts.get(n), steps = counts?.total > 0 ? counts : null, comments = counts?.comments ?? 0;
     const added = card.created_at ? daysAgo(card.created_at, now()) : "", changed = daysAgo(card.last_active_at, now());
     const upper = text => String(text ?? "").toUpperCase();
-    const ruled = el => el.pb(3).border_b(1).border_color(t.border);
+    const ruled = el => el.pb(2).border_b(1).border_color(t.border);
     const line = (id, icon, text) => h_flex().id(id).min_w(0).gap(4).items_center()
-      .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(12).flex_none())).child(div().min_w(0).truncate().child(text));
-    const head = h_flex().id(`fizzy-card-head-${n}`).min_w(0).gap(7).items_center().text_size(textPx(11)).font_medium()
-      .text_color(closed ? t.background : t.muted)
-      .when(closed, el => el.px(7).py(2).rounded(4).bg(t.muted))
+      .when(Boolean(icon), el => el.child(svg(ICON(icon)).size(10).flex_none())).child(div().min_w(0).truncate().child(text));
+    const head = h_flex().id(`fizzy-card-head-${n}`).flex_shrink().min_w(0).gap(7).items_center().px(9).py(4).rounded_br(6).bg(color)
+      .text_size(textPx(11)).font_semibold().text_color(ON_LANE)
       .child(div().flex_none().child(String(n)))
-      .when(Boolean(boardName), el => el.child(div().w(1).h(11).flex_none().bg(closed ? t.background : t.border))
+      .when(Boolean(boardName), el => el.child(div().w(1).h(11).flex_none().bg(tint(ON_LANE, "59")))
         .child(div().min_w(0).truncate().child(upper(boardName))));
-    return this.dragCards(v_flex().id(`fizzy-card-${n}`), dragged).flex_none().gap(8).px(11).py(10).rounded(8).cursor_pointer()
+    return this.dragCards(v_flex().id(`fizzy-card-${n}`), dragged).flex_none().rounded(8).overflow_hidden().cursor_pointer()
       .bg(picked ? t.selected : t.background)
       .when(card.golden && !picked, el => el.border_2().border_color(t.ansi3))
       .when(!card.golden || picked, el => el.border_1().border_color(picked ? t.accent : t.border).hover(s => s.border_color(t.input)))
@@ -2549,37 +2551,39 @@ export default class Fizzy extends View {
       .on_mouse_up("left", (_e, cx) => this.drop(lane, cx))
       .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.cardMenu(card, cx); })
       .on_click((e, cx) => this.clickCard(card, e, cx))
-      .child(h_flex().gap(6).items_center().min_w(0)
-        .child(head)
-        .when(lane == null, el => el.child(h_flex().id(`fizzy-card-lane-${n}`).flex_none().gap(4).items_center().text_size(textPx(11)).font_medium().text_color(color)
-          .child(div().size(7).rounded_full().bg(color)).child(upper(laneName(card)))))
-        .child(div().flex_1())
-        .when(Boolean(steps), el => el.child(h_flex().id(`fizzy-card-steps-${n}`).flex_none().gap(4).items_center().text_size(textPx(12)).font_medium()
-          .child(svg(ICON("circle-check")).size(14).flex_none().text_color(steps.done === steps.total ? t.done : t.accent)).child(`${steps.done}/${steps.total}`)))
-        .when(Boolean(warn), el => el.child(div().id(`fizzy-card-warn-${n}`).h(16).px(5).flex_none().flex().items_center().rounded(4)
-          .border_1().border_color(warnColor).text_color(warnColor).text_size(textPx(11)).font_medium().child(warn.label)))
-        .child(h_flex().flex_none().gap(1)
-          .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
-          .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx)))))
       .child(h_flex().gap(6).items_start().min_w(0)
-        .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(14).mt(3).flex_none().text_color(t.accent)))
-        .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).whitespace_normal().font_bold().text_size(textPx(15)).child(card.title ?? "")))
-      .when(tags.length > 0, el => el.child(h_flex().gap(4).items_center().min_w(0).overflow_hidden()
-        .children(tags.slice(0, 3).map(tag => this.chip(t, `#${tag}`, { max: 150 })))
-        .when(tags.length > 3, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(`+${tags.length - 3}`)))))
-      .child(h_flex().id(`fizzy-card-meta-${n}`).gap(8).items_center().min_w(0).text_size(textPx(11)).font_medium().text_color(t.accent)
-        .when(Boolean(card.creator), el => el.child(this.avatar(t, card.creator, 24)))
-        .child(v_flex().min_w(0).gap(3)
-          .child(ruled(line(`fizzy-card-added-${n}`, null, upper(added ? `added ${added}` : "added"))))
-          .child(line(`fizzy-card-creator-${n}`, null, upper(card.creator?.name ?? ""))))
-        .child(div().w(1).h(32).flex_none().bg(t.border))
-        .child(v_flex().min_w(0).gap(3)
-          .child(ruled(line(`fizzy-card-changed-${n}`, "refresh", upper(changed))))
-          .child(line(`fizzy-card-assigned-${n}`, "arrow-right", who.length ? upper(who.map(u => u.name).join(", ")) : "")))
-        .when(who.length > 0, el => el.child(h_flex().id(`fizzy-card-people-${n}`).flex_none().gap(2).children(who.slice(0, 2).map(u => this.avatar(t, u, 24)))))
-        .child(div().flex_1())
-        .when(comments > 0, el => el.child(h_flex().id(`fizzy-card-comments-${n}`).flex_none().gap(4).items_center().text_size(textPx(12)).text_color(t.foreground)
-          .child(svg(ICON("message-square-text")).size(16).flex_none().text_color(t.accent)).child(String(comments)))));
+        .child(head)
+        .child(h_flex().flex_1().min_w(0).gap(6).items_center().pt(3).pr(5)
+          .when(lane == null, el => el.child(h_flex().id(`fizzy-card-lane-${n}`).flex_none().gap(4).items_center().text_size(textPx(10)).font_medium().text_color(color)
+            .child(div().size(6).rounded_full().bg(color)).child(upper(laneName(card)))))
+          .child(div().flex_1())
+          .when(Boolean(steps), el => el.child(h_flex().id(`fizzy-card-steps-${n}`).flex_none().gap(4).items_center().text_size(textPx(11)).font_medium()
+            .child(svg(ICON("circle-check")).size(12).flex_none().text_color(steps.done === steps.total ? t.done : color)).child(`${steps.done}/${steps.total}`)))
+          .when(Boolean(warn), el => el.child(div().id(`fizzy-card-warn-${n}`).h(16).px(5).flex_none().flex().items_center().rounded(4)
+            .border_1().border_color(warnColor).text_color(warnColor).text_size(textPx(10)).font_medium().child(warn.label)))
+          .child(h_flex().flex_none().gap(1)
+            .child(quick(`fizzy-insert-${n}`, ICON("insert"), "Insert in chat", cx => this.handOff("insert", [slim(card)], cx)))
+            .child(quick(`fizzy-more-${n}`, ICON("more"), "More", cx => this.cardMenu(card, cx))))))
+      .child(v_flex().gap(7).px(11).pt(6).pb(10)
+        .child(h_flex().gap(6).items_start().min_w(0)
+          .when(Boolean(this.pinOf(n)), el => el.child(svg(ICON("pin")).size(13).mt(2).flex_none().text_color(t.accent)))
+          .child(div().id(`fizzy-card-title-${n}`).flex_1().min_w(0).whitespace_normal().font_bold().text_size(textPx(13)).child(card.title ?? "")))
+        .when(tags.length > 0, el => el.child(h_flex().gap(4).items_center().min_w(0).overflow_hidden()
+          .children(tags.slice(0, 3).map(tag => this.chip(t, `#${tag}`, { max: 150 })))
+          .when(tags.length > 3, el => el.child(div().flex_none().text_size(textPx(11)).text_color(t.dim).child(`+${tags.length - 3}`)))))
+        .child(h_flex().id(`fizzy-card-meta-${n}`).gap(7).items_center().min_w(0).text_size(textPx(10)).text_color(color)
+          .when(Boolean(card.creator), el => el.child(this.avatar(t, card.creator, 20)))
+          .child(v_flex().min_w(0).gap(2)
+            .child(ruled(line(`fizzy-card-added-${n}`, null, upper(added ? `added ${added}` : "added"))))
+            .child(line(`fizzy-card-creator-${n}`, null, upper(card.creator?.name ?? ""))))
+          .child(div().w(1).h(26).flex_none().bg(t.border))
+          .child(v_flex().min_w(0).gap(2)
+            .child(ruled(line(`fizzy-card-changed-${n}`, "refresh", upper(changed))))
+            .child(line(`fizzy-card-assigned-${n}`, "arrow-right", who.length ? upper(who.map(u => u.name).join(", ")) : "")))
+          .when(who.length > 0, el => el.child(h_flex().id(`fizzy-card-people-${n}`).flex_none().gap(2).children(who.slice(0, 2).map(u => this.avatar(t, u, 20)))))
+          .child(div().flex_1())
+          .when(comments > 0, el => el.child(h_flex().id(`fizzy-card-comments-${n}`).flex_none().gap(4).items_center().text_size(textPx(11)).text_color(t.foreground)
+            .child(svg(ICON("message-square-text")).size(14).flex_none().text_color(color)).child(String(comments))))));
   }
 
   // A lane's header: its color as a dot and a tint behind the row; its name, its count in a pill, and + for a new card.

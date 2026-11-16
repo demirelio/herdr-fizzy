@@ -57,12 +57,12 @@ card** and, under **Watching for new cards**, the photos of the people who watch
 cards** or **Stop watching** for you (it switches at once; the watchers are read with the board's columns, and again
 after you switch).
 
-**Cards** look like Fizzy's. A head line: the card's number and its board (on a closed card, on a light tab); in Mine,
-Pins and the search, where lanes mix, also its lane in the lane's color. At its right the step progress (✓ 1/2),
-Fizzy's inactivity warning, ↵ (Insert in chat) and `⋯` (the card's menu). Then the title in bold (a pin before it when
-the card is pinned) and up to three tags. Then who made it, with their photo, and how long ago ("Added 127 days ago");
-when it last changed ("Today", "Yesterday", "8 days ago") and who it is assigned to, with their photos; and at the
-right the number of its comments. Golden cards come first in their lane and have a gold border. The warning is the one
+**Cards** look like Fizzy's. At the top left, the card's number and its board on a tab in its lane's color; in Mine,
+Pins and the search, where lanes mix, its lane is named beside it too. At the right of that line the step progress
+(✓ 1/2), Fizzy's inactivity warning, ↵ (Insert in chat) and `⋯` (the card's menu). Then the title in bold (a pin
+before it when the card is pinned) and up to three tags. Then, smaller and in the lane's color: who made it, with their
+photo, and how long ago ("Added 127 days ago"); when it last changed ("Today", "Yesterday", "8 days ago") and who it
+is assigned to, with their photos; and at the right the number of its comments. Golden cards come first in their lane and have a gold border. The warning is the one
 Fizzy shows on the card: "Closes in 3d" (or "Closes today") once less than a quarter of the board's auto-postpone
 period is left since the card last changed, counted in calendar days, else "Stalled" when Fizzy lists the card as
 stalled. A card in Not Now or Done has none.

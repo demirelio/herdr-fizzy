@@ -53,17 +53,18 @@ theme names.
     `#f08a24`, green `#3fa65b` (Fizzy also sends `var(--color-card-N)`: default blue, 1 gray, 2 tan, 3 yellow, 4 lime,
     5 aqua, 6 violet, 7 purple, 8 pink). Fizzy gives Maybe?, Not Now and Done none: Maybe? is `#4f8ef7` (Fizzy's own
     blue), Not Now `#8a8f98`, Done `#3fa65b`. A column whose color is not known is `#8a8f98`.
-  - A card is drawn as Fizzy's: padding 11 by 10, gap 8, rounded 8, `background` behind it and a 1 px `border` border
-    (`input` on hover); golden, a 2 px `ansi3` border instead; picked, `selected` behind it and a 1 px `accent` border.
-    A head line (11 px, medium, `muted`): the number, a 1 px rule, the board's name in capitals; on a closed card on a
-    `muted` tab in `background` text, padding 7 by 2, rounded 4. In Mine, Pins and the search the lane's name in capitals
-    follows, in the lane's color after a 7 px dot. At its right: `✓ done/total` (`circle-check` in `accent`, `done` when
-    all are done) once the counts are read, the inactivity label, and two 22 px buttons, Insert (↵) and More (⋯). Then
-    a 14 px `accent` pin when the pin list has the card and the whole title (15 px, bold, wrapping); up to three tag chips
-    (`#tag`) and `+N`. Then the meta line (11 px, medium, `accent`): the creator's 24 px avatar; `ADDED <days>` over
-    the creator's name, a rule between; a 1 px divider; `refresh` and the day it last changed over `arrow-right` and the
-    assignees' names; up to two 24 px assignee avatars; at the right `message-square-text` and the comment count when
-    there are comments. Days are calendar days: `TODAY`, `YESTERDAY`, `N DAYS AGO`. The label is 16 px high, padding 5,
+  - A card is drawn as Fizzy's: rounded 8, clipped, `background` behind it and a 1 px `border` border (`input` on
+    hover); golden, a 2 px `ansi3` border instead; picked, `selected` behind it and a 1 px `accent` border. Its top line
+    starts with a tab at the card's top left in the lane's color (padding 9 by 4, its bottom right corner rounded 6,
+    11 px semibold `#15171c` text): the number, a 1 px rule, the board's name in capitals. In Mine, Pins and the search
+    the lane's name in capitals follows (10 px, in the lane's color, after a 6 px dot). At its right: `✓ done/total`
+    (`circle-check` in the lane's color, `done` when all are done) once the counts are read, the inactivity label, and
+    two 22 px buttons, Insert (↵) and More (⋯). Then, padding 11 by 6 and 10, gap 7: a 13 px `accent` pin when the pin
+    list has the card and the whole title (13 px, bold, wrapping); up to three tag chips (`#tag`) and `+N`. Then the
+    meta line (10 px, in the lane's color): the creator's 20 px avatar; `ADDED <days>` over the creator's name, a rule
+    between; a 1 px divider; `refresh` and the day it last changed over `arrow-right` and the assignees' names; up to two
+    20 px assignee avatars; at the right `message-square-text` (in the lane's color) and the comment count when there are
+    comments. Days are calendar days: `TODAY`, `YESTERDAY`, `N DAYS AGO`. The label is 16 px high, padding 5,
     rounded 4, with a 1 px border and medium text in one color: `ansi3` for `Closes in Nd` and `Closes today`, `blocked`
     for `Stalled`.
   - Mine and search results: a 26 px board name (12 px, medium, `muted`) over that board's cards.
