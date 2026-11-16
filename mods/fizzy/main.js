@@ -753,7 +753,7 @@ export default class Fizzy extends View {
   }
 
   lazyOf(board) {
-    if (!this.lazy.has(board)) this.lazy.set(board, { notNow: null, done: null, stale: false, page: 0, end: false, shown: CARD_PAGE, errors: {} });
+    if (!this.lazy.has(board)) this.lazy.set(board, { columnsRead: false, notNow: null, done: null, stale: false, page: 0, end: false, shown: CARD_PAGE, errors: {} });
     return this.lazy.get(board);
   }
 
@@ -777,15 +777,16 @@ export default class Fizzy extends View {
     return this.sideBySide() ? this.openKeys(this.board).includes(kind) : !this.collapsedNow({ key: kind, kind });
   }
 
-  // The board's open cards. The columns are read when they are not known yet or `columns` asks (Refresh), and when an open card
-  // names one that is not among them. An unfolded Not Now or Done lane is read when it has no data yet or is stale (Refresh or a
-  // write came since it was read, see refreshAll); a folded lane never is.
+  // The board's open cards. The columns are read when they were not read yet this session (cached ones only stand in for the
+  // first draw) or `columns` asks (Refresh), and when an open card names one that is not among them. An unfolded Not Now or
+  // Done lane is read when it has no data yet or is stale (Refresh or a write came since it was read, see refreshAll); a folded
+  // lane never is.
   loadBoard(cx, { columns = false } = {}) {
     const board = this.board;
     if (!board) return;
     this.load(`board:${board}`, cx, async cx => {
       try {
-        const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !known, stale = lazy.stale;
+        const lazy = this.lazyOf(board), known = this.columns.get(board), wantColumns = columns || !lazy.columnsRead, stale = lazy.stale;
         lazy.stale = false;
         // The stalled cards and who can see and watch the board change slowly: they are read with the columns, and a failure
         // only costs what shows them.
@@ -803,7 +804,7 @@ export default class Fizzy extends View {
         this.meet([open, notNow]);
         if (notNow) { lazy.notNow = notNow.map(slim); lazy.errors["not-now"] = null; }
         if (done) { Object.assign(lazy, { done: done.cards, page: done.page, end: done.end }); lazy.errors.done = null; }
-        if (read) this.columns.set(board, read.map(slimColumn));
+        if (read) { this.columns.set(board, read.map(slimColumn)); lazy.columnsRead = true; }
         this.cards.set(board, (open ?? []).map(slim));
         keep(`data:${board}`, { columns: this.columns.get(board), open: this.cards.get(board) });
         if (this.board === board) { this.errors.board = null; this.prune(); }

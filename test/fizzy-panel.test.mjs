@@ -364,6 +364,21 @@ test("the board is the CLI's own default when nothing else says: `config show`, 
   assert.deepEqual(JSON.parse(localStorage.getItem("config")), { board: "b2", account: "111" });
 });
 
+test("a board shown from the cache reads its columns once more, and with them who can see it and its stalled cards: Who can see this board opens", async () => {
+  localStorage.setItem("config", JSON.stringify({ board: "b1", account: "111" }));
+  localStorage.setItem("boards", JSON.stringify([B1, B2]));
+  localStorage.setItem("data:b1", JSON.stringify({ columns: [{ id: "c1", name: "Old name", color: null }], open: [] }));
+  const { view, cx, draw } = await mount();
+  const tree = await draw();
+  assert.equal(header(tree, "c1"), "In progress 1", "the cached name is replaced");
+  click(tree, "fizzy-board-access", cx);
+  assert.equal(lastPopup().props.menu.kind, "access");
+  view.loadBoard(cx);
+  await cx.settle();
+  const reads = () => ["column", "accesses", "stalled"].map(w => acct.log.filter(a => a.includes(w)).length);
+  assert.deepEqual(reads(), [1, 1, 1], "once per session, not by every load");
+});
+
 test("the CLI's default board is kept: a first start waits for `config show` rather than read another board, a later start picks it at once", async () => {
   acct.config = { account: "111", board: "b2" };
   localStorage.setItem("boards", JSON.stringify([B1, B2]));
@@ -389,7 +404,7 @@ test("the CLI's default board is kept: a first start waits for `config show` rat
   await next.cx.settle();
   acct.hold = null;
   assert.deepEqual(atOnce, ["b2", "b2"], "known from the last start: read at once");
-  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b2"], "and its cached columns are known: they are not read again");
+  assert.deepEqual(acct.asked("column", "list").map(a => a[3]), ["b2", "b2"], "its cached columns stand in until read once more");
 });
 
 test("when `config show` fails, the last start's default board and account stand", async () => {
