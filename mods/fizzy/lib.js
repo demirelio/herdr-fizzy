@@ -326,12 +326,14 @@ export function boardRef(board) {
   return `Fizzy board "${flat(board.name)}"${board.url ? ` (${board.url})` : ""}`;
 }
 
-// One line: Fizzy #4242 "Fix the login redirect" (https://app.fizzy.do/111/cards/4242); `card` may be a board.
-export function ref(card) {
+// One line: Fizzy #4242 "Fix the login redirect" (https://app.fizzy.do/111/cards/4242), or with `short` (Settings > Cards >
+// Short references) Fizzy card #N; `card` may be a board, whose reference is never shortened.
+export function ref(card, short = false) {
   if (card?.kind === "board") return boardRef(card);
+  if (short) return `Fizzy card #${card.number}`;
   return `Fizzy #${card.number} "${flat(card.title)}"${card.url ? ` (${card.url})` : ""}`;
 }
-export const refs = cards => (cards ?? []).map(ref).join("\n");
+export const refs = (cards, short = false) => (cards ?? []).map(card => ref(card, short)).join("\n");
 
 // A tab's name for "Start new session": "#4242 Fix the login redirect…" (a board: its name), cut at 32 characters.
 export function tabName(card) {
@@ -1338,7 +1340,8 @@ const sep = id => ({ type: "sep", id });
 // ctx, read live by the caller: { agents (running), focused, known (knownAgents(): the ones that can be started), checking,
 // failed, boards, groups (the saved board groups), users, tags, me, mentionable (user ids), armed, query, looked }.
 // A card menu opened by the panel carries `to`: the label of the agent its Insert goes to (null: it copies), and `pinned` and
-// `watching` (true or false) when it knows them; a toggle row offers both verbs while its state is missing.
+// `watching` (true or false) when it knows them; a toggle row offers both verbs while its state is missing. A card, agents or
+// start menu carries `short` while Short references is on.
 export function menuRows(menu, ctx = {}) {
   switch (menu?.kind) {
     case "boards": return boardRows(menu, ctx);
@@ -1396,11 +1399,12 @@ function cardRows(menu, ctx) {
   const inView = targetAgent({ agents: ctx.agents, focused: ctx.focused });
   const target = "to" in menu ? menu.to : inView ? agentLabel(inView) : null;
   const mine = !!meId && (card.assignees ?? []).some(u => u.id === meId);
+  const short = menu.short === true, handOff = kind => ({ menu: { kind, cards: [card], ...(short && { short }) } });
   return [
-    row("insert", "Insert in chat", ICON("insert"), { insert: ref(card) }, { hint: target || "copies" }),
-    row("send", "Send to session…", ICON("send"), { menu: { kind: "agents", cards: [card] } }),
-    row("start", "Start new session…", ICON("bot"), { menu: { kind: "start", cards: [card] } }),
-    row("copy-ref", "Copy reference", ICON("copy"), { copy: ref(card) }),
+    row("insert", "Insert in chat", ICON("insert"), { insert: ref(card, short) }, { hint: target || "copies" }),
+    row("send", "Send to session…", ICON("send"), handOff("agents")),
+    row("start", "Start new session…", ICON("bot"), handOff("start")),
+    row("copy-ref", "Copy reference", ICON("copy"), { copy: ref(card, short) }),
     ...(card.url ? [row("copy-link", "Copy link", ICON("link"), { copy: card.url })] : []),
     sep("sep-hand"),
     ...(card.closed ? [row("reopen", "Reopen", ICON("rotate-ccw"), { request: { kind: "reopen", number: n } })] : []),
@@ -1428,7 +1432,7 @@ function cardRows(menu, ctx) {
 function agentRows(menu, ctx) {
   const list = ctx.agents ?? [], target = targetAgent({ agents: list, focused: ctx.focused });
   const ordered = target ? [target, ...list.filter(a => a.address !== target.address)] : list;
-  const text = refs(menu.cards);
+  const text = refs(menu.cards, menu.short === true);
   return [
     ...ordered.map(a => row(`agent-${a.address}`, agentLabel(a), a.program?.icon ?? null, { paste: { address: a.address, text } }, { hint: agentHint(a) || undefined, agent: a.program })),
     ...(ordered.length ? [] : [note("agents-note", "No agents running")]),
@@ -1438,7 +1442,7 @@ function agentRows(menu, ctx) {
 // The installed agents; each new tab starts with no first message.
 function startRows(menu, ctx) {
   const installed = (ctx.known ?? []).filter(a => a.installed).slice(0, AGENTS);
-  const name = menu.cards?.[0] ? tabName(menu.cards[0]) : "", text = refs(menu.cards);
+  const name = menu.cards?.[0] ? tabName(menu.cards[0]) : "", text = refs(menu.cards, menu.short === true);
   return [
     ...installed.map((a, i) => row(`agent-${i}`, a.name, a.icon, { start: { name, argv: a.run, text, agent: a.name } }, { agent: a })),
     ...(installed.length ? [] : [note("agents-note", ctx.checking ? "Checking installed agents…" : ctx.failed ? "Could not load agents" : "No agents found")]),

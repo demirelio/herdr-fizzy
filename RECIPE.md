@@ -192,10 +192,11 @@ and 8 down, gap 12, rounded 9, 1 px `border`, `input` on hover, `surface`): a 30
 |---|---|
 | Mentions | `Can tag N of M people · Finds new ones by itself`, or `· Manual only`; `Loading people…` |
 | Board groups | `N groups`, `1 group` or `No groups` |
-| Cards | `Full` or `Compact` |
+| Cards | `Full` or `Compact`, then ` · Short references` when that is on |
 
-- **Cards**: one block, **Compact cards**, noting what a compact card shows, with the switch (as Mentions' has it) and
-  `On` or `Off`. It is kept between runs (`compactCards`, off at first).
+- **Cards**: two blocks, each with the switch (as Mentions' has it) and `On` or `Off`, each kept between runs and off at
+  first. **Compact cards** notes what a compact card shows (`compactCards`). **Short references** notes that Insert,
+  Send, Start and Copy hand over the card's number alone, and that a dragged card is still its file (`shortRefs`).
 
 - **Mentions**: four blocks (padding 12, gap 8, rounded 9, 1 px `border`, `surface`; a title in medium, then a note in
   12 px `dim`, then the controls): `You can tag N of M people`, noting `Not yet: <names>` or `Everyone can be tagged
@@ -369,7 +370,8 @@ dot after the label while `fizzy.unread` is above zero.
   Escape closes. Delete card… asks again (`Click again to delete #N`).
 - **Hand-offs.** The buttons act on the open card, else the picked cards; the `insert`, `send`, `start` and `copy`
   keys act on those too, else, in the Board view, on the board. The reference is `Fizzy #N "Title" (url)`, one line
-  per card, or `Fizzy board "Name" (url)`. Insert pastes it into the agent of the focused pane, else of the focused
+  per card (`Fizzy card #N` with Short references on; the card, agents and start popups are handed `short` for that),
+  or `Fizzy board "Name" (url)`. Insert pastes it into the agent of the focused pane, else of the focused
   agent block, else the tab's agent that changed last; with none it copies and toasts `Copied — no agent here`. Send
   lists the running agents (each as `Program · tab`, with `space · status` as the hint, the one Insert would use
   first); choosing one selects its space and tab, focuses its pane and pastes. Start lists up to six installed agents
@@ -401,7 +403,7 @@ dot after the label while `fizzy.unread` is above zero.
   boardless `card list --assignee <user> --all` grouped by board when the CLI has no default board (with one, a
   boardless list reads that board only, so each board is read).
 - **Settings** opens on its list; a block opens its page. Back (and the `back` key) goes from a page to the list, and
-  from the list out of Settings. The Mentions and Cards switches are kept (`mentionAuto`, `compactCards`).
+  from the list out of Settings. The Mentions and Cards switches are kept (`mentionAuto`, `compactCards`, `shortRefs`).
 - **Board groups.** + adds a group at the top. Clicking the name or the rule edits it in place; the bin asks once
   (`Delete?`); the eye hides; clicking the rest of the line folds. A press with ⌘ or Ctrl held on a board or group picks
   it up: the block under the pointer is `selected` (for a board) or shows a 2 px `accent` line where a group lands, and
@@ -462,8 +464,8 @@ dot after the label while `fizzy.unread` is above zero.
 - **Local storage** (the panel's, never shared), as JSON: `view`, `follow`, `board`, `boards` (each with `period`, its
   `auto_postpone_period_in_days`), `config`, `me`, `data:<board>`, `collapsed:<board>`, `folds`, `openColumns`
   (the columns open side by side, per board), `counts` (step progress and comment count per card), `avatars`,
-  `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, `compactCards`, and
-  `files` (image key -> its file in `data/fizzy/files`).
+  `seenNotes`, `watching`, `mentions` (user id -> mention id), `mentionScanAt`, `mentionAuto`, `compactCards`,
+  `shortRefs`, and `files` (image key -> its file in `data/fizzy/files`).
 - **Programs.** `fizzy` 4 or newer, always run from the home folder, every command ending with `--json`. It reads with
   `board list --all`, `column list --board`, `card list --board <id> --all` (also with `--indexed-by not_now`,
   `--assignee <user>`, also with no `--board`; Done as `--indexed-by closed --page <n>`), `search --jq … -- <words>`

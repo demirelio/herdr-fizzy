@@ -389,6 +389,7 @@ export default class Fizzy extends View {
     this.settingsOpen = false; this.settingsPage = null; this.composing = false; this.groupEdit = null; this.groupArmed = null; this.drag = null;
     this.mentionAuto = read("mentionAuto", true) !== false; // Settings > Mentions: the background scan for people who can't be tagged yet
     this.compactCards = read("compactCards", false) === true;
+    this.shortRefs = read("shortRefs", false) === true;
     const folded = read("folds", null);
     this.folds = new Set(Array.isArray(folded?.ids) ? folded.ids.filter(id => typeof id === "string") : []);
     this.foldNone = folded?.none === true;
@@ -1601,12 +1602,13 @@ export default class Fizzy extends View {
 
   handOff(kind, list, cx) {
     if (!list.length) return null;
+    const short = this.shortRefs;
     const go = (cards, cx) => {
       switch (kind) {
-        case "insert": return insertText(refs(cards), cx);
-        case "copy": return copyText(refs(cards), cx);
-        case "send": return openMenu({ kind: "agents", cards });
-        case "start": return openMenu({ kind: "start", cards });
+        case "insert": return insertText(refs(cards, short), cx);
+        case "copy": return copyText(refs(cards, short), cx);
+        case "send": return openMenu({ kind: "agents", cards, short });
+        case "start": return openMenu({ kind: "start", cards, short });
         default: return null;
       }
     };
@@ -1660,7 +1662,7 @@ export default class Fizzy extends View {
     const target = targetAgent({ agents: agents(), focused: focused() }), to = target ? agentLabel(target) : null;
     this.withColumns(card, cx, columns => {
       const pinned = this.pinOf(card.number), watching = this.watchOf(card.number);
-      openMenu({ kind: "card", card: slim(card), columns, to, ...(pinned == null ? {} : { pinned }), ...(watching === undefined ? {} : { watching }) });
+      openMenu({ kind: "card", card: slim(card), columns, to, short: this.shortRefs, ...(pinned == null ? {} : { pinned }), ...(watching === undefined ? {} : { watching }) });
     });
   }
 
@@ -2937,7 +2939,7 @@ export default class Fizzy extends View {
   }
 
   settingSummary(id) {
-    if (id === "cards") return this.compactCards ? "Compact" : "Full";
+    if (id === "cards") return `${this.compactCards ? "Compact" : "Full"}${this.shortRefs ? " · Short references" : ""}`;
     if (id === "groups") {
       const n = this.groups().groups.length;
       return n ? `${n} group${n === 1 ? "" : "s"}` : "No groups";
@@ -2963,12 +2965,16 @@ export default class Fizzy extends View {
   }
 
   cardsPage(t) {
+    const toggle = (id, key) => h_flex().gap(10).items_center()
+      .child(this.switchView(t, `${id}-switch`, this[key], cx => { this[key] = !this[key]; keep(key, this[key]); cx.notify(); }))
+      .child(div().text_size(textPx(12)).text_color(t.muted).child(this[key] ? "On" : "Off"));
     return v_flex().id("fizzy-cards").flex_none().gap(10)
       .child(this.settingBlock(t, "fizzy-cards-compact", "Compact cards",
         "The board, Mine, Pins and search results draw each card in three short lines: its number, its title, then who has it and when it last changed. Off, a card shows all Fizzy shows on it.",
-        h_flex().gap(10).items_center()
-          .child(this.switchView(t, "fizzy-cards-compact-switch", this.compactCards, cx => { this.compactCards = !this.compactCards; keep("compactCards", this.compactCards); cx.notify(); }))
-          .child(div().text_size(textPx(12)).text_color(t.muted).child(this.compactCards ? "On" : "Off"))));
+        toggle("fizzy-cards-compact", "compactCards")))
+      .child(this.settingBlock(t, "fizzy-cards-short", "Short references",
+        "Insert, Send, Start and Copy hand an agent the card's number alone: Fizzy card #42. Off, the reference also has the title and the link. A card dragged into a terminal is still its file.",
+        toggle("fizzy-cards-short", "shortRefs")));
   }
 
   settingBlock(t, id, title, note, ...controls) {

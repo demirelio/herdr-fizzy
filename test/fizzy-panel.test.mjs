@@ -8924,6 +8924,35 @@ test("Settings > Cards: Compact cards, off at first; switched on (and kept), a c
   assert.match(textOf(must(mine, "fizzy-card-head-101")), /ROADMAP/, "a list of many boards keeps the board on the tab");
 });
 
+test("Settings > Cards: Short references, off at first; switched on (and kept), Insert, Copy, Send and the card menu hand over Fizzy card #N", async () => {
+  withAgent();
+  const m = await mount();
+  click(await m.draw(), "fizzy-open-settings", m.cx);
+  click(await m.draw(), "fizzy-setting-cards", m.cx);
+  let tree = await m.draw();
+  assert.match(textOf(must(tree, "fizzy-cards-short")), /^Short references/);
+  assert.equal(must(tree, "fizzy-cards-short-switch").style.bg, "raised", "off");
+  click(tree, "fizzy-cards-short-switch", m.cx);
+  tree = await m.draw();
+  assert.equal(must(tree, "fizzy-cards-short-switch").style.bg, "solid", "on");
+  assert.equal(must(tree, "fizzy-cards-compact-switch").style.bg, "raised", "Compact cards is its own switch");
+  assert.equal(localStorage.getItem("shortRefs"), "true", "kept");
+  click(tree, "fizzy-back", m.cx);
+  assert.equal(textOf(must(await m.draw(), "fizzy-setting-cards-summary")), "Full · Short references");
+
+  const { cx, tree: card } = await openDetail();
+  const clicker = makeCx();
+  click(card, "fizzy-bar-insert", clicker);
+  assert.deepEqual(clicker.clipboard, ["Fizzy card #101 "], "after a restart too; no Enter");
+  click(card, "fizzy-bar-copy", clicker);
+  assert.equal(clicker.clipboard.at(-1), "Fizzy card #101");
+  click(card, "fizzy-bar-send", clicker);
+  assert.equal(menuRows(lastPopup().props.menu, { agents: state.agents })[0].act.paste.text, "Fizzy card #101");
+  click(card, "fizzy-card-menu", cx);
+  await cx.settle();
+  assert.deepEqual(menuRows(lastPopup().props.menu, { agents: [] }).find(r => r.id === "copy-ref").act, { copy: "Fizzy card #101" });
+});
+
 test("Settings > Mentions: how many people can be tagged and who not yet; a card's number in its field learns everyone mentioned on that card, and says how many", async () => {
   localStorage.setItem("mentionAuto", "false");
   acct.comments[101].push(BOB_SAYS);

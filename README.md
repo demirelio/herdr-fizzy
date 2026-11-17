@@ -55,8 +55,8 @@ pin it, watch it and mark it Done.
 
 The bar at the foot has four buttons. **Insert** pastes the card's reference into the agent you are talking to, **Send**
 into a running session you pick, **Start** into a new tab with an agent you choose, and **Copy** puts it on the
-clipboard. The reference is one line, `Fizzy #42 "Fix the login redirect" (<link>)`. You add what you want to say and
-press Enter yourself.
+clipboard. The reference is one line, `Fizzy #42 "Fix the login redirect" (<link>)`, or just `Fizzy card #42` with
+**Settings > Cards > Short references** on. You add what you want to say and press Enter yourself.
 
 ![Opening a card and pressing Insert: its reference lands in the Claude Code chat's input box, not sent](docs/media/handoff.gif)
 

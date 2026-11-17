@@ -261,15 +261,16 @@ clicks).
 
 The gear opens a list of pages, each with what it is set to now: **Mentions** (how many people can be
 tagged, and whether the panel finds new ones by itself; see [Mentions and card links](#mentions-and-card-links)),
-**Board groups** (how many groups) and **Cards** (Full or Compact). Click one to open it. Back goes from a page to the
-list, and from the list out of Settings.
+**Board groups** (how many groups) and **Cards** (Full or Compact, then `· Short references` when that is on). Click
+one to open it. Back goes from a page to the list, and from the list out of Settings.
 
 ### Compact cards
 
-**Settings > Cards** has one switch, **Compact cards** (off at first, kept between runs). On, the
+**Settings > Cards** has two switches, each off at first and kept between runs. With **Compact cards** on, the
 board, Mine, Pins and search results draw each card in three short lines: its number (with its board only in a list
 that mixes boards), its title, then the photos of who has it, when it last changed and its comment count. Tags, who
-made it and when are left out; they are on the card's page.
+made it and when are left out; they are on the card's page. **Short references** shortens what a hand-off pastes to
+`Fizzy card #42` ([Hand a card to an agent](#hand-a-card-to-an-agent)).
 
 ### Board groups
 
@@ -319,6 +320,8 @@ the board shown.
 
 Each one puts a one-line reference, `Fizzy #42 "Fix the login redirect" (<the card's link>)` for a card (one line per
 card) or `Fizzy board "Roadmap" (<the board's link>)` for a board, into an agent's input box or on the clipboard.
+With **Settings > Cards > Short references** on, a card's reference is only `Fizzy card #42`; a board's stays whole.
+A card dragged into a terminal still drops its file's path.
 **Nothing is ever sent for you:** you read it, add what you want to say, and press Enter yourself.
 
 - **Insert** pastes into the chat you are in: the agent in the focused pane, else the agent in that tab that changed
@@ -595,7 +598,8 @@ and open cards, each description cut to 300 characters) so it shows at once next
 folded and which columns are open side by side, the step progress and comment count of the last 400 cards it counted
 (with when each card last changed), the photos' and the images' file names, the ids of the last 300 notifications
 already announced, what you set for watching on the last 200 cards, the mention id it learned for each person, when it
-last looked through Fizzy's activity for them, whether it may do so by itself, and whether cards are compact.
+last looked through Fizzy's activity for them, whether it may do so by itself, whether cards are compact, and whether
+references are short.
 
 The mention ids stay on this computer, in that local storage only: the shared `fizzy.people` says only who can be
 tagged, and an id goes nowhere but back to Fizzy, inside a comment or description you save.
