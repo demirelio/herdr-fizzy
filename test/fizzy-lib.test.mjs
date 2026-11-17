@@ -604,6 +604,14 @@ test("ref is one line: number, title, url", () => {
   assert.ok(!ref(card(9, { title: "a\nb" })).includes("\n"));
 });
 
+test("a short ref is the card's number alone; a board's ref is never shortened", () => {
+  assert.equal(ref(card(4242, { title: "Fix the login redirect" }), true), "Fizzy card #4242");
+  assert.equal(ref(card(8, { title: "No link", url: undefined }), true), "Fizzy card #8");
+  const board = { kind: "board", id: "b1", name: "Roadmap", url: "https://app.fizzy.do/111/boards/b1" };
+  assert.equal(ref(board, true), ref(board));
+  assert.equal(refs([card(1), card(2)], true), "Fizzy card #1\nFizzy card #2");
+});
+
 test("refs puts one ref per line", () => {
   const out = refs([card(1, { title: "a\nb" }), card(2, { title: "c" })]);
   assert.equal(out, 'Fizzy #1 "a b" (https://app.fizzy.do/111/cards/1)\nFizzy #2 "c" (https://app.fizzy.do/111/cards/2)');
@@ -2076,6 +2084,20 @@ test("the card menu's Move to rows: just the lanes, as moves", () => {
   assert.deepEqual(byId(rows, "lane-c2").act, { request: { kind: "move", number: 77, target: "c2" } });
   assert.deepEqual(byId(rows, "lane-done").act, { request: { kind: "move", number: 77, target: "done" } });
   assert.equal(byId(rows, "lane-c1").color, colorOf(C1));
+});
+
+test("hand-off menus with `short`: the card menu's Insert and Copy reference, and the agents and start menus it opens, hand over Fizzy card #N", () => {
+  const c = card(4242, { title: "Fix the login redirect", column: C1 });
+  const rows = menuRows({ kind: "card", card: c, columns: COLUMNS, short: true }, { agents: [claude], focused: { terminal: "term-claude", tab: "t1" }, boards: BOARDS });
+  assert.deepEqual(byId(rows, "insert").act, { insert: "Fizzy card #4242" });
+  assert.deepEqual(byId(rows, "copy-ref").act, { copy: "Fizzy card #4242" });
+  assert.deepEqual(byId(rows, "copy-link").act, { copy: "https://app.fizzy.do/111/cards/4242" }, "the link is still there to copy");
+  assert.deepEqual(byId(rows, "send").act, { menu: { kind: "agents", cards: [c], short: true } });
+  assert.deepEqual(byId(rows, "start").act, { menu: { kind: "start", cards: [c], short: true } });
+  const cards = [c, card(4243)];
+  assert.equal(menuRows({ kind: "agents", cards, short: true }, { agents: [claude] })[0].act.paste.text, "Fizzy card #4242\nFizzy card #4243");
+  const [start] = menuRows({ kind: "start", cards, short: true }, { known: [{ key: "claude", name: "Claude Code", run: ["claude"], installed: true }] });
+  assert.deepEqual([start.act.start.name, start.act.start.text], ["#4242 Fix the login redirect", "Fizzy card #4242\nFizzy card #4243"], "the tab keeps its title");
 });
 
 test("agents menu: one row per running session, the Insert target first, each pastes the reference (never submitted)", () => {
