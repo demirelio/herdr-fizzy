@@ -9193,6 +9193,23 @@ test("a Markdown file is saved to Downloads once and opens in Potion; clicked ag
   assert.equal(calls.notify.filter(n => n.body === "Saved to Downloads").length, 2);
 });
 
+test("in a tab already split, a Markdown file opens in the tab's newest corner (under the right-hand pane), not right of the focused pane", async () => {
+  acct.card(101).description_html = '<div><action-text-attachment sgid="sgid-md" content-type="text/markdown" filename="plan.md" filesize="2048"></action-text-attachment></div>';
+  acct.attachments[101] = ["sgid-md"];
+  const { tree, cx } = await openDetail();
+  state.spaces = [space("s1", "notes", { active: true })];
+  state.panes = [pane("p1", "s1-tab", state.home, { focused: true }), pane("p2", "s1-tab", state.home)];
+  state.focused = { space: "s1", tab: "s1-tab", pane: "p1", terminal: "t-p1", shown: null, agent: null, cwd: state.home };
+  const split = { type: "row", id: "s1-tab", children: [{ type: "block", id: "p1" }, { type: "block", id: "p2" }] };
+  const core = `${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { version: 1, value: { spaces: [{ id: "s1", tabs: [{ id: "s1-tab", root: split }] }] } } })}\n`;
+  const cli = state.exec;
+  state.exec = async (command, args, options) => (args?.[1]?.includes("hc connect") ? { code: 0, stdout: core, stderr: "" } : cli(command, args, options));
+  click(tree, "fizzy-desc-html-0", cx);
+  await cx.settle();
+  const file = `${state.home}/Downloads/plan.md`;
+  assert.deepEqual(calls.run.filter(([, params]) => params?.mod === "potion"), [["pane.split", { direction: "down", pane: "p2", mod: "potion", props: { file } }]]);
+});
+
 test("an image drawn as a file is saved to Downloads and opens with the system's viewer", async () => {
   acct.card(101).description_html = `<div>${picture("sgid-huge").replace('filesize="2048"', 'filesize="99999999"')}</div>`;
   acct.attachments[101] = ["sgid-huge"];

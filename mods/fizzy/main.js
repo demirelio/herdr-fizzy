@@ -4,6 +4,7 @@ import { View, div, svg, image, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import { textPx } from "./text.js";
+import { besideSpot } from "./beside.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
   columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, labelFile, labelBox, labelSvg,
@@ -212,14 +213,16 @@ const insertText = (text, cx) => pasteInto(text, cx, targetAgent({ agents: agent
 const MARKDOWN_MOD = "potion";
 // Mods can't import each other, so this follows Potion's openMarkdown with place "pane", and reads its registry
 // of which pane shows which file (pane id -> "machine:path"): the file's pane in the focused tab gets the focus, else a pane
-// splits right of the focused one; with no pane to open beside, the file gets a tab of its own.
-function showMarkdown(file) {
+// opens in that tab's newest corner (beside.js); with no pane to open beside, the file gets a tab of its own.
+async function showMarkdown(file) {
   const all = panes(), f = focused(), known = shared(`${MARKDOWN_MOD}.panes`) ?? {};
   const anchor = all.find(p => p.pane === f?.pane) ?? all.find(p => p.tab === f?.tab);
   const open = anchor && all.find(p => p.tab === anchor.tab && p.mod === MARKDOWN_MOD && known[p.pane] === `:${file}`);
   if (open) run("pane.focus", { pane: open.pane });
-  else if (anchor) run("pane.split", { direction: "right", pane: anchor.pane, mod: MARKDOWN_MOD, props: { file } });
-  else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
+  else if (anchor) {
+    const spot = await besideSpot(anchor);
+    run("pane.split", { direction: spot.direction, pane: spot.pane, mod: MARKDOWN_MOD, props: { file } });
+  } else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
 }
 
 function live(extra) {
@@ -1171,7 +1174,7 @@ export default class Fizzy extends View {
           keep("saved", Object.fromEntries([...others, [file.key, path]]));
           notify({ title: "Fizzy", body: "Saved to Downloads", level: "info" });
         }
-        if (isMarkdownName(file.filename)) showMarkdown(path);
+        if (isMarkdownName(file.filename)) await showMarkdown(path);
         else await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", file.image ? "open" : "reveal", path]);
       } finally { this.saving.delete(file.key); }
     });
