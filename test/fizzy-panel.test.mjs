@@ -9168,6 +9168,41 @@ test("a file that is not an image is a chip with a paperclip, its name and size;
   assert.equal(acct.asked("card", "attachments", "download").length, 1);
 });
 
+test("a Markdown file is saved to Downloads once and opens in Potion; clicked again, in this run or a later one, its copy opens while it is there, and only a copy that is gone is saved again", async () => {
+  acct.card(101).description_html = '<div><action-text-attachment sgid="sgid-md" content-type="text/markdown" filename="plan.md" filesize="2048"></action-text-attachment></div>';
+  acct.attachments[101] = ["sgid-md"];
+  const path = `${state.home}/Downloads/plan.md`, opened = ["tab.new", { name: "plan.md", mod: "potion", props: { file: path } }];
+  const downloads = () => acct.asked("card", "attachments", "download").length;
+  const shown = () => calls.run.filter(([, params]) => params?.mod === "potion");
+  const first = await openDetail();
+  assert.equal(must(first.tree, "fizzy-desc-html-0").style.tooltip, "Save to Downloads and open beside");
+  click(first.tree, "fizzy-desc-html-0", first.cx);
+  click(first.tree, "fizzy-desc-html-0", first.cx);
+  await first.cx.settle();
+  assert.equal(downloads(), 1, "a click while it is being saved saves nothing more");
+  assert.deepEqual(shown(), [opened]);
+  const later = await openDetail();
+  click(later.tree, "fizzy-desc-html-0", later.cx);
+  await later.cx.settle();
+  assert.equal(downloads(), 1, "a later run opens the copy saved before");
+  assert.deepEqual(shown(), [opened, opened]);
+  acct.downloaded.delete(path);
+  click(later.tree, "fizzy-desc-html-0", later.cx);
+  await later.cx.settle();
+  assert.equal(downloads(), 2, "its copy is gone: saved again");
+  assert.equal(calls.notify.filter(n => n.body === "Saved to Downloads").length, 2);
+});
+
+test("an image drawn as a file is saved to Downloads and opens with the system's viewer", async () => {
+  acct.card(101).description_html = `<div>${picture("sgid-huge").replace('filesize="2048"', 'filesize="99999999"')}</div>`;
+  acct.attachments[101] = ["sgid-huge"];
+  const { cx, tree } = await openDetail();
+  assert.equal(must(tree, "fizzy-desc-html-0").style.tooltip, "Save to Downloads and open");
+  click(tree, "fizzy-desc-html-0", cx);
+  await cx.settle();
+  assert.deepEqual(scriptsRun(), [["free name", `${state.home}/Downloads`, "shot", ".png"], ["open", "open", `${state.home}/Downloads/shot.png`]]);
+});
+
 test("files dropped on the comment box are uploaded one after another, each put in as a token at the cursor; the comment carries them as attachments", async () => {
   const { view, cx, draw, tree } = await openDetail();
   const box = inputOf(tree, "fizzy-comment-input");
