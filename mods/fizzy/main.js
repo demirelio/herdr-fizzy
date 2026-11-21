@@ -4,6 +4,7 @@ import { View, div, svg, image, PathBuilder, Background } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { exec, checking, agents, panes, spaces, focused, knownAgents, theme, shared, setShared, layout, home, appHome, props, run, notify, openOverlay, closeOverlay, nextCommand } from "herdr";
 import { textPx } from "./text.js";
+import { besideSpot } from "./beside.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
   columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, labelFile, labelBox, labelSvg,
@@ -69,7 +70,7 @@ const pillShape = height => {
   return PathBuilder.fill().move_to(0, r).arc_to(r, r, 0, false, true, FOLDED, r)
     .line_to(FOLDED, height - r).arc_to(r, r, 0, false, true, 0, height - r).close().build();
 };
-const COUNT_PARALLEL = 3, COUNTS_KEPT = 400;
+const COUNT_PARALLEL = 3, COUNTS_KEPT = 400, SAVED_KEPT = 200;
 
 const why = e => String(e?.message ?? e);
 const stop = (_e, cx) => cx.stop_propagation();
@@ -87,6 +88,10 @@ const keep = (key, value) => {
     const text = JSON.stringify(value);
     if (localStorage.getItem(key) !== text) localStorage.setItem(key, text);
   } catch { /* a full or missing store only costs the cache */ }
+};
+const savedCopies = () => {
+  const kept = read("saved", {});
+  return kept && typeof kept === "object" && !Array.isArray(kept) ? kept : {};
 };
 const keptMe = () => {
   const kept = read("me", null);
@@ -205,17 +210,19 @@ function pasteInto(text, cx, agent, { bring = false, none = "Copied — no agent
 
 const insertText = (text, cx) => pasteInto(text, cx, targetAgent({ agents: agents(), focused: focused() }));
 
-const MARKDOWN_MOD = "herdr-inline-markdown";
-// Mods can't import each other, so this follows herdr-inline-markdown's openMarkdown with place "pane", and reads its registry
+const MARKDOWN_MOD = "potion";
+// Mods can't import each other, so this follows Potion's openMarkdown with place "pane", and reads its registry
 // of which pane shows which file (pane id -> "machine:path"): the file's pane in the focused tab gets the focus, else a pane
-// splits right of the focused one; with no pane to open beside, the file gets a tab of its own.
-function showMarkdown(file) {
+// opens in that tab's newest corner (beside.js); with no pane to open beside, the file gets a tab of its own.
+async function showMarkdown(file) {
   const all = panes(), f = focused(), known = shared(`${MARKDOWN_MOD}.panes`) ?? {};
   const anchor = all.find(p => p.pane === f?.pane) ?? all.find(p => p.tab === f?.tab);
   const open = anchor && all.find(p => p.tab === anchor.tab && p.mod === MARKDOWN_MOD && known[p.pane] === `:${file}`);
   if (open) run("pane.focus", { pane: open.pane });
-  else if (anchor) run("pane.split", { direction: "right", pane: anchor.pane, mod: MARKDOWN_MOD, props: { file } });
-  else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
+  else if (anchor) {
+    const spot = await besideSpot(anchor);
+    run("pane.split", { direction: spot.direction, pane: spot.pane, mod: MARKDOWN_MOD, props: { file } });
+  } else run("tab.new", { name: file.split("/").pop(), mod: MARKDOWN_MOD, props: { file } });
 }
 
 function live(extra) {
@@ -343,12 +350,12 @@ export default class Fizzy extends View {
     // The images of descriptions and comments: { [key]: file name in FILE_DIR } is kept between runs (key: see fileOf in lib.js).
     // `fileWanted`: the ones still to download (key -> { number, file }), `fileBusy` those downloading, `fileFailed` those that
     // failed (drawn as files). `attachmentLists`: card number -> its attachments' sgids, read when one is downloaded.
-    // `uploading`: editor ("comment", "commentEdit", "desc") -> the name of the file it is uploading. `savedMarkdown`: key -> the
-    // path of its copy in Downloads.
+    // `uploading`: editor ("comment", "commentEdit", "desc") -> the name of the file it is uploading. `saving`: the keys of the
+    // files being saved to Downloads.
     const files = read("files", {});
     this.files = {};
     if (files && typeof files === "object") for (const [key, file] of Object.entries(files)) if (isCachedFile(file) && file.startsWith(`${key}.`)) this.files[key] = file;
-    this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map(); this.savedMarkdown = new Map();
+    this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map(); this.saving = new Set();
     this.width = null; // the panel's, in px, once drawn
     // Side by side, the open columns of each board (board id -> lane keys, the last opened last); Maybe? when none is kept.
     const opened = read("openColumns", {});
@@ -1151,27 +1158,38 @@ export default class Fizzy extends View {
     return list;
   }
 
+  // A file goes to Downloads once: its copy is kept across runs (`saved`: key -> path, newest last), and while that copy is
+  // there a click opens it again.
   saveFile(file, cx) {
     const number = this.detail?.number;
     if (!file.sgid) return file.url ? this.openLink(file.url, cx) : null;
-    const markdown = isMarkdownName(file.filename);
+    if (this.saving.has(file.key)) return null;
+    this.saving.add(file.key);
     return this.job(cx, async () => {
-      const saved = markdown && this.savedMarkdown.get(file.key);
-      if (saved && (await exec("test", ["-s", saved]))?.code === 0) return showMarkdown(saved);
-      const index = await this.attachmentIndex(number, file.sgid);
-      if (!index) throw "That file is no longer on the card";
-      const name = file.filename.replace(/\//g, "_").replace(/^\.+$/, "") || "attachment", dot = name.lastIndexOf(".");
-      const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
-      const r = await exec("sh", ["-c", FREE_NAME_SCRIPT, "fizzy", `${home()}/Downloads`, base, ext]);
-      const path = r?.code === 0 ? String(r.stdout ?? "") : "";
-      if (!path) throw "Couldn't save the file to Downloads";
-      await fizzy(cmd.download(number, index, path), { timeout: FILE_TIMEOUT });
-      if (markdown) {
-        this.savedMarkdown.set(file.key, path);
-        showMarkdown(path);
-      } else await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", "reveal", path]);
-      notify({ title: "Fizzy", body: "Saved to Downloads", level: "info" });
+      try {
+        let path = savedCopies()[file.key];
+        if (typeof path !== "string" || (await exec("test", ["-f", path]))?.code !== 0) {
+          path = await this.saveToDownloads(number, file);
+          const others = Object.entries(savedCopies()).filter(([key]) => key !== file.key).slice(1 - SAVED_KEPT);
+          keep("saved", Object.fromEntries([...others, [file.key, path]]));
+          notify({ title: "Fizzy", body: "Saved to Downloads", level: "info" });
+        }
+        if (isMarkdownName(file.filename)) await showMarkdown(path);
+        else await exec("sh", ["-c", OPEN_SCRIPT, "fizzy", file.image ? "open" : "reveal", path]);
+      } finally { this.saving.delete(file.key); }
     });
+  }
+
+  async saveToDownloads(number, file) {
+    const index = await this.attachmentIndex(number, file.sgid);
+    if (!index) throw "That file is no longer on the card";
+    const name = file.filename.replace(/\//g, "_").replace(/^\.+$/, "") || "attachment", dot = name.lastIndexOf(".");
+    const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+    const r = await exec("sh", ["-c", FREE_NAME_SCRIPT, "fizzy", `${home()}/Downloads`, base, ext]);
+    const path = r?.code === 0 ? String(r.stdout ?? "") : "";
+    if (!path) throw "Couldn't save the file to Downloads";
+    await fizzy(cmd.download(number, index, path), { timeout: FILE_TIMEOUT });
+    return path;
   }
 
   openFile(path, cx) {
@@ -3293,7 +3311,7 @@ export default class Fizzy extends View {
 
   fileChip(t, id, f, column) {
     const size = fileSize(f.size);
-    const tip = !f.sgid ? "Open in the browser" : isMarkdownName(f.filename) ? "Save to Downloads and open beside" : "Save to Downloads";
+    const tip = !f.sgid ? "Open in the browser" : isMarkdownName(f.filename) ? "Save to Downloads and open beside" : f.image ? "Save to Downloads and open" : "Save to Downloads";
     return h_flex().id(id).h(30).max_w(column).px(8).gap(6).flex_none().items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
       .cursor_pointer().hover(s => s.bg(t.hover)).tooltip(tip)
       .on_mouse_down("left", (e, cx) => this.pressButton(e, cx))

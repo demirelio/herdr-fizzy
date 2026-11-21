@@ -397,7 +397,7 @@ const IMAGE_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg
 const IMAGE_NAME = /\.(?:png|jpe?g|gif|webp|svg|bmp|heic|heif|avif|tiff?)$/i;
 // Is this a file name the image cache can hold: shortHash's and an extension of IMAGE_TYPES?
 export const isCachedFile = name => typeof name === "string" && /^[0-9a-f]{16}\.(?:png|jpg|gif|webp|svg|bmp)$/.test(name);
-// The extensions herdr-inline-markdown opens (its MARKDOWN_EXT).
+// The extensions Potion opens (its MARKDOWN_EXT).
 export const isMarkdownName = name => /\.(?:md|markdown|mdown|mkd|mkdn|mdx)$/i.test(String(name ?? ""));
 
 // A file in Fizzy's rich text, out of an attachment's attributes (or an <img>'s, with its `src` as `url`): { key, sgid, url,

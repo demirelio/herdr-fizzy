@@ -91,6 +91,7 @@ export function makeAccount(opts = {}) {
     attachments: {},   // card number -> its attachments' sgids, in the order `card attachments download` numbers them
     clipboardImage: false, // the clipboard holds an image (what the paste script reads)
     written: {}, // path -> the text WRITE_SCRIPT wrote there
+    downloaded: new Set(), // the paths `card attachments download` wrote, which `test -f` finds while they are in it
     watching: { b1: [TEAMMATE.id] }, // board id -> the ids of who watches it for new cards
     access: { b1: { all: false, ids: [ME.id, TEAMMATE.id] } }, // board id -> every member can see it (all), else who can (ids)
     webImageFails: null,   // (url) => true: the image script cannot fetch that image from the web
@@ -160,7 +161,9 @@ export function makeAccount(opts = {}) {
     if (a1 === "card" && a2 === "attachments") {
       const sgids = a.attachments[Number(args[3])] ?? [];
       if (args[2] === "show") return ok(jq === JQ.attachments ? sgids : sgids.map(sgid => ({ sgid })));
-      return sgids[Number(args[4]) - 1] ? ok({ path: flag(args, "-o") }) : failure("not_found", "Attachment not found");
+      if (!sgids[Number(args[4]) - 1]) return failure("not_found", "Attachment not found");
+      a.downloaded.add(flag(args, "-o"));
+      return ok({ path: flag(args, "-o") });
     }
     if (a1 === "activity" && a2 === "list") {
       const page = Number(flag(args, "--page") ?? 1), from = (page - 1) * ACTIVITY_PAGE, events = a.activity.slice(from, from + ACTIVITY_PAGE);
@@ -314,6 +317,7 @@ export function makeAccount(opts = {}) {
     const scripted = command === "sh" && args[0] === "-c" ? fileScript(args[1], args.slice(3)) : null;
     if (scripted) return scripted;
     if (["mkdir", "mv", "rm"].includes(command)) return { code: 0, stdout: "", stderr: "" };
+    if (command === "test") return { code: args[0] === "-f" && a.downloaded.has(args[1]) ? 0 : 1, stdout: "", stderr: "" };
     if (command === "sh") {
       // The folder script (walk up to a .fizzy.yaml): the nearest folder in `yaml` at or above the given one, and of its file
       // the `board:` line only.
