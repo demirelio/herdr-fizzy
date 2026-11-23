@@ -24,6 +24,8 @@ export const AVATAR_DIR = "data/fizzy/avatars", AVATAR_TTL = 7 * 86400000, AVATA
 // FILE_DIR: images and the cards' .md files, deleted after FILE_DAYS. IMAGE_MAX (bytes): a larger image is drawn as a
 // file. FILE_TIMEOUT (ms): one upload or download.
 export const FILE_DIR = "data/fizzy/files", FILE_PARALLEL = 3, IMAGE_MAX = 15 * 1048576, FILE_DAYS = 7, FILE_TIMEOUT = 5 * 60000;
+// Herdr stops a draw that takes more than about 50 ms and keeps showing the last frame that worked.
+export const DESC_PREVIEW = 250, COMMENT_PREVIEW = 60, FOLD_SLACK = 1.5, ELEMENTS_PER_DRAW = 1100, PARSE_IN_DRAW = 2000, SMALLEST_SHARE = 0.125;
 
 // `code` is the CLI's own ("auth_required", "not_found", "network", "forbidden", "rate_limit", "api_error", "usage"), or
 // ours: "MISSING" (the program would not start), "TIMEOUT" (Herdr stopped it) and "PARSE" (stdout was not the JSON
@@ -683,6 +685,62 @@ export function richLines(html, users = []) {
   text(source.slice(last));
   end(true);
   return lines;
+}
+
+export const FILE_COST = 8;
+
+export function richWords(html, users = []) {
+  return richLines(html, users).map(line => (line.file ? { ...line, words: FILE_COST, cost: FILE_COST } : wordsOf(line)));
+}
+
+function wordsOf(line) {
+  const pieces = piecesOf(line.runs), [first] = line.runs;
+  const oneStyle = !line.pre && line.runs.every(r => r.kind === "text" && r.bold === first.bold && r.italic === first.italic && r.code === first.code);
+  return oneStyle
+    ? { ...line, pieces, words: pieces.length, cost: 1, text: line.runs.map(r => r.text).join("") }
+    : { ...line, pieces, words: pieces.length, cost: pieces.length };
+}
+
+function piecesOf(runs) {
+  const pieces = [];
+  for (const run of runs) {
+    for (const [word] of run.text.matchAll(/\s+|\S+/g)) {
+      const space = /^\s/.test(word);
+      // GPUI gives the spaces at the end of a text no width; non-breaking ones keep it.
+      const text = space ? word.replace(/\s/g, " ") : word;
+      if (space && pieces.length) pieces.at(-1).text += text;
+      else pieces.push({ ...run, text });
+    }
+  }
+  return pieces;
+}
+
+export function foldLines(lines, limit, measure = "words") {
+  const shown = [];
+  let used = 0, cost = 0;
+  for (const line of lines) {
+    const room = limit - used;
+    if (line[measure] <= room) {
+      shown.push(line);
+      used += line[measure];
+      cost += line.cost;
+      continue;
+    }
+    if (!line.file && room > 0) {
+      const cut = firstWords(line, room);
+      shown.push(cut);
+      cost += cut.cost;
+    }
+    return { lines: shown, cost, more: true };
+  }
+  return { lines: shown, cost, more: false };
+}
+
+function firstWords(line, count) {
+  const last = line.pieces[count - 1];
+  const pieces = [...line.pieces.slice(0, count - 1), { ...last, text: `${last.text.trimEnd()}…` }];
+  if (line.text == null) return { ...line, pieces, words: count, cost: count };
+  return { ...line, pieces, words: count, text: `${line.text.match(/\S+\s*/g).slice(0, count).join("").trimEnd()}…` };
 }
 
 export function textLines(text) {

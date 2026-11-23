@@ -16,7 +16,7 @@ import {
 const {
   ICON, POLL_VIEW, POLL_INBOX, CONCURRENCY, ROW, LABEL, SEP, PAD, FRAME, CARD_PAGE, AGENTS, START_WAIT, READY_WAIT,
   FizzyError, parseResult, execFailure, explain, explainSearch, SEARCH_CAP, cmd, withJson, JQ, laneOf, laneName, columnOf, fullCard, noteCard, moveTo, reorderColumns, lanes, sections, filterCards, colorOf, meFrom,
-  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, initials, hue, ago, daysAgo, inactivity, daysToPostpone, postponeNote, lighten,
+  ref, refs, tabName, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, richWords, foldLines, FILE_COST, textLines, formatted, initials, hue, ago, daysAgo, inactivity, daysToPostpone, postponeNote, lighten,
   mentionsIn, mentionsOf, personToken, cardToken, cardUrl, fileToken, fileSize, shortHash, isCachedFile, typedAt, activePeople, IMAGE_MAX, cardMarkdown, cardFile,
   YAML_SCRIPT, parseYaml, chooseBoard, targetAgent, agentLabel, agentHint, findNode, fizzyVisible, menuRows, menuHeight,
   TOASTS, SEEN_CAP, PENDING_FOR, TOAST_FOR, unreadNotes, oldestFirst, noteToast, noteAction, noteReady,
@@ -1097,6 +1097,34 @@ test("richLines: a file is a line of its own: Fizzy's attachment (an image drawn
   assert.deepEqual(runsOf(lines[5]), [["Doc", "link", ""]]);
   assert.equal(lines[5].runs[0].href, "https://example.com/doc");
   assert.ok(IMAGE_MAX >= 1048576, "large images are downloaded too, up to IMAGE_MAX");
+});
+
+test("richWords: a line in one style is one text costing one element; any other line is one piece per word, its spaces non-breaking, costing one each; a file costs FILE_COST", () => {
+  const html = '<p>Plain words  here</p><p>Some <b>bold</b> and <a href="https://example.com">a link</a></p><pre>a  b</pre>'
+    + '<action-text-attachment sgid="s1" content-type="text/csv" filename="rows.csv" filesize="10"></action-text-attachment>';
+  const [plain, mixed, pre, file] = richWords(html);
+  assert.deepEqual([plain.text, plain.words, plain.cost], ["Plain words here", 3, 1]);
+  assert.equal(mixed.text, undefined);
+  assert.deepEqual(mixed.pieces.map(p => [p.text, p.kind, Boolean(p.bold)]), [
+    ["Some ", "text", false], ["bold ", "text", true], ["and ", "text", false], ["a ", "link", false], ["link", "link", false],
+  ]);
+  assert.deepEqual([mixed.words, mixed.cost], [5, 5]);
+  assert.equal(pre.text, undefined, "a pre keeps its spaces, so it stays in pieces");
+  assert.deepEqual([file.file.filename, file.words, file.cost], ["rows.csv", FILE_COST, FILE_COST]);
+});
+
+test("foldLines: whole lines while they fit, then the next line's first words ending in …; measured by cost, a line in one style counts once", () => {
+  const lines = richWords("<p>one two three</p><p>four <b>five</b> six seven</p><p>eight</p>");
+  const byWords = foldLines(lines, 5);
+  assert.deepEqual(byWords.lines.map(l => l.text ?? l.pieces.map(p => p.text).join("")), ["one two three", "four five…"]);
+  assert.deepEqual([byWords.cost, byWords.more], [3, true]);
+  const byCost = foldLines(lines, 4, "cost");
+  assert.deepEqual(byCost.lines.map(l => l.words), [3, 3], "the first line costs 1, so three words of the second fit");
+  assert.equal(byCost.lines[1].pieces.at(-1).text, "six…");
+  assert.deepEqual(foldLines(lines, 100), { lines, cost: 6, more: false });
+  assert.deepEqual(foldLines(richWords("<p>a b c d</p>"), 2).lines[0].text, "a b…", "a line in one style is cut in its text");
+  const withFile = richWords('<p>x</p><action-text-attachment sgid="s" content-type="text/plain" filename="f.txt"></action-text-attachment>');
+  assert.deepEqual(foldLines(withFile, 3).lines.map(l => Boolean(l.file)), [false], "a file that does not fit is left out whole");
 });
 
 test("initials: first and last word, uppercase, ? for nobody", () => {

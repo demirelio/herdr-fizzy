@@ -8,9 +8,10 @@ import { besideSpot } from "./beside.js";
 import {
   ICON, POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, AGENTS, SEARCH_CAP, parseResult, execFailure, explain, explainSearch, cmd, withJson, laneOf, laneName, moveTo, sections,
   columnOf, fullCard, noteCard, inactivity, daysToPostpone, postponeNote, lighten, lanes, reorderColumns, daysAgo, labelFile, labelBox, labelSvg,
-  filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
+  filterCards, colorOf, meFrom, refs, textToHtml, htmlToText, htmlToContent, htmlForView, richWords, foldLines, textLines, formatted, mentionsIn, mentionsOf, typedAt,
   personToken, cardToken, cardUrl, initials, hue, ago, YAML_SCRIPT, parseYaml, chooseBoard,
   AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, isAvatarFile, photosIn,
+  DESC_PREVIEW, COMMENT_PREVIEW, FOLD_SLACK, ELEMENTS_PER_DRAW, PARSE_IN_DRAW, SMALLEST_SHARE,
   FILE_DIR, FILE_PARALLEL, IMAGE_MAX, FILE_DAYS, FILE_TIMEOUT, IMAGE_SCRIPT, CLIP_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, isCachedFile, isMarkdownName, shortHash, fileToken, fileSize,
   WRITE_SCRIPT, cardFile, cardMarkdown,
   targetAgent, agentLabel, fizzyVisible, menuRows, menuHeight, FRAME, ROW, activePeople,
@@ -137,6 +138,7 @@ function sharePeople(patch) {
   if (!sameJson(was, next)) setShared("fizzy.people", next);
 }
 const people = () => shared("fizzy.people") ?? {};
+const namesKey = users => (users ?? []).map(u => `${u.id}:${u.name}`).join("\n");
 
 const usersRead = { pending: null };
 function readUsers() {
@@ -356,6 +358,7 @@ export default class Fizzy extends View {
     this.files = {};
     if (files && typeof files === "object") for (const [key, file] of Object.entries(files)) if (isCachedFile(file) && file.startsWith(`${key}.`)) this.files[key] = file;
     this.fileWanted = new Map(); this.fileBusy = new Set(); this.fileFailed = new Set(); this.attachmentLists = new Map(); this.uploading = new Map(); this.saving = new Set();
+    this.rich = new Map(); this.richWanted = new Set(); this.unfinishedDraw = false;
     this.width = null; // the panel's, in px, once drawn
     // Side by side, the open columns of each board (board id -> lane keys, the last opened last); Maybe? when none is kept.
     const opened = read("openColumns", {});
@@ -424,7 +427,8 @@ export default class Fizzy extends View {
     // A popup's request is also polled here: a popup left open while the panel is hidden has no draw to hand it to.
     // The other take* calls do work a draw must not start.
     cx.timer.every(REQUEST_EVERY, cx => {
-      this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); this.takeLabels(cx); this.takeCounts(cx);
+      this.takeRequest(cx); this.takePending(cx); this.takeStart(cx); this.takeAvatars(cx); this.takeLabels(cx); this.takeCounts(cx); this.takeRich(cx);
+      if (this.unfinishedDraw && this.canDrawLessText()) cx.notify();
       if (this.countsLanded) { this.countsLanded = false; cx.notify(); }
     });
     cx.timer.every(AVATAR_EVERY, cx => this.loadUsers(cx));
@@ -951,20 +955,60 @@ export default class Fizzy extends View {
         d.card = card; d.comments = comments ?? []; d.error = null;
         if (card?.last_active_at) { this.setCounts(d.number, card.last_active_at, card.steps, d.comments.length); this.keepCounts(); }
         this.loadReactions(d.number, d.comments, reactions, cx);
-        this.wantImages(d.number, [card?.description_html, ...d.comments.map(cm => cm.body?.html)], cx);
+        const htmls = [card?.description_html, ...d.comments.map(cm => cm.body?.html)];
+        this.keepRichOf(htmls);
+        this.wantImages(d.number, htmls, cx);
       } catch (e) { if (this.detail === d) d.error = e; }
     });
     if (pins) this.loadPins(cx);
   }
 
   wantImages(number, htmls, cx) {
+    const users = people().users;
     for (const html of htmls) {
-      for (const { file } of richLines(html)) {
+      for (const { file } of this.readRich(html, users)) {
         if (!file?.image || file.size > IMAGE_MAX || this.files[file.key] || this.fileBusy.has(file.key) || this.fileFailed.has(file.key)) continue;
         this.fileWanted.set(file.key, { number, file });
       }
     }
     this.takeFiles(cx);
+  }
+
+  readRich(html, users) {
+    if (!html) return [];
+    const names = namesKey(users), kept = this.rich.get(html);
+    if (kept?.names === names) return kept.lines;
+    const lines = richWords(html, users);
+    this.rich.set(html, { names, lines });
+    return lines;
+  }
+
+  prepareRich(htmls) {
+    const users = people().users;
+    for (const html of htmls) this.readRich(html, users);
+  }
+
+  keepRichOf(htmls) {
+    this.prepareRich(htmls);
+    this.rich = new Map(htmls.filter(Boolean).map(html => [html, this.rich.get(html)]));
+  }
+
+  takeRich(cx) {
+    if (!this.richWanted.size) return;
+    this.prepareRich([...this.richWanted]);
+    this.richWanted.clear();
+    cx.notify();
+  }
+
+  drawnRich(html, t) {
+    const kept = this.rich.get(html);
+    if (kept?.names === t.names) return kept.lines;
+    if (!kept && html.length <= t.room.parse) {
+      t.room.parse -= html.length;
+      return this.readRich(html, t.users);
+    }
+    this.richWanted.add(html);
+    return kept?.lines ?? null;
   }
 
   // Fizzy's card lists carry no step progress or comment count: each card costs a `card show` and a `comment list`, so
@@ -1728,7 +1772,7 @@ export default class Fizzy extends View {
 
   openCard(number, summary, cx) {
     this.leaveSettings();
-    this.detail = { number, summary: summary ?? this.find(number) ?? { number, title: `#${number}` }, card: null, comments: null, error: null };
+    this.detail = { number, summary: summary ?? this.find(number) ?? { number, title: `#${number}` }, card: null, comments: null, error: null, unfolded: new Set(), share: 1 };
     this.editing = null; this.armedComment = null; this.fresh = null;
     this.stepInput.set_value("");
     this.commentArea.set_value("");
@@ -2011,6 +2055,7 @@ export default class Fizzy extends View {
     const d = this.detail, text = this.descArea.value(), html = this.toHtml(this.descArea.content());
     this.editing = null;
     this.patch(d.number, c => { c.description = text; if ("description_html" in c) c.description_html = html; });
+    this.prepareRich([html]);
     cx.notify();
     return this.job(cx, cx => this.write([cmd.update(d.number, { html })], cx));
   }
@@ -2133,6 +2178,7 @@ export default class Fizzy extends View {
     if (!comment || !text || text === this.commentText(comment)) return null;
     const html = this.toHtml(this.commentEdit.content());
     comment.body = { ...comment.body, html, plain_text: text };
+    this.prepareRich([html]);
     return this.job(cx, cx => this.write([cmd.editComment(d.number, id, html)], cx));
   }
 
@@ -3036,8 +3082,9 @@ export default class Fizzy extends View {
 
   detailView(base, cx) {
     // For richText: the code font, and the people read once per draw (each shared() read copies the whole list).
-    const t = { ...base, mono: cx.theme?.()?.typography?.mono, users: people().users };
-    const d = this.detail, c = d.card ?? d.summary, full = d.card;
+    const users = people().users, d = this.detail;
+    const t = { ...base, mono: cx.theme?.()?.typography?.mono, users, names: namesKey(users), room: { elements: ELEMENTS_PER_DRAW * d.share, parse: PARSE_IN_DRAW } };
+    const c = d.card ?? d.summary, full = d.card;
     const read = Boolean(full && d.comments);
     const bare = !read && (Boolean(d.error) || (!full && !whole(d.summary)));
     const body = v_flex().id("fizzy-detail").flex_1().min_h(0).overflow_y_scrollbar().p(10).pb(16).gap(12);
@@ -3138,7 +3185,7 @@ export default class Fizzy extends View {
           .child(this.textButton(t, "fizzy-desc-cancel", null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
           .child(this.textButton(t, "fizzy-desc-save", null, "Save", (_e, cx) => this.saveDescription(cx), true)))
       : !text ? div().id("fizzy-desc-empty").text_size(textPx(13)).text_color(t.dim).child("No description")
-      : full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET, 14)
+      : full.description_html ? this.richView(t, "fizzy-desc-html", full.description_html, DESC_INSET, 14, DESC_PREVIEW)
       : this.plainLines("fizzy-desc-text", text, 14);
     return v_flex().id("fizzy-desc").flex_none().w_full().child(shown);
   }
@@ -3244,7 +3291,7 @@ export default class Fizzy extends View {
               .child(this.textButton(t, `fizzy-comment-cancel-${cm.id}`, null, "Cancel", (_e, cx) => this.cancelEdit(cx)))
               .child(this.textButton(t, `fizzy-comment-save-${cm.id}`, null, "Save", (_e, cx) => this.saveComment(cx), true)))
           : div().w_full().child(cm.body?.html
-            ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET)
+            ? this.richView(t, `fizzy-comment-html-${cm.id}`, cm.body.html, COMMENT_INSET, 13, COMMENT_PREVIEW)
             : this.plainLines(`fizzy-comment-text-${cm.id}`, cm.body?.plain_text)))
         .when(!editing && this.reactions.has(cm.id), el => el.child(this.reactionsRow(t, cm))));
   }
@@ -3273,17 +3320,42 @@ export default class Fizzy extends View {
 
   // TextView can't color text, so the panel draws Fizzy's HTML itself; TextView only draws what that fails on.
   // `inset`: how much narrower than the panel the text is, which no image is drawn wider than; `size`: the text's, in px.
-  richView(t, id, html, inset, size = 13) {
-    try { return this.richText(t, id, html, inset, size); }
+  richView(t, id, html, inset, size, preview) {
+    try { return this.richText(t, id, html, inset, size, preview); }
     catch { return TextView.html(id, htmlForView(html)).selectable().on_link_click((url, cx) => cx.open_url(url)); }
   }
 
-  richText(t, id, html, inset, size = 13) {
+  richText(t, id, html, inset, size, fullPreview) {
+    const lines = this.drawnRich(html, t);
+    if (!lines) return div().id(id).text_size(textPx(12)).text_color(t.dim).child("Loading…");
     const column = Math.max(120, (this.width ?? 360) - inset);
+    const preview = Math.max(1, Math.round(fullPreview * this.detail.share));
+    const words = lines.reduce((sum, line) => sum + line.words, 0);
+    const folds = words > preview * FOLD_SLACK, unfolded = folds && this.detail.unfolded.has(id);
+    const shown = !folds ? { lines, more: false }
+      : unfolded ? foldLines(lines, Math.max(preview, t.room.elements), "cost")
+      : foldLines(lines, preview);
+    if (unfolded) t.room.elements -= shown.cost;
     return v_flex().id(id).w_full().text_size(textPx(size))
-      .children(richLines(html, t.users).map((line, i) => (line.file
+      .children(shown.lines.map((line, i) => (line.file
         ? this.richFile(t, `${id}-${i}`, line.file, column, i > 0)
-        : this.richLine(t, `${id}-${i}`, line, i > 0 && line.gap))));
+        : this.richLine(t, `${id}-${i}`, line, i > 0 && line.gap))))
+      .when(folds, el => el.child(this.foldRow(t, id, unfolded, shown.more)));
+  }
+
+  foldRow(t, id, unfolded, cut) {
+    const link = (key, label, action) => div().id(`${id}-${key}`).cursor_pointer().hover(s => s.opacity(0.8))
+      .on_mouse_down("left", (e, cx) => this.pressButton(e, cx)).on_click((_e, cx) => action(cx)).child(label);
+    return h_flex().id(`${id}-fold`).mt(6).gap(14).items_center().text_size(textPx(12)).font_semibold().text_color(t.accent)
+      .child(unfolded ? link("less", "Show less", cx => this.toggleFold(id, cx)) : link("more", "Show more", cx => this.toggleFold(id, cx)))
+      .when(unfolded && cut, el => el.child(link("rest", "Read the rest in Fizzy", cx => this.openLink(this.detail?.card?.url ?? "", cx))));
+  }
+
+  toggleFold(id, cx) {
+    const unfolded = this.detail?.unfolded;
+    if (!unfolded) return;
+    if (!unfolded.delete(id)) unfolded.add(id);
+    cx.notify();
   }
 
   richFile(t, id, f, column, gap) {
@@ -3325,36 +3397,29 @@ export default class Fizzy extends View {
     return div().id(`fizzy-uploading-${target}`).px(8).text_size(textPx(11)).text_color(t.muted).truncate().child(`Uploading ${this.uploading.get(target)}…`);
   }
 
-  // A line wraps between its words: each word is a piece of its own, its spaces kept at its end (non-breaking, so they keep their width).
+  // GPUI has no inline text flow: a line wraps between its pieces, one word each (see richWords).
   richLine(t, id, line, gap) {
-    const pieces = [];
-    for (const run of line.runs) {
-      for (const [word] of run.text.matchAll(/\s+|\S+/g)) {
-        const space = /^\s/.test(word), text = space ? word.replace(/\s/g, " ") : word;
-        if (space && pieces.length) pieces.at(-1).text += text;
-        else pieces.push({ ...run, text });
-      }
-    }
     const listed = line.depth > 0;
     return h_flex().id(id).w_full().min_w(0).items_start()
       .pl(Math.max(0, line.depth - 1) * 20 + (line.quote ? 8 : 0))
       .when(gap, el => el.mt(8))
       .when(line.quote, el => el.border_l(2).border_color(t.border).text_color(t.muted))
       .when(listed, el => el.child(div().w(20).flex_none().text_color(t.dim).child(line.marker ?? "")))
-      .child(h_flex().flex_1().min_w(0).flex_wrap().children(pieces.map((p, k) => this.richPiece(t, `${id}-${k}`, p))));
+      .child(line.text != null
+        ? this.richPiece(t, `${id}-0`, { ...line.runs[0], text: line.text }).flex_1().whitespace_normal()
+        : h_flex().flex_1().min_w(0).flex_wrap().children(line.pieces.map((p, k) => this.richPiece(t, `${id}-${k}`, p))));
   }
 
   richPiece(t, id, p) {
-    const color = { mention: t.ansi4, card: t.ansi3, link: t.accent }[p.kind];
-    return div().min_w(0)
-      .when(p.bold || p.kind === "mention" || p.kind === "card", el => el.font_bold())
-      .when(p.italic, el => el.italic())
-      .when(Boolean(p.code && t.mono), el => el.font_family(t.mono))
-      .when(Boolean(color), el => el.text_color(color))
-      .when(p.kind === "link", el => el.underline())
-      .when(p.kind === "card", el => el.id(id).cursor_pointer().on_click((_e, cx) => this.openCard(p.number, null, cx)))
-      .when(p.kind === "link" && Boolean(p.href), el => el.id(id).cursor_pointer().on_click((_e, cx) => this.openLink(p.href, cx)))
-      .child(p.text);
+    const el = div().min_w(0), color = { mention: t.ansi4, card: t.ansi3, link: t.accent }[p.kind];
+    if (p.bold || p.kind === "mention" || p.kind === "card") el.font_bold();
+    if (p.italic) el.italic();
+    if (p.code && t.mono) el.font_family(t.mono);
+    if (color) el.text_color(color);
+    if (p.kind === "link") el.underline();
+    if (p.kind === "card") el.id(id).cursor_pointer().on_click((_e, cx) => this.openCard(p.number, null, cx));
+    if (p.kind === "link" && p.href) el.id(id).cursor_pointer().on_click((_e, cx) => this.openLink(p.href, cx));
+    return el.child(p.text);
   }
 
   // A link's address, made whole with Fizzy's own host when it is a path; only web addresses open.
@@ -3562,6 +3627,27 @@ export default class Fizzy extends View {
   }
 
   render(cx) {
-    return this.menu ? this.renderMenu() : this.renderPanel(cx);
+    return this.menu ? this.renderMenu() : this.drawPanel(cx);
+  }
+
+  // A draw Herdr stops for taking too long never gets to its last line.
+  drawPanel(cx) {
+    if (this.unfinishedDraw) this.drawLessText();
+    this.unfinishedDraw = true;
+    const panel = this.renderPanel(cx);
+    this.unfinishedDraw = false;
+    return panel;
+  }
+
+  drawLessText() {
+    const d = this.detail;
+    if (!d) return;
+    d.unfolded.clear();
+    d.share = Math.max(SMALLEST_SHARE, d.share / 2);
+  }
+
+  canDrawLessText() {
+    const d = this.detail;
+    return Boolean(d) && (d.unfolded.size > 0 || d.share > SMALLEST_SHARE);
   }
 }

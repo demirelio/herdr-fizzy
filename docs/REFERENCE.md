@@ -202,6 +202,11 @@ Then come:
   the bottom; edit your own as text, as the description is, and delete your own (deleting takes two clicks). Fizzy's
   own lines, such as "… moved this to Not Now", are folded under **Activity** after the comments.
 
+A long description shows its first 250 words and a long comment its first 60, then **Show more**; **Show less** folds it
+again. Herdr gives the panel about 50 ms to draw, so a card with a lot of unfolded text stops at `…` with **Read the
+rest in Fizzy**, which opens the card in the browser. If a draw ever runs out of time, the panel folds the card's texts
+and shows less of each, instead of freezing.
+
 ### Reactions
 
 Under each comment: one chip per emoji, with how many people put it there (point at it for their names),

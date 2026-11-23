@@ -14,6 +14,7 @@ const {
   POLL_VIEW, POLL_INBOX, REQUEST_EVERY, START_WAIT, READY_WAIT, CONCURRENCY, CARD_PAGE, ref, refs, tabName, menuRows, menuHeight, FRAME, YAML_SCRIPT, fizzyVisible,
   boardRef, AVATAR_SCRIPT, AVATAR_DIR, AVATAR_TTL, AVATAR_BACKOFF, AVATAR_PARALLEL, AVATAR_EVERY, avatarBase, colorOf, JQ,
   FILE_DIR, FILE_TIMEOUT, IMAGE_SCRIPT, OPEN_SCRIPT, FREE_NAME_SCRIPT, shortHash, cardFile, cardMarkdown, daysAgo, labelFile, labelSvg, LABEL_FONT, lighten,
+  DESC_PREVIEW, COMMENT_PREVIEW, FOLD_SLACK, ELEMENTS_PER_DRAW, PARSE_IN_DRAW, SMALLEST_SHARE,
 } = await import(modFile("lib.js"));
 // The options of each `fizzy <first>` exec so far.
 const execOptions = first => calls.exec.filter(c => c.command === "fizzy" && c.args[0] === first).map(c => c.options);
@@ -612,6 +613,104 @@ test("in the description and the comments a <br> breaks the line where it stands
   ]);
   assert.deepEqual(richLinesOf(must(tree, "fizzy-comment-html-cm1")), [["", "one", false], ["", "two", false]]);
   assert.deepEqual(richLinesOf(must(tree, "fizzy-comment-html-cm2")), [["", "On it", false]], "HTML without a break is one line");
+});
+
+const words = (count, from = 1) => Array.from({ length: count }, (_, i) => `w${from + i}`).join(" ");
+const paragraph = count => `<div><p>${words(count)}</p></div>`;
+const labelled = count => `<div><p><b>Note:</b> ${words(count)}</p></div>`;
+
+test("a line in one style is drawn as one text, not word by word", async () => {
+  acct.comments[101][1].body.html = paragraph(5);
+  const { tree } = await openDetail();
+  const line = must(tree, "fizzy-comment-html-cm2-0");
+  assert.equal(line.kids.length, 1);
+  assert.deepEqual([line.kids[0].kind, textOf(line.kids[0]), line.kids[0].style.whitespace_normal], ["div", words(5), true]);
+});
+
+test("a comment longer than its preview shows its first words, cut with …, and Show more; Show more shows all of it, Show less folds it again; a little over the preview is not folded", async () => {
+  acct.comments[101][0].body.html = paragraph(Math.floor(COMMENT_PREVIEW * FOLD_SLACK));
+  acct.comments[101][1].body.html = paragraph(COMMENT_PREVIEW * 3);
+  const { cx, draw, tree } = await openDetail();
+  assert.deepEqual(richLinesOf(must(tree, "fizzy-comment-html-cm1")), [["", words(Math.floor(COMMENT_PREVIEW * FOLD_SLACK)), false]]);
+  const id = "fizzy-comment-html-cm2";
+  assert.deepEqual(richLinesOf(must(tree, id)), [["", `${words(COMMENT_PREVIEW)}…`, false], ["", "Show more", false]]);
+  click(tree, `${id}-more`, cx);
+  let next = await draw();
+  assert.deepEqual(richLinesOf(must(next, id)), [["", words(COMMENT_PREVIEW * 3), false], ["", "Show less", false]]);
+  click(next, `${id}-less`, cx);
+  next = await draw();
+  assert.deepEqual(richLinesOf(must(next, id)).at(-1), ["", "Show more", false]);
+});
+
+test("a long description folds at its own, longer preview", async () => {
+  acct.card(101).description_html = paragraph(DESC_PREVIEW * 2);
+  const { tree } = await openDetail();
+  assert.deepEqual(richLinesOf(must(tree, "fizzy-desc-html")), [["", `${words(DESC_PREVIEW)}…`, false], ["", "Show more", false]]);
+});
+
+test("unfolded texts share one allowance a draw: past it a text is cut, and Read the rest in Fizzy opens the card in the browser", async () => {
+  const size = Math.round(ELEMENTS_PER_DRAW * 0.75);
+  acct.comments[101][0].body.html = labelled(size);
+  acct.comments[101][1].body.html = labelled(size);
+  const { cx, draw, tree } = await openDetail();
+  click(tree, "fizzy-comment-html-cm1-more", cx);
+  click(await draw(), "fizzy-comment-html-cm2-more", cx);
+  const next = await draw();
+  assert.equal(textOf(must(next, "fizzy-comment-html-cm1-fold")), "Show less", "the first fits whole");
+  const left = ELEMENTS_PER_DRAW - (size + 1);
+  assert.match(richLinesOf(must(next, "fizzy-comment-html-cm2"))[0][1], new RegExp(` w${left - 1}…$`));
+  assert.deepEqual(must(next, "fizzy-comment-html-cm2-fold").kids.map(k => textOf(k)), ["Show less", "Read the rest in Fizzy"]);
+  const browser = makeCx();
+  fire(must(next, "fizzy-comment-html-cm2-rest"), "on_click", {}, browser);
+  assert.deepEqual(browser.opened, ["https://app.fizzy.do/111/cards/101"]);
+});
+
+test("a draw does not read a long text itself: it shows Loading… there, and the request timer reads it and draws again", async () => {
+  const { view, cx } = await openDetail();
+  const long = paragraph(PARSE_IN_DRAW);
+  assert.ok(long.length > PARSE_IN_DRAW);
+  view.detail.comments[1].body = { ...view.detail.comments[1].body, html: long };
+  assert.equal(textOf(must(drawn(view, cx), "fizzy-comment-html-cm2")), "Loading…");
+  const before = cx.notified;
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  assert.ok(cx.notified > before);
+  assert.match(plain(must(drawn(view, cx), "fizzy-comment-html-cm2")), /^w1 w2 w3/);
+});
+
+test("after a draw Herdr stopped, the request timer asks for another, which folds the card's texts and shows half as much of each", async () => {
+  acct.comments[101][1].body.html = paragraph(COMMENT_PREVIEW * 3);
+  const { view, cx, draw, tree } = await openDetail();
+  click(tree, "fizzy-comment-html-cm2-more", cx);
+  await draw();
+  const panel = view.renderPanel;
+  view.renderPanel = () => { throw new Error("interrupted"); };
+  assert.throws(() => drawn(view, cx), /interrupted/);
+  view.renderPanel = panel;
+  const before = cx.notified;
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  assert.ok(cx.notified > before);
+  assert.deepEqual(richLinesOf(must(drawn(view, cx), "fizzy-comment-html-cm2")), [["", `${words(COMMENT_PREVIEW / 2)}…`, false], ["", "Show more", false]]);
+  const notified = cx.notified;
+  await timer(cx, REQUEST_EVERY).fn(cx);
+  assert.equal(cx.notified, notified, "a draw that finished asks for none");
+});
+
+test("a draw that fails for another reason is asked for again only until the card's share is at its smallest", async () => {
+  const { view, cx } = await openDetail();
+  const tick = async () => { await timer(cx, REQUEST_EVERY).fn(cx); await cx.settle(); };
+  for (let i = 0; i < 3; i++) await tick();
+  const panel = view.renderPanel;
+  view.renderPanel = () => { throw new Error("broken"); };
+  let asked = 0;
+  for (let i = 0; i < 8; i++) {
+    const before = cx.notified;
+    await tick();
+    if (cx.notified > before) asked++;
+    assert.throws(() => drawn(view, cx), /broken/);
+  }
+  view.renderPanel = panel;
+  assert.equal(view.detail.share, SMALLEST_SHARE);
+  assert.equal(asked, 3, "a share of 1, then ½, then ¼; ⅛ is the smallest");
 });
 
 test("a description or comment with no HTML is plain text, one line to a div and an empty line a 6 px spacer", async () => {
