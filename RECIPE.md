@@ -164,6 +164,12 @@ has its `•` or `N.` in a 20 px column in `dim`, a nested list 20 px further in
 left, 8 px of padding, and `muted` text. A link is `accent` and underlined; a mention is `@Full Name` in bold `ansi4`;
 a card link is `#N Title` in bold `ansi3`.
 
+**Long text folds.** A description over 375 words shows its first 250, a comment over 90 words its first 60, the last
+word followed by `…`, then **Show more** (12 px semibold `accent`, 6 px under the text). Show more shows all of it and
+turns into **Show less**. Unfolded texts share about 1,100 drawn elements a draw: past that, a text stops at `…` and
+**Read the rest in Fizzy** beside Show less opens the card in the browser. If Herdr stopped the last draw, the next
+one folds the card's texts and shows half as much of each; the 300 ms timer asks for that draw.
+
 - An image is as wide as it is, at most the text's width (the panel's width less 70 px in the description, 86 in a
   comment, never under 120), at its own aspect ratio (0.6 when not known; at least 24 px high), rounded 6, with a 1 px
   `border`. Until it is on disk, that box is `raised`, with its file name and `Loading image…` (12 px `dim`) in the
@@ -547,6 +553,11 @@ dot after the label while `fizzy.unread` is above zero.
 - **`TextView` can't color text**, so the panel draws Fizzy's HTML itself (mentions in `ansi4`, card links in
   `ansi3`). `TextView.html` is the fallback, and it ignores `<br>`: for it the HTML is rewritten so each break ends a
   block.
+- **A draw gets about 50 ms**, measured on the clock, so a busy machine has less: past it Herdr stops the draw
+  (`interrupted`) and keeps showing the last frame that worked. A word is an element of its own (there is no inline
+  text flow), and each costs about 10 µs, so long text folds, a line in one style is one element, and the HTML is read
+  into lines when the card arrives, not in a draw. A draw reads a text itself only up to 2,000 characters; a longer
+  one shows `Loading…` until the 300 ms timer reads it.
 - **A paste with no text** reaches the editor only as its `paste_other` event: the panel reads the clipboard's image
   with a script of its own.
 - **Enter in a picker** reaches both its field (the field's submit) and the popup's keys: the choice is taken once.
