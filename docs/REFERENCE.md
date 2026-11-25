@@ -149,7 +149,8 @@ a section per board. Fizzy answers with its 15 newest matches at most; when it
 does, the list says so, and more words narrow it. Fizzy limits searches to 300 an hour per person, shared with anything
 else of yours that searches, so the panel never searches as you type; when Fizzy does not answer, the panel says the
 limit may be used up, and never tries again by itself. A card's number with its `#`, such as `#42`, opens that card
-instead, from any board: at once when you paste it, on Enter when you type it. Escape, a view, or the arrow on a
+instead, from any board: at once when you paste it, on Enter when you type it. A number without the `#`, such as
+`42`, is searched for; when Fizzy finds only one card, that card opens the same way. Escape, a view, or the arrow on a
 narrow panel closes the search, and the field keeps its words for next time; the x empties the field and closes the
 search.
 
