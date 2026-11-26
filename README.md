@@ -73,7 +73,8 @@ over or drag them into a terminal together.
 
 The search has its own key, cmd-shift-k (Linux: ctrl-shift-s); you can also click the field in the header. Type and
 press Enter: the results come in a section per board, from open, Not Now and closed cards and from comments. A card's
-number with its `#`, such as `#42`, opens that card from any board.
+number with its `#`, such as `#42`, opens that card from any board. A number without the `#` is searched for, and
+when only one card is found, that card opens.
 
 ![Searching every board for a card](docs/media/search.gif)
 

@@ -312,8 +312,10 @@ dot after the label while `fizzy.unread` is above zero.
   limit (300 an hour, shared with your agents) may be used up. Try again later.` with Retry, and nothing retries by
   itself. A field holding only `#<number>` (white space around it allowed) opens that card and closes the search, with
   the field emptied: pasted (more than one character arriving at once), at once; typed, on Enter, so `#4` on the way
-  to `#42` opens nothing. Back, Escape, a view, and the `back` and `view` keys close the search; the x empties the
-  field and closes it.
+  to `#42` opens nothing. Digits alone (`42`, white space around them allowed) are searched for; when exactly one card
+  comes back, it opens the same way, the search closed and the field emptied, unless a card or Settings was opened or
+  the field's words changed while the search ran. Back, Escape, a view, and the `back` and `view` keys close the
+  search; the x empties the field and closes it.
 - **Card.** Click the title to rename (Enter saves, Escape or the x cancels); a lane moves the card there at once
   (Done closes it, Not Now postpones it), as Mark as Done does; the board on the tab moves it to another board (the
   card leaves the lists but stays open, its tab naming the new board at once, then it is read again; a deleted card

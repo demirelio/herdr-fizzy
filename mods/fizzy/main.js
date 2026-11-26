@@ -879,11 +879,12 @@ export default class Fizzy extends View {
     const hunt = { q, found: new Map(), count: 0, error: null, waiting: true };
     this.search = hunt;
     cx.notify();
-    this.load("search", cx, async () => {
+    this.load("search", cx, async cx => {
       try {
         const cards = (await fizzy(cmd.search(q))) ?? [];
         this.meet(cards);
         if (this.search !== hunt) return;
+        if (this.onlyCardForNumber(hunt, cards)) { this.openFromSearch(cards[0].number, slim(cards[0]), cx); return; }
         for (const card of cards.map(slim)) hunt.found.set(card.board?.id, [...(hunt.found.get(card.board?.id) ?? []), card]);
         hunt.count = cards.length;
       } catch (e) { hunt.error = e; }
@@ -891,14 +892,23 @@ export default class Fizzy extends View {
     });
   }
 
+  onlyCardForNumber(hunt, cards) {
+    const stillOnResults = !this.detail && !this.settingsOpen && this.searchField.value().trim() === hunt.q;
+    return cards.length === 1 && /^\d+$/.test(hunt.q) && stillOnResults;
+  }
+
   jumpToCard(cx) {
     const n = Number(/^\s*#(\d+)\s*$/.exec(this.searchField.value())?.[1]);
     if (!n) return false;
+    this.openFromSearch(n, null, cx);
+    return true;
+  }
+
+  openFromSearch(number, summary, cx) {
     this.search = null;
     this.searchField.set_value("");
     this.searchLength = 0;
-    this.openCard(n, null, cx);
-    return true;
+    this.openCard(number, summary, cx);
   }
 
   openSearch(cx) {

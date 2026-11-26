@@ -3782,6 +3782,49 @@ test("#<number> in the search field opens that card from any board: at once when
   assert.equal(searchCalls().length, 1);
 });
 
+test("a number alone that the search answers with one card opens it as #<number> would; more cards, more words, or a person gone elsewhere keep the results", async () => {
+  acct.cards.push({ ...acct.card(201), id: "id-210", number: 210, title: "Dates after 2027", board: B2 });
+  const m = await mount(), { view, cx, draw } = m;
+  let tree = await searchFor(m, " 2027 ");
+  await cx.settle();
+  assert.deepEqual([view.detail?.number, view.search, view.searchField.value()], [210, null, ""], "the one card, though its number is not the one searched for");
+  assert.deepEqual(acct.asked("card", "show").at(-1), ["card", "show", "210"]);
+  assert.match(textOf(must(await draw(), "fizzy-title")), /Dates after 2027/);
+  click(await draw(), "fizzy-back", cx);
+  tree = await draw();
+  assert.equal(view.search, null, "Back goes to the list, as from #210");
+  assert.ok(find(tree, "fizzy-home"));
+
+  assert.deepEqual(rowIds(await searchFor(m, "dates 2027")), [210], "more words than the number: the list");
+  assert.equal(view.detail, null);
+
+  const searchHeldUntil = async during => {
+    let release;
+    acct.hold = new Promise(resolve => { release = resolve; });
+    const field = inputOf(drawn(view, cx), "fizzy-search");
+    field.edit("2027", cx);
+    field.submit(cx);
+    await during(field);
+    release();
+    await cx.settle();
+    acct.hold = null;
+  };
+  await searchHeldUntil(async () => { sendCommand("open:105"); await tick(); });
+  assert.equal(view.detail?.number, 105, "a card opened while the search ran stays open");
+  click(await draw(), "fizzy-back", cx);
+  assert.deepEqual(rowIds(await draw()), [210], "the results wait behind it");
+  await searchHeldUntil(async () => { sendCommand("settings"); await tick(); });
+  assert.deepEqual([view.settingsOpen, view.detail], [true, null], "so does Settings");
+  await press(cx, "back");
+  await searchHeldUntil(async field => field.edit("20271", cx));
+  assert.equal(view.detail, null, "words changed while it ran: the list");
+  assert.equal(view.searchField.value(), "20271", "and the new words stay");
+
+  acct.cards.push({ ...acct.card(201), id: "id-211", number: 211, title: "Plan 2027", board: B2 });
+  assert.deepEqual(rowIds(await searchFor(m, "2027")).sort(), [210, 211], "two cards: the list");
+  assert.equal(view.detail, null);
+});
+
 test("a search finds what the lanes do not hold: a closed card on another board, a Not Now card, a word in a comment; each is drawn as in its lane", async () => {
   acct.cards.push({ ...acct.card(201), id: "id-210", number: 210, title: "Old release notes", closed: true, column: acct.columns.b1[2], board: B2, assignees: [] });
   const m = await mount(), { cx, draw } = m;
